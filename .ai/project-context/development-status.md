@@ -68,7 +68,8 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | `users` | Scaffolded / No Business Logic | App files exist; no product user model or authentication flow. |
 | `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
 | Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
-| `catalog` | Scaffolded / No Business Logic | App files exist; no catalog models or review behavior. |
+| Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
+| `catalog` | Scaffolded / No Business Logic | App files exist; no Catalog models, migrations, APIs, tests, or frontend work have been implemented. |
 | `inventory` | Scaffolded / No Business Logic | App files exist; no inventory behavior. |
 | `customers` | Scaffolded / No Business Logic | App files exist; no customer identity implementation. |
 | `cart` | Scaffolded / No Business Logic | App files exist; no cart behavior or persistence. |
@@ -213,8 +214,8 @@ See `.ai/project-context/business-rules.md` for the canonical unresolved-decisio
 - Authentication mechanism and authorization model.
 - Merchant account/membership model.
 - Customer identity mechanism.
-- Catalog approval and master-catalog relationship.
-- Product/variant structure.
+- Physical representation of independent Shop Products and optional Master Product selection.
+- Catalog schema details, attribute representation, image storage, inventory mapping, and historical Order product snapshot/reference strategy.
 - Inventory deduction, overselling, and low-stock behavior.
 - Complete order state machine, cancellation, and refunds.
 - Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.

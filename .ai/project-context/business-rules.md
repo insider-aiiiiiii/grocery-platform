@@ -16,7 +16,7 @@ Technical Implementation
 
 ### Super Admin
 
-The Super Admin is a platform-level actor responsible for approved administrative operations, including creating Merchant accounts, platform master-catalog management, merchant-created product review, campaigns/advertisements, and platform analytics. In MVP, Super Admin cannot edit Merchant or Shop information after creation. This document does not define the final permissions.
+The Super Admin is a platform-level actor responsible for approved administrative operations, including creating Merchant accounts, managing the platform Master Catalog, campaigns/advertisements, and platform analytics. Super Admin may view dashboard information about Merchant-created products and may promote them into the Master Catalog. In MVP, Super Admin cannot edit Merchant or Shop information after creation. This document does not define the final permissions.
 
 ### Merchant / Shopkeeper
 
@@ -66,27 +66,32 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - Public access must not expose private Merchant information or grant Merchant/admin access.
 ## 7. Master Catalog Rules
 
-The platform maintains master-catalog information under Super Admin management. Merchant catalog configuration is separate from the platform master catalog. A merchant may create products not present in the master catalog; these initially belong to the merchant's catalog and may enter Super Admin review.
-
-Not every merchant product must originate from the master catalog. The product-review, approval, rejection, and catalog-merging workflow is **Not Finalized / Requires Decision**.
+- The Master Catalog is a platform-level reusable product library managed by Super Admin.
+- Every Shop has an independent Shop Catalog, fully controlled by its Merchant. Master Catalog data does not control or automatically synchronize to existing Shop Products.
+- A Merchant may select a Master Product or create a Shop Product directly. Directly created products require no Super Admin approval and may be sold by that Merchant.
+- Super Admin may view Merchant-created product information on the dashboard and may promote a product into the Master Catalog. Promotion makes the Master Product available for other Merchants to select; it does not automatically link, replace, or update the original Shop Product.
+- Multiple Shops may select the same Master Product while maintaining independent Shop Product information. Deleting a Master Product does not delete or impair existing Shop Products.
+- Do not automatically match or merge products by name, brand, category, or SKU. Master Products are identified by Master Product ID.
 
 ## 8. Merchant Catalog Rules
 
-Each merchant has a shop-specific catalog. Catalog behavior may include products, categories, variants, pricing, availability, and inventory-related information, subject to domain specifications.
-
-Merchant-specific configuration must not modify another merchant's catalog or accidentally modify platform-global master-catalog data.
+- Each Shop has its own Shop Catalog. The Merchant has full control over Shop Products and Shop-specific catalog information, including product information, variants, prices, categories, brands, custom attributes, images, visibility, and manual availability.
+- Merchant catalog operations must remain isolated from other Shops and must not modify Master Catalog data unless Super Admin performs a Master Catalog operation.
+- Merchants may create and manage Shop Catalog categories with CRUD, including subcategories. Products may belong to multiple categories. Deleting an assigned category leaves its products uncategorized.
+- Merchants control their Shop Catalog brands and custom attributes. Products may have multiple attributes and values; variants may have custom attributes. No fixed global attribute system is required by this decision.
 
 ## 9. Product Rules
 
-Approved conceptual rules:
-
-- Products belong to a catalog/domain context and may have variants.
-- Merchants may have shop-specific product configuration.
-- Merchant-created products may exist in a merchant catalog independently of master-catalog approval.
-- Product visibility and availability follow the relevant merchant/shop configuration.
-- One merchant's product configuration must not change another merchant's configuration.
-
-SKU format, exact product fields, variant structure, tax and unit models, and the product-approval algorithm are **Not Finalized / Require Decision** unless approved in future domain documentation.
+- A Shop Product can be sellable without variants or can have variants. Product-level and variant-level information are supported. Merchants can create, edit, and delete variants, including name, price, SKU, image, and custom attributes. Merchants may add Shop-specific variants to a selected Master Product.
+- Product information includes name, description, image, category, and brand. Products may have no image. A product's name need not be unique; do not infer identity or auto-match by product name.
+- MVP supports one image per product and an optional image per variant. A variant can use the product image as fallback. Merchants can replace/delete images; a primary image is supported when images exist. Image galleries are not included.
+- Merchant-entered SKUs may be changed and need not be unique. Duplicate SKUs, including across variants, are allowed.
+- Product pricing is Shop-specific and Merchant-controlled. Non-variant products may have a price; variant products support product-level and variant-level prices. Decimal values are supported. Master Catalog pricing does not control Shop prices.
+- Merchants control product visibility. Hidden products are not visible to customers and cannot be ordered; Merchants may make them visible again.
+- Manual availability is separate from inventory quantity. Manually unavailable products remain in the catalog but cannot be ordered.
+- Out-of-stock products remain visible, are shown as **Out of Stock**, and cannot be ordered. Customers see only available variants; if every variant is unavailable or out of stock, the main product shows **Out of Stock**.
+- Customers may see product name, description, brand, attributes, SKU, images, available variants, and applicable price. Hidden products are not visible; out-of-stock and manually unavailable products cannot be ordered.
+- Merchants may delete Shop Products. This does not delete a Master Product or affect another Shop. Historical Orders must retain required product information/references after deletion; physical retention and snapshot strategy are technical decisions.
 
 ## 10. Pricing Rules
 
@@ -104,7 +109,7 @@ Tax and discount calculation, currency architecture, price history, and promotio
 - Customer-facing availability reflects the shop's configured availability.
 - Inventory-related updates preserve tenant isolation.
 
-Reservation logic, stock-deduction timing, low-stock thresholds, overselling behavior, warehouse concepts, and reconciliation algorithms are **Not Finalized / Require Decision**.
+Reservation logic, stock-deduction timing, low-stock thresholds, overselling behavior, warehouse concepts, and reconciliation algorithms are **Not Finalized / Require Decision**. Inventory quantity and manual product availability remain separate concepts.
 
 ## 12. Customer Identity Rules
 
@@ -268,8 +273,9 @@ This document defines the business rule, not a premature implementation choice.
 The following require product/business approval and must not be answered by assumption:
 
 - Customer phone-number normalization and formatting.
-- Exact catalog/master-catalog approval workflow.
-- Product and variant structure.
+- Physical representation of Shop Products and any Master Product selection/link reference.
+- Product/variant schema, attribute representation, image storage, and inventory mapping.
+- Historical Order product snapshot/reference strategy.
 - Inventory deduction behavior.
 - Overselling behavior.
 - Low-stock rules.

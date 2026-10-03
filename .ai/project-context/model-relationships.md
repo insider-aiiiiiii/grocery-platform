@@ -166,9 +166,9 @@ Shop (primary tenant boundary)
    └── Analytics reporting context
 
 Platform Master Catalog
-   ├── Master Product
-   ├── Master Product Variant
-   └── Master Category concepts
+   └── Master Product
+
+Each Shop Catalog independently owns its Shop Products, variants, categories, brands, and custom attributes.
 
 Platform Campaign
    └── may target shops or catalog concepts, subject to approved rules
@@ -418,56 +418,33 @@ Shop Catalog
 
 The Master Catalog is platform-global. It is not itself a Shop's sellable catalog and does not imply that every Shop offers every Master Product.
 
-Conceptual entities include Master Product, Master Product Variant, and Master Category concepts. Exact model names, identity strategy, and relationship structure are not finalized.
+Conceptual entities include Master Product, independent Shop Product, Product Variant, Shop Category, Shop Brand, and custom attributes. Exact model names and physical structure are implementation decisions. Shop Catalogs are fully Merchant-controlled and independent of the platform-global Master Catalog.
 
-**## 18. Master Product → Master Variant**
+**## 18. Shop Product → Variant**
 
-- Meaning: A Master Product may define multiple variants.
-- Classification: Data ownership relationship.
-- Cardinality: `1 → many` possible.
-- Tenant scope: Platform-global.
-- Status: **CONCEPTUAL**.
+- Meaning: A Shop Product may be directly sellable or have variants; product-level and variant-level information are supported.
+- Classification: Shop-owned product information.
+- Cardinality: Optional and potentially multiple; exact database representation is unresolved.
+- Tenant scope: Shop-specific.
+- Status: Business behavior finalized; physical model remains a technical decision.
 
-Products can have multiple variants. A variant represents a sellable configuration and may have its own Shop-specific price and inventory. A product without variants may itself be the sellable item with its own price and inventory.
+Merchants manage variant creation, editing, and deletion, including variant name, price, SKU, image, and custom attributes. Merchants may add Shop-specific variants to a Shop Product selected from the Master Catalog.
 
-The exact mandatory/optional variant representation remains a database-design decision.
+**## 19. Master Product ↔ Shop Product**
 
-**## 19. Master Product → Shop Catalog Entry**
+- Meaning: A Merchant may select a Master Product when creating a Shop Product. A Shop Product may also be created directly by the Merchant without a Master Product.
+- Classification: Optional source/reference relationship, not ownership or synchronization.
+- Cardinality: One Master Product can be selected by multiple Shops; exact physical reference cardinality is not specified.
+- Tenant scope: Platform-global Master Product to independent Shop-specific representation.
+- Status: Business independence finalized; physical reference representation unresolved.
 
-- Meaning: A Shop product/listing may reference or reuse a platform Master Product as reusable catalog knowledge.
-- Classification: Reference relationship.
-- Cardinality: Potentially `1 → many` Master Product to Shop products; exact representation is a later design decision.
-- Tenant scope: Global-to-tenant reference.
-- Status: **CONCEPTUAL**.
+Each Shop Product is independent. Master Product updates do not automatically update Shop Products, and Master Product deletion does not delete or impair them. Super Admin may promote a Merchant-created product into the Master Catalog; promotion does not automatically link, replace, or update the originating Shop Product. Other Merchants may select the promoted Master Product. No approval/rejection workflow is defined.
 
-A Shop owner may create a product or variant that does not exist in the Master Catalog. That creates a Super Admin review request. If approved, Super Admin copies the merchant-created product/variant into the Master Catalog.
+**## 20. Shop Product ↔ Category, Brand, and Attributes**
 
-Approval does **not** merge or convert the existing Shop Product into the Master Product. The Shop Product remains independent and continues to own its Shop-specific price, inventory, availability, and visibility.
+Categories and brands belong to a Shop Catalog and are controlled by the Merchant. Categories support subcategories, and a product may belong to multiple categories. Deleting an assigned category leaves its products uncategorized. A Shop Product may have a Shop-specific brand and multiple custom attributes with multiple values; variants may also have custom attributes. Physical cardinalities and schema are implementation decisions. No Master Category or global attribute system is required by these decisions.
 
-Master Catalog data is reusable platform knowledge; it is not a shared Shop stock or pricing pool.
-
-**## 20. Shop Catalog Entry → Product Variant**
-
-- Meaning: A Shop product may expose/configure one or more sellable variants.
-- Classification: Reference/configuration relationship.
-- Cardinality: `1 → many` possible.
-- Tenant scope: Tenant-owned configuration.
-- Status: **CONCEPTUAL**.
-
-A product can have multiple variants. Each variant can have its own Shop-specific price and inventory. A product without variants can itself be the sellable item.
-
-The Shop-specific product/variant remains independent from the Master Catalog even when a corresponding Master Product or Master Variant exists.
-
-**## 21. Category Relationships**
-
-Categories support customer browsing and catalog organization, but they are not campaign targeting relationships in MVP.
-
-- Category → Master Product: Cardinality `TBD`; status **CONCEPTUAL**.
-- Category → Shop Catalog Entry: Cardinality `TBD`; status **CONCEPTUAL**.
-- Campaign → Category: **NOT APPLICABLE** as a required relationship in MVP.
-
-A Campaign may mention a category or product in its advertisement content, but that text does not create a persistent targeting relationship.
-
+Campaign → Category: **NOT APPLICABLE** as a required relationship in MVP.
 **## 22. Shop Catalog Entry → Inventory**
 
 - Meaning: Inventory represents stock for a Shop's sellable item.
@@ -737,9 +714,9 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Merchant credentials | Merchant's active Shop | Merchant login grants access; credentials may be shared with staff | `1 → 1 active Shop` | Shop access | Authorization | **APPROVED** |
 | User | Merchant | Technical identity representation for Merchant login | `TBD` | Platform/access | Identity | **UNRESOLVED** |
 | Shop | Shop Catalog | Shop owns catalog context | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
-| Master Product | Shop Product | Shop product may reuse/reference Master Product | `1 → many` possible | Global → tenant | Reference | **CONCEPTUAL** |
-| Master Product | Master Variant | Product may have variants | `1 → many` possible | Platform-global | Ownership | **CONCEPTUAL** |
-| Shop Product | Product/Variant | Listing exposes sellable item | `1 → many` possible | Tenant | Reference/configuration | **CONCEPTUAL** |
+| Master Product | Shop Product | Optional selection/source; independent Shop-specific representation | One Master Product may be selected by multiple Shops; physical link unresolved | Global → tenant | Reference, not ownership/sync | **APPROVED business rule** |
+| Shop Product | Variant | Optional Shop-specific variants; product may also be directly sellable | Optional / potentially many; exact schema unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
+| Shop Product | Category, Brand, Attributes | Shop-specific product information managed by Merchant | Multiple categories supported; remaining physical cardinalities unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
 | Shop | Inventory | Shop owns stock context | `1 → many` | Tenant | Ownership | **APPROVED** |
 | Shop Product/Variant | Inventory | Sellable item has Shop-specific stock | `TBD` | Tenant | Reference/business | **CONCEPTUAL** |
 | Shop | Customer | Customer identity is scoped to Shop | `1 → many` | Tenant | Ownership | **APPROVED** |
@@ -814,11 +791,11 @@ This table is a required input to the later multi-tenancy and database design wo
 
 \| Master Catalog | Platform-global | Shared catalog knowledge; not every Shop offers every item. |
 
-\| Master Product | Platform-global | Exact identity and variant relationship unresolved. |
+\| Master Product | Platform-global | Identified by Master Product ID; Shop selection does not imply synchronization. |
 
-\| Master Product Variant | Platform-global candidate | Variant ownership and structure are conceptual. |
 
-\| Master Category | Platform-global candidate | Category sharing and Shop category relationship unresolved. |
+
+
 
 \| Platform Campaign | Platform-global candidate | Super Admin campaigns are supported; target representation unresolved. |
 
@@ -834,7 +811,7 @@ This table is a required input to the later multi-tenancy and database design wo
 
 \| Shop | Tenant boundary | Shop itself is the primary tenant context. |
 
-\| Shop Catalog | Tenant-owned | Exact catalog entry identity unresolved. |
+\| Shop Catalog | Tenant-owned | Each Shop has an independent Merchant-controlled catalog. |
 
 \| Merchant Product Configuration | Tenant-owned | Must not mutate Master Catalog or another Shop. |
 
@@ -996,7 +973,7 @@ The following business decisions have been explicitly resolved during relationsh
 1. **Merchant is the Shop Owner / business entity, separate from User and Shop.** One Merchant may have only one active Shop at a time; each Shop belongs to exactly one Merchant. Another Shop may be created only after permanent deletion of the prior Shop. Ownership transfer is not supported in MVP.
 2. **MVP Merchant access uses Merchant login credentials for the Merchant's one active Shop.** Credentials may be shared with staff; individual employee accounts, memberships, roles, and permissions are not required. Individual users and roles may be introduced later.
 3. **Products may have multiple variants.** Variant-level price and inventory are supported; non-variant Products may themselves be sellable.
-4. **Merchant-created catalog items can be submitted for Super Admin review.** On approval, the item is copied into the Master Catalog while the Shop Product remains independent.
+4. **Master and Shop Catalogs are independent.** Merchant-created Shop Products require no Super Admin approval. Super Admin may promote a product into the Master Catalog without automatically linking or changing the existing Shop Product.
 5. **Inventory is Shop-specific and tracked at sellable-item level.** Variant stock is used when variants exist; otherwise Product stock may be used.
 6. **Customer records are Shop-specific.** Within a Shop, the WhatsApp number is the primary identifier for recognizing a returning Customer. A permanent Customer record is created when the customer first provides that WhatsApp number, including before checkout; abandoned carts may therefore be associated with permanent Customer records.
 7. **Cart has direct Shop context and cannot mix Shops.** Checkout creates the Order, but no persistent Cart → Order relationship is required.
@@ -1077,8 +1054,8 @@ No Django model implementation should begin before this relationship map and the
 | Merchant credentials ↔ Shop access | Credentials access the Merchant's one active Shop and may be shared with staff | Authentication/access schema is not finalized | Users, Shops | Credential and access representation |
 | Shop ↔ Customer identity matching | One current Customer record per Shop, recognized primarily by the Shop-scoped WhatsApp number | Phone normalization, formatting, verification, and physical uniqueness representation remain open | Customers, Orders | Customer uniqueness/matching implementation |
 | Shop ↔ Cart cardinality | Cart is Shop-scoped | Active-cart persistence/cardinality remains to be finalized | Cart, Shops | Cart identity/schema |
-| Product/Variant physical model | Product may have many variants; non-variant product may be sellable | Exact mandatory/optional fields and identity remain DB decisions | Catalog, Inventory | Catalog schema |
-| Master Product ↔ Shop Product representation | Shop Product remains independent; approved merchant-created items are copied into Master Catalog | Exact reference/link representation remains open | Catalog | Catalog reference fields |
+| Product/Variant physical model | Product may be directly sellable or have variants | Exact fields, identity, and schema remain DB decisions | Catalog, Inventory | Catalog schema |
+| Master Product ↔ Shop Product representation | Shop Product may be selected from Master Catalog or created directly; each remains independent. Promotion does not auto-link the originating Shop Product. | Exact optional reference representation remains a technical decision | Catalog | Catalog reference fields |
 | Shop Product/Variant ↔ Inventory representation | Inventory is at sellable-item level | Exact physical mapping between product vs variant inventory remains DB decision | Catalog, Inventory | Inventory schema |
 | Order ↔ Inventory concurrency | Deduct on Merchant acceptance | Exact transaction/locking/error semantics remain implementation details | Orders, Inventory | Stock transaction logic |
 | Notification recipient physical representation | The MVP business relationship is approved: a Shop has one configured merchant WhatsApp number, and customer notifications use the relevant Shop-specific Customer WhatsApp number | Exact recipient/phone storage and delivery-record representation remain open | Notifications, Customers, Shops, Orders | Notification schema and delivery-record representation |
