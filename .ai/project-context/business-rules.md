@@ -16,11 +16,11 @@ Technical Implementation
 
 ### Super Admin
 
-The Super Admin is a platform-level actor responsible for approved administrative operations, including merchant/shop onboarding and review, platform master-catalog management, merchant-created product review, campaigns/advertisements, and platform analytics. This document does not define the final permissions.
+The Super Admin is a platform-level actor responsible for approved administrative operations, including creating Merchant accounts, platform master-catalog management, merchant-created product review, campaigns/advertisements, and platform analytics. In MVP, Super Admin cannot edit Merchant or Shop information after creation. This document does not define the final permissions.
 
 ### Merchant / Shopkeeper
 
-A Merchant / Shopkeeper operates a shop and is responsible for shop management, the merchant catalog, products and variants, pricing, inventory and availability, incoming orders and order processing, merchant-side analytics, and merchant-provided payment instructions. This document does not define the final user or account architecture.
+A Merchant means the Shop Owner / business owner and is a business entity separate from User and Shop. A Merchant operates their one Shop in MVP and is responsible for Shop management, the merchant catalog, products and variants, pricing, inventory and availability, incoming orders and order processing, merchant-side analytics, and merchant-provided payment instructions. This document does not define the final user or account architecture.
 
 ### Customer
 
@@ -37,11 +37,18 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` for the engineering requirements. This document does not define technical tenant-context implementation.
 
-## 4. Merchant / Shop Onboarding Rules
+## 4. Merchant Account and Shop Setup Rules
 
-A shop may be created/onboarded by a Super Admin or submitted by a merchant for review and approval. The conceptual lifecycle must distinguish pending/review, approved, and rejected outcomes, but the exact status names are not finalized.
-
-An unapproved merchant/shop must not receive normal approved-shop functionality. The exact onboarding process, approval behavior, account activation, and authorization details require domain decisions; do not define them here.
+- Only a Super Admin creates a Merchant account in MVP. There is no Merchant application, review, approval, rejection, re-application, or application status flow.
+- The system generates an initial temporary password when it creates the Merchant account.
+- Merchant exists before Shop creation and may log in without a Shop.
+- Merchant logs in using a mobile number unique across Merchant accounts. Email is also unique across Merchant accounts, is used for contact/recovery, and is not the login identifier.
+- Merchant must change the temporary password on first login.
+- After login, Merchant creates their own Shop. Super Admin does not create the Shop in this flow.
+- Merchant creates exactly one Shop in MVP, and each Shop belongs to exactly one Merchant. A Merchant cannot own multiple Shops; another Shop requires a separate Merchant account.
+- A newly created Shop becomes ACTIVE immediately.
+- Ownership transfer between Merchants is not supported in MVP.
+- Shop remains the primary tenant boundary for merchant-owned data.
 
 ## 5. Shop Profile Rules
 
@@ -188,9 +195,11 @@ It is not the primary merchant interface for accepting or rejecting orders, chan
 
 ## 21. Merchant Accounts
 
-The MVP concept allows merchant-side access to potentially be shared by a small number of people. The architecture should not prevent future individual merchant accounts and role-based access.
+Merchant credentials may be shared with employees/staff in MVP. Individual employee accounts, roles, and individual staff permissions are not required; they may be introduced later. Merchant may log in from multiple devices. Merchant logout invalidates the current session/token according to the eventual authentication implementation. Failed login attempts have no special application-level lockout rule in MVP; normal authentication security still applies.
 
-The number of users per shop, membership model, roles, invitation flow, and authentication mechanism are **Not Finalized / Require Decision**.
+Merchant can manage their Merchant personal information and Shop profile. Super Admin can create the Merchant account but cannot update Merchant or Shop information after creation. Merchant status is `ACTIVE` or `DEACTIVATED`. Deactivation immediately prevents login and platform access; Merchant data is not permanently deleted in MVP. A deactivated Merchant cannot be reactivated in MVP. Deactivating the Merchant's Shop also immediately stops Merchant login.
+
+Both Merchant and Super Admin can change or reset the Merchant password. Standard platform password rules apply. The authentication technology and exact session/token implementation remain unresolved technical decisions.
 
 ## 22. Campaign / Advertising Rules
 
@@ -226,10 +235,10 @@ The exact snapshot strategy and historical-data requirements are **Not Finalized
 
 ## 26. Deactivation / Deletion
 
-Deletion behavior is not fully defined. The following are **Not Finalized / Require Decision**:
+Deletion behavior is not fully defined. Merchant account deactivation behavior is approved as documented in Section 21; a deactivated Merchant cannot log in, cannot be reactivated in MVP, and is not permanently deleted. The following are **Not Finalized / Require Decision**:
 
 - Shop deletion.
-- Merchant deletion.
+- Permanent Merchant deletion and related retention details.
 - Customer deletion.
 - Product deletion.
 - Order deletion.
@@ -261,8 +270,6 @@ This document defines the business rule, not a premature implementation choice.
 
 The following require product/business approval and must not be answered by assumption:
 
-- Final merchant/shop onboarding statuses.
-- Merchant account and membership model.
 - Customer phone-number normalization and formatting.
 - Exact catalog/master-catalog approval workflow.
 - Product and variant structure.
