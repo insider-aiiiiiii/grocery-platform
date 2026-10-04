@@ -123,6 +123,14 @@ The application uses a custom Django `User` model derived from `AbstractUser`. I
 - `POST /api/v1/auth/change-password/` requires an authenticated Merchant Bearer access token; a temporary-password restricted token may use this endpoint. The request contains `current_password` and `new_password`. The current password must match, and the new password must pass the configured Django password validators (user-attribute similarity, minimum length, common-password, and numeric-password checks). Validation failures return `400` with field errors. Super Admins cannot use this Merchant password-change operation.
 - On successful Merchant password change, Django updates the password hash and the Merchant first-login flag (`must_change_password=false`). No other User profile fields change and plaintext passwords are never stored. All of the user's refresh tokens are blacklisted and all per-login sessions are revoked, so existing access and refresh tokens stop working and the Merchant must log in again. Success returns `204 No Content`.
 
+### Merchant Password Recovery
+
+- `POST /api/v1/auth/merchant-password-recovery/` accepts `mobile_number` and responds with `202 Accepted` and the same generic message whether the number belongs to an active Merchant or not. Codes are sent only to active Merchants' registered mobile numbers.
+- `POST /api/v1/auth/merchant-password-recovery/confirm/` accepts `mobile_number`, `otp`, and `new_password`. A valid code is single-use. Success updates the password using the configured Django password validators, clears `must_change_password`, blacklists every refresh token, revokes every session, and returns `204 No Content`.
+- Recovery codes are seven numeric digits, generated with a cryptographically secure generator, stored only as a keyed hash, and expire after five minutes. A code permits five failed attempts and then becomes invalid. Resends have a 60-second cooldown and are limited to three per mobile number per hour; requests are also limited to ten per source IP per 15 minutes. Failed recovery attempts do not lock the Merchant account.
+- OTP hashes and pseudonymous mobile/IP rate-limit keys use a dedicated `MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER`. Plaintext codes and provider errors are not logged.
+- SMS delivery is delegated to the callable configured by `MERCHANT_PASSWORD_RECOVERY_OTP_SENDER`. The adapter must enqueue delivery and return promptly so provider latency does not reveal whether the number belongs to a Merchant. Recovery returns `503` for all numbers until both settings are configured; deployment must supply an approved SMS adapter.
+
 ## 11. Approved Business Invariants
 
 - Merchant is the Shop Owner / business entity, separate from User and Shop.

@@ -15,8 +15,15 @@ from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
     LogoutSerializer,
+    MerchantPasswordRecoveryConfirmSerializer,
+    MerchantPasswordRecoveryRequestSerializer,
     RefreshSerializer,
     SuperAdminLoginSerializer,
+)
+from .recovery import (
+    INVALID_CODE_MESSAGE,
+    confirm_merchant_password_recovery,
+    request_merchant_password_recovery,
 )
 
 
@@ -202,4 +209,36 @@ class ChangePasswordView(APIView):
             for token in outstanding:
                 BlacklistedToken.objects.get_or_create(token=token)
             UserAuthSession.objects.filter(user=user).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MerchantPasswordRecoveryRequestView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = MerchantPasswordRecoveryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = request_merchant_password_recovery(
+            serializer.validated_data["mobile_number"],
+            request.META.get("REMOTE_ADDR", ""),
+        )
+        return Response({"detail": message}, status=status.HTTP_202_ACCEPTED)
+
+
+class MerchantPasswordRecoveryConfirmView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = MerchantPasswordRecoveryConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            confirm_merchant_password_recovery(
+                serializer.validated_data["mobile_number"],
+                serializer.validated_data["otp"],
+                serializer.validated_data["new_password"],
+            )
+        except ValueError:
+            raise ValidationError({"otp": INVALID_CODE_MESSAGE})
         return Response(status=status.HTTP_204_NO_CONTENT)
