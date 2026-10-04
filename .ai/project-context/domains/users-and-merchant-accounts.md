@@ -99,13 +99,13 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 
 ## 9. Roles and Access
 
-The business actor categories are Super Admin and Merchant. The exact role and permission implementation is not defined. Individual employee roles and permissions are not required in MVP; they may be introduced in the future.
+The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
 
 Merchant access is limited to the Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization.
 
 ## 10. Authentication and Technical Boundaries
 
-Merchant login uses a mobile number, but the authentication technology remains intentionally undecided. This document does not select JWT, sessions, OAuth, OTP, password hashing, or an identity provider. It also does not define Django User model choice, API contracts, database fields, or database constraints.
+The application uses a custom Django `User` model derived from `AbstractUser`, with the two roles above. Merchant login is intended to use a mobile number, but this model does not yet represent or implement that login lookup. The authentication flow and technology remain intentionally undecided. This document does not select JWT, sessions, OAuth, OTP, or an identity provider. Merchant contact field representation, profile fields, API contracts, and other database constraints remain unspecified.
 
 ## 11. Approved Business Invariants
 
@@ -128,7 +128,7 @@ The following remain unresolved because they concern technical representation or
 | Decision | Current boundary |
 |---|---|
 | Authentication technology and provider | Not selected. |
-| Django User model choice | Not selected. |
+| Django User identity | A custom `AbstractUser` model with `SUPER_ADMIN` and `MERCHANT` roles is implemented under AUTH-001. |
 | Password hashing implementation | Not specified. |
 | Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
 | API contracts and database fields/constraints | Not specified. |
