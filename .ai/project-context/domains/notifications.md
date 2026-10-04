@@ -27,42 +27,27 @@ Notifications
 
 The current source of truth supports the idea that WhatsApp is a communication channel for order notifications and acknowledgements, while the merchant ERP/web interface remains the place where order management occurs. Notifications therefore belongs to communication and delivery, not to business-state ownership.
 
-## 2. Notification Types
+## 2. MVP Channels and Required Order Notifications
 
-The product requirements support certain notification categories directly; other categories are possible future topics or not currently approved.
+WhatsApp is the only approved channel for MVP order notifications. The following notifications are required:
 
-### MVP-required
+| Event | Recipient | Trigger |
+|---|---|---|
+| New order | Shop's configured merchant WhatsApp number | Successful Order creation |
+| Order received acknowledgement | Customer's WhatsApp number | Successful Order creation |
+| Order accepted | Customer's WhatsApp number | Merchant accepts the Order |
+| Order rejected | Customer's WhatsApp number | Order is rejected |
+| Quantity reduced | Customer's WhatsApp number | Merchant manually reduces fulfillable quantity before acceptance |
+| Customer cancellation | Shop's configured merchant WhatsApp number | Customer cancels a pending Order |
+| Merchant cancellation | Customer's WhatsApp number | Merchant cancels an accepted Order before preparation |
 
-The product context explicitly supports the following order-related communications:
+The immediate customer acknowledgement says that the Order was received; it must not imply that the Merchant accepted it. The later acceptance or rejection message communicates the Merchant's decision.
 
-- merchant receives a new-order notification
-- customer receives an order-received message
-- customer receives an order-accepted message
-- other relevant order-status notifications may be added later
+Orders defines the lifecycle outcomes: customer cancellation while `PENDING`, Merchant rejection while `PENDING`, and Merchant cancellation after acceptance but before `PREPARING` use the existing `REJECTED` outcome/state. Notification wording must communicate the relevant business outcome without introducing a new Order state.
 
-These are the only notification types that are clearly required by the approved product documentation.
+No notification is required for `PREPARING`, `READY`, or `COMPLETED`. A state transition does not imply a notification unless listed above or separately approved.
 
-### Future / possible
-
-The following are possible future extensions and are not approved as part of the current MVP unless the product requirements are updated:
-
-- merchant onboarding notifications
-- account lifecycle notifications
-- low-stock or inventory alerts
-- campaign announcements or promotional notifications
-- platform administrative announcements
-- customer reminders or repeat-order prompts
-- merchant/shop operational notices
-
-### Not currently supported
-
-The following should not be assumed to exist unless explicit product decisions are approved:
-
-- marketing automation workflows
-- personalized customer segmentation notifications
-- dynamic campaign-triggered notifications by default
-- automated customer account notifications, where customer accounts are not required
-- payment or refund notifications tied to an online payment gateway, because the payment model remains merchant-handled in the MVP
+The MVP excludes merchant onboarding, account lifecycle, low-stock alerts, campaign or promotional messages, platform announcements, customer reminders, merchant operational notices, customer segmentation, marketing automation, and payment/refund notifications.
 
 ## 3. WhatsApp Boundary
 
@@ -98,39 +83,17 @@ Therefore, WhatsApp must not be designed as a workflow interface for:
 
 - accepting an order
 - rejecting an order
+- cancelling an order
 - updating order status
 - preparing an order
 - marking an order ready
 - completing an order
 
-Those operational behaviors always belong to the order workflow/business domain and its merchant interface, not to the notification system.
+Those operational behaviors always belong to the order workflow/business domain and its merchant interface, not to the notification system. WhatsApp messages must never accept, reject, cancel, or otherwise change an Order.
 
-## 4. Other Delivery Channels
+## 4. Channel Scope
 
-The product requirements do not approve a universal multi-channel platform. They identify WhatsApp as the current important channel. Additional channels may be considered later, but they are not approved by default.
-
-### Current approved channel
-
-- WhatsApp
-
-### Potential future channels
-
-- email
-- SMS
-- in-app notification
-- push notification
-
-These are not automatically required. For each channel, the future product decision would need to define:
-
-- whether it is MVP or future scope
-- intended recipients
-- intended use cases
-- provider dependency
-- retry and failure behavior
-- privacy handling
-- tenant restrictions
-
-In the absence of approval, the Notifications domain should not assume they exist.
+Email, SMS, push notifications, and in-app notifications are excluded from the MVP. Supporting them later requires separate product approval and decisions about recipients, use cases, providers, failure behavior, privacy, and tenant restrictions.
 
 ## 5. Notification vs Business Event
 
@@ -234,45 +197,19 @@ Notification is evaluated and delivered
 
 This specification should identify the business trigger, not force a specific implementation mechanism.
 
-For example:
-
-- when an order is created, the system may send a merchant notification
-- when an order is accepted, the system may send a customer notification
-- when an order is rejected, the system may send a customer notification
-- when an order is ready or completed, a customer notification may be required
-
-These are not necessarily all required in MVP and must be validated against the Order domain and approved product requirements.
+The required triggers and recipients are enumerated in Section 2. This specification defines communication behavior only; Orders remains the source of truth for event meaning and lifecycle transitions.
 
 ## 9. Order Notifications
 
 The Order domain defines the order states and business transitions. Notifications are responsible for communicating approved transitions to the relevant audience.
 
-The approved product requirements mention merchant and customer order notifications. The exact set and order of messages remain partially unresolved. The following table is a conceptual business mapping only.
-
-| Order event | Recipient | Channel | Required by current product docs? |
-|---|---|---|---|
-| New order received | Merchant | WhatsApp / approved channel | Yes |
-| Order created / received acknowledgement | Customer | Approved channel | Yes |
-| Order accepted | Customer | Approved channel | Yes |
-| Order rejected | Customer | Approved channel | Yes |
-| Merchant manually reduces fulfillable quantity | Customer | Approved channel | Yes |
-| Order preparing | Customer | Approved channel | Potentially yes; not fully finalized |
-| Order ready | Customer | Approved channel | Potentially yes; not fully finalized |
-| Order completed | Customer | Approved channel | Potentially yes; not fully finalized |
-| Customer/Merchant cancellation using the `REJECTED` outcome | Customer / Merchant | Approved channel | Unresolved |
-| Order failed or expired | Customer / Merchant | Approved channel | Unresolved |
-
-The fact that a transition exists in Orders does not automatically imply a notification is required. This must be decided by the approved notification and order requirements.
+The approved event, recipient, and trigger mapping is in Section 2. In particular, customer cancellation notifies the Shop's configured merchant number, while Merchant cancellation notifies the Customer. Both cancellations use the existing Orders lifecycle outcome and do not introduce a `CANCELLED` state. No notification is required for `PREPARING`, `READY`, or `COMPLETED`.
 
 ## 10. Merchant Notifications
 
 Merchant notifications are intended for an authorized merchant user operating on a specific shop.
 
-Approved concepts include:
-
-- new order notification for the shop's merchant
-- order status updates relevant to merchant processing
-- order-review and workflow notices, if required by the business process
+The Shop's configured merchant WhatsApp number receives new-order notifications and customer-cancellation notifications, as specified in Section 2.
 
 Not currently supported by default:
 
@@ -299,20 +236,9 @@ The product requirements are intentionally lightweight on customer identity and 
 
 Therefore, customer notifications must be tied to the approved customer-contact mechanism, not a new customer-authentication architecture.
 
-Current business requirements suggest:
+Resolve the customer recipient from the relevant Shop-specific Customer record, consistently with Customers and Orders. Checkout contact information is used to create or recognize that Shop-specific Customer; Notifications does not define a separate customer identity or contact source.
 
-- customer name and WhatsApp number are present at checkout
-- WhatsApp may be used for customer communication
-- order communication should go to the order's customer contact information
-
-Customer notifications should be sent only to approved customer contact information for the relevant order and shop context. They must not expose unrelated customer data or accidentally reach another shop's customer.
-
-The exact source of a customer notification address remains a domain boundary question. The Customer/Order specifications determine whether the system uses:
-
-- checkout contact data
-- a shop-specific customer record
-- a historical order snapshot
-- another approved mechanism
+Customer notifications must target that Customer in the Order's Shop context and must not expose unrelated customer data or reach another Shop's customer.
 
 Customers may use their WhatsApp number to access their Orders within the relevant Shop/customer context; OTP is not required for this MVP decision. This does not grant access to another customer's information, another Shop's Orders, or merchant/admin data. Notification delivery itself does not authorize Order-history access.
 
@@ -403,7 +329,7 @@ This prevents notification templates from silently becoming a second source of t
 
 ## 16. Templates
 
-Templates are a possible requirement for consistent notification wording, but the product documentation does not define a full template-management system.
+Use fixed, reviewed templates for each approved event. The product documentation does not require a template-management system.
 
 Possible template concepts include:
 
@@ -416,11 +342,11 @@ Possible template concepts include:
 - status for template activation
 - versioning
 
-The product requirements do not approve a full multi-template system by default. A fixed template approach is possible for MVP, but that is not the same as a final template engine.
+Template storage, placeholder representation, localization, and versioning remain technical design choices. Templates must communicate only the approved event and use the minimum order information needed by the recipient.
 
 ## 17. Delivery Attempts and Failures
 
-Notification delivery can fail for business or provider reasons. The source documents do not define a finalized failure model, but the business requirement still exists.
+Notification delivery can fail for recipient-data or provider reasons. The following examples are not an exhaustive failure taxonomy:
 
 Potential failure cases include:
 
@@ -439,7 +365,7 @@ Notifications may need to track:
 - provider error metadata
 - final delivery outcome
 
-Whether notification delivery is retried automatically, manually retried, or abandoned after a retry limit is not finalized. These are unresolved decisions and must not be implemented by assumption.
+Use bounded retries for transient failures and avoid retries for permanent failures, subject to provider capabilities. Retry limits, error classification, and implementation mechanics remain technical design choices. Failure must remain distinct from Order state.
 
 ## 18. Idempotency and Duplicate Notifications
 
@@ -458,7 +384,7 @@ Possible ways to define uniqueness include:
 - recipient + order + event type
 - channel + order + event + recipient
 
-The exact idempotency rule is not approved by the current product documentation. This requires a later decision to establish the unique business key and the duplicate-handling policy.
+Prevent unintended duplicate notifications for the same originating event and recipient. The exact key representation and enforcement mechanism are technical design choices; they must preserve this business rule.
 
 ## 19. Provider Boundary
 
@@ -504,13 +430,11 @@ and:
 Message actually delivered to the recipient
 ```
 
-The product requirements do not specify whether provider acceptance is treated as successful delivery or whether a provider confirmation callback or status update is required before the system marks a notification as delivered.
-
-Therefore, provider delivery confirmation is a business decision to be resolved later. Notifications must not assume that provider acceptance equals final delivery success.
+Do not mark or report a message as delivered without provider confirmation. Provider-specific means of receiving confirmation remain an integration design choice. Delivery status is tracked separately from Order state.
 
 ## 21. Scheduling and Background Processing
 
-Notifications may need to be immediate, delayed, or retried. The product requirements do not prescribe a particular background architecture. The current repository is a modular monolith and does not require event-driven infrastructure or queue adoption before the business requirement is known.
+Notification events are triggered by the events and timing in Section 2. The product requirements do not prescribe a particular background architecture or processing mechanism. The current repository is a modular monolith and does not require event-driven infrastructure or queue adoption.
 
 This domain should define business requirements such as:
 
@@ -546,7 +470,7 @@ Notifications
 
 Campaigns must not directly implement WhatsApp or provider logic. Notifications must not become the place where campaign targeting or campaign lifecycle is decided. Those are still campaign-domain concerns.
 
-Campaign-triggered notifications are possible future behavior, but they are not approved by default in the current product requirements.
+Campaign-triggered notifications are excluded from the MVP. Any future campaign-driven messages require a separate approved product decision.
 
 ## 23. Analytics Relationship
 
@@ -572,7 +496,7 @@ Analytics
 
 ## 24. Notification History and Retention
 
-The product requirements do not define a final retention policy for notification records. This is an unresolved decision. The domain may eventually need to keep:
+Keep notification history minimal. The product requirements do not define a retention period or deletion rule; retention must be settled before implementation. Records may need only the information required for delivery status and troubleshooting, such as:
 
 - message content history
 - delivery status history
@@ -583,7 +507,7 @@ The product requirements do not define a final retention policy for notification
 
 Retention requirements must respect customer privacy and shop isolation. The system should not keep more notification history than is necessary for approved business and compliance behavior.
 
-The product requirements do not approve a final retention period or deletion rule. That remains an unresolved decision.
+The exact history fields, retention period, and deletion rule remain open technical/business decisions. Do not retain more message content or personal data than necessary.
 
 ## 25. Webhooks and Provider Callbacks
 
@@ -631,10 +555,13 @@ The following business invariants are supported by the approved product and arch
 - Notifications do not own the underlying business event.
 - Notifications do not change order state, inventory state, catalog state, or campaign state.
 - WhatsApp is a delivery channel, not the primary merchant order-management tool.
-- Merchant notifications are shop-scoped and must remain within the authorized shop context.
+- Merchant notifications are resolved to the relevant Shop's configured merchant WhatsApp number and remain within the authorized Shop context.
 - Customer notifications must target the intended recipient and shop context.
-- Duplicate processing should not unintentionally create duplicate notifications where idempotency is required.
-- Notification delivery failures must not be misreported as success.
+- The seven event/recipient/trigger combinations in Section 2 are the MVP notification set.
+- Duplicate processing must not unintentionally create duplicate notifications for the same originating event and recipient.
+- Notification delivery failures must not be misreported as success or change Order state.
+- A notification is not reported as delivered without provider confirmation.
+- Fixed, reviewed templates use only the order information needed for the message.
 - Provider-specific implementation remains behind the provider integration boundary.
 - Notification content must not become an alternate source of product or order truth.
 
@@ -642,38 +569,33 @@ The following business invariants are supported by the approved product and arch
 
 | Concern | Owning domain | Notifications responsibility |
 |---|---|---|
-| Order creation / order state | Orders | Communicate approved order events to the appropriate recipient. |
-| Customer identity and contact info | Customers | Provide approved customer contact information for the intended shop/order context. |
+| Order creation / order state | Orders | Own event meaning and lifecycle; Notifications communicates the seven approved events without mutating Orders. |
+| Customer identity and contact info | Customers | Resolve the relevant Shop-specific Customer and WhatsApp number for customer messages. |
 | Shop tenant context | Shops | Provide the shop boundary within which notifications are scoped. |
 | Merchant access control | Users & Merchant Accounts | Determines which merchants may access which shop notifications. |
 | Product and pricing data | Catalog | Owns the product information; Notifications must not alter it. |
 | Inventory status | Inventory | Owns stock and availability; Notifications can report but not modify it where later approved. |
 | Cart behavior | Cart | Owns current shopping state; Notifications should not modify it. |
-| Campaign content | Campaigns | Owns campaign configuration; Notifications only communicates if approved. |
+| Campaign content | Campaigns | Campaign-triggered notifications are excluded from MVP. |
 | Notification delivery | Notifications | Owns message creation and delivery processing. |
 | Reporting and metrics | Analytics | Owns summarization and reporting from delivery data where approved. |
 
-## 29. Unresolved Decisions
+## 29. Remaining Decisions
 
-No decision below is finalized by this specification.
+The MVP business rules and notification event matrix are finalized. The following decisions remain before implementation:
 
-| Decision | Why unresolved | Impact |
+| Decision | Classification | Impact |
 |---|---|---|
-| Required notification channels | Product docs identify WhatsApp as a communication channel, but not all channels are approved. | Channel strategy cannot be finalized. |
-| Exact merchant notification event set | Only new-order and some order-status communications are mentioned at a high level. | Event design remains open. |
-| Exact customer notification event set | The product requires order-received and order-accepted messaging, but the full set remains open. | Customer communication flow remains open. |
-| Notification lifecycle states | No final status model is approved. | Delivery and retry logic remain open. |
-| Retry and failure handling | Product docs do not define automated retries or failure policy. | Reliability strategy remains open. |
-| Idempotency rule | Duplicate event processing is a risk but no unique message key is approved. | Duplicate sending could occur without a business rule. |
-| Template model | Template requirements are not finalized. | Content management remains open. |
-| WhatsApp provider choice | Product docs name WhatsApp but not the provider or API architecture. | Provider integration cannot be designed. |
-| Provider callback requirement | Delivery confirmation and callbacks are not approved. | Delivery-status handling cannot be finalized. |
-| Notification retention policy | No retention or archival policy is approved. | Privacy and storage behavior remain open. |
-| Customer notification identity source | Product docs do not finalize whether contact info comes from checkout, customer record, or order snapshot. | Customer notification delivery remains open. |
-| Platform-level notification requirements | Platform announcements and admin notifications are not approved. | Super Admin communications remain open. |
-| Campaign-triggered notifications | Campaigns may exist; notification delivery is separate and not approved. | This interaction remains open. |
-| Delivery scheduling | No final requirement for immediate vs delayed vs queued notifications exists. | Delivery timing cannot be finalized. |
-| Notification triggers for low-stock or merchant operational events | These are not approved requirements in the current product docs. | Event generation remains open. |
+| Notification schema, field set, and status representation | Technical | Delivery tracking representation remains open. |
+| WhatsApp provider, integration contract, and any callback mechanism | Technical | Provider integration design remains open. |
+| Retry limit, transient/permanent error mapping, and scheduling mechanism | Technical | Must implement bounded transient retries subject to provider capabilities. |
+| Idempotency key and enforcement mechanism | Technical | Must prevent duplicate delivery for the same event and recipient. |
+| Phone normalization/formatting and physical recipient representation | Technical | Recipient persistence and provider payloads remain open. |
+| Notification-history fields and retention/deletion policy | Technical/business | Minimal history is required; retention period must be agreed before implementation. |
+| Fixed-template storage and placeholder representation | Technical | Template delivery is required; a management system is not. |
+| APIs, authorization enforcement, and tenant-context implementation | Technical/security | Access must remain Shop-scoped. |
+
+No additional channels, events, preferences, campaign messages, or low-stock alerts are approved for MVP.
 
 ## 30. Explicit Non-Goals
 
@@ -703,7 +625,7 @@ This specification does not define:
 
 ## 31. Implementation Gate
 
-> The Notifications domain must not be implemented until this domain specification is reviewed and the unresolved decisions required for implementation are explicitly resolved.
+> The Notifications domain must not be implemented until this specification is reviewed and remaining technical/business decisions required for implementation, including notification-history retention, are resolved.
 
 Once approved, implementation must follow the approved documentation hierarchy and engineering standards rather than silently redefining business behavior. This includes `AGENTS.md`, project and domain context documents, and the relevant engineering skills. An implementation agent must not assume unsupported notification channels, message types, or delivery rules.
 
@@ -727,4 +649,4 @@ git checkout -b <task-id>/define-notifications-domain
 
 ## Final Requirement
 
-Create only `.ai/project-context/domains/notifications.md`. Do not modify any other file. Do not create models, migrations, APIs, serializers, views, workers, provider integrations, or frontend behavior. Do not resolve unresolved notification business decisions by assumption.
+This specification is documentation only. Do not create models, migrations, APIs, serializers, views, workers, provider integrations, or frontend behavior as part of defining Notifications. Do not resolve remaining technical/business decisions by assumption.
