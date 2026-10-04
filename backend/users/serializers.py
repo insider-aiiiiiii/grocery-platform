@@ -6,6 +6,11 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, trim_whitespace=False)
 
 
+class SuperAdminLoginSerializer(serializers.Serializer):
+    identifier = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
 class RefreshSerializer(serializers.Serializer):
     refresh = serializers.CharField(write_only=True)
 

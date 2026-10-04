@@ -116,6 +116,8 @@ The application uses a custom Django `User` model derived from `AbstractUser`. I
 - Access tokens last 30 minutes and are not stored server-side. Refresh tokens last 30 days; refresh-token rotation is enabled.
 - JWT signing uses a secret supplied through environment-based secret management.
 - `POST /api/v1/auth/login/` accepts `mobile_number` and `password`. Successful Merchant login returns `access`, `refresh`, `user` (`id`, `role`, and `shop_id`), and the top-level `must_change_password` boolean. `shop_id` is `null` until the Merchant has a Shop. Password hashes and secrets are never included.
+- `POST /api/v1/auth/super-admin/login/` accepts `identifier` (an email address or mobile number) and `password`. It authenticates only an active (`User.is_active = true`) `SUPER_ADMIN`; Merchant credentials are rejected. Deactivating a Super Admin (`is_active = false`) immediately invalidates existing access and refresh tokens. Success uses the same login response structure, with `role: "SUPER_ADMIN"`, `shop_id: null`, and `must_change_password: false`.
+- Invalid credentials, an inactive account, or an account with a different role return HTTP `401` with the standard DRF error object `{"detail":"Invalid credentials."}`. This response does not disclose whether an identifier is registered.
 - When `must_change_password` is true, the access and refresh tokens are restricted to `POST /api/v1/auth/change-password/`, `POST /api/v1/auth/logout/`, and `POST /api/v1/auth/refresh/`. Every other authenticated request returns HTTP `403` and `{"detail":"Password change required.","code":"PASSWORD_CHANGE_REQUIRED"}`.
 - Password change accepts `current_password` and `new_password`. A successful change sets `must_change_password` false, invalidates all existing access and refresh tokens, returns `204 No Content`, and requires a new login. Only the new login returns unrestricted tokens.
 - Refresh accepts `refresh` and returns rotated `access` and `refresh` tokens. Logout accepts the current `refresh` token, invalidates its session, and returns `204 No Content`.
@@ -144,9 +146,9 @@ The following remain unresolved because they concern technical representation or
 | Decision | Current boundary |
 |---|---|
 | Authentication mechanism | JWT bearer authentication is approved with 30-minute access tokens, 30-day rotating refresh tokens, and the first-login restriction defined above. |
-| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. |
+| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. Django's `is_active` field controls whether a Super Admin can authenticate. |
 | Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
-| Token revocation implementation | Implemented with refresh-token blacklist records and revocable Merchant session metadata; access JWT strings are not persisted. |
+| Token revocation implementation | Implemented with refresh-token blacklist records and revocable User session metadata; access JWT strings are not persisted. |
 | API request details beyond the approved authentication response and token behavior | Login, refresh, logout, and password-change request fields and paths are documented in the approved contract above. |
 | Phone/email normalization | Not specified. |
 
