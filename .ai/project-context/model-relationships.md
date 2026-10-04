@@ -1049,7 +1049,7 @@ No Django model implementation should begin before this relationship map and the
 
 | Decision | Current understanding | Why still unresolved | Domains affected | Implementation decision blocked |
 |---|---|---|---|---|
-| User ↔ Merchant representation | Merchant is a separate business entity and has a Merchant login/account in MVP | Exact identity/authentication representation is not finalized | Users, Shops | User/Merchant physical relationship |
+| User ↔ Merchant representation | One custom Django User model supports SUPER_ADMIN and MERCHANT; Merchant is a separate business entity | Merchant profile and physical relationship to Shop remain unresolved | Users, Shops | User/Merchant physical relationship |
 | Merchant credentials ↔ Shop access | Credentials access the Merchant's one active Shop and may be shared with staff | Authentication/access schema is not finalized | Users, Shops | Credential and access representation |
 | Shop ↔ Customer identity matching | One current Customer record per Shop, recognized primarily by the Shop-scoped WhatsApp number | Phone normalization, formatting, verification, and physical uniqueness representation remain open | Customers, Orders | Customer uniqueness/matching implementation |
 | Shop ↔ Cart cardinality | Cart is Shop-scoped | Active-cart persistence/cardinality remains to be finalized | Cart, Shops | Cart identity/schema |

@@ -46,7 +46,7 @@ Each current Django app represents a business domain. The responsibilities below
 
 ### `users`
 
-Actor identity and user-related concerns, with authentication-related domain support once finalized and future role/access concepts where approved. The final User or authentication model is not defined here.
+Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles. Authentication flows, Merchant profile/Shop relationships, and authorization remain to be finalized.
 
 ### `shops`
 
@@ -300,7 +300,7 @@ Record significant architectural decisions with meaningful long-term consequence
 
 - Authentication mechanism.
 - Exact authorization model.
-- User model.
+- Merchant profile and Shop relationship model.
 - Shop/Membership model.
 - Exact database and catalog schemas.
 - Exact order state machine.
