@@ -240,7 +240,7 @@ Resolve the customer recipient from the relevant Shop-specific Customer record, 
 
 Customer notifications must target that Customer in the Order's Shop context and must not expose unrelated customer data or reach another Shop's customer.
 
-Customers may use their WhatsApp number to access their Orders within the relevant Shop/customer context; OTP is not required for this MVP decision. This does not grant access to another customer's information, another Shop's Orders, or merchant/admin data. Notification delivery itself does not authorize Order-history access.
+The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval. Notification delivery itself does not authorize Order-history access.
 
 ## 12. Customer Privacy
 
@@ -262,7 +262,7 @@ Because of this, notification content and delivery must follow privacy and secur
 - merchants must not receive another shop's customer information through a notification
 - public or unauthorized access must not expose customer contact details or order details
 
-Customer notification contact information must not grant access to another customer's Orders or history, or to Orders outside the relevant Shop/customer context. For the approved MVP Order-history experience, Customers may use their WhatsApp number within their own Shop/customer context without OTP; minimize exposed customer information.
+Customer notification contact information must not grant access to another customer's Orders or history, or to Orders outside the relevant Shop/customer context. The approved repeat-customer/order-history flow does not require OTP, but access cannot rely on a WhatsApp number alone. Its privacy-safe mechanism remains unresolved; minimize exposed customer information.
 
 ## 13. Merchant Privacy and Tenant Isolation
 
@@ -507,7 +507,7 @@ Keep notification history minimal. The product requirements do not define a rete
 
 Retention requirements must respect customer privacy and shop isolation. The system should not keep more notification history than is necessary for approved business and compliance behavior.
 
-The exact history fields, retention period, and deletion rule remain open technical/business decisions. Do not retain more message content or personal data than necessary.
+The exact history fields, retention period, and deletion rule remain open technical/business decisions and must be decided before Notifications is implemented. Do not retain more message content or personal data than necessary. Analytics derived from Notifications delivery history is excluded from MVP.
 
 ## 25. Webhooks and Provider Callbacks
 

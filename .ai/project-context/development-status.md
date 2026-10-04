@@ -2,306 +2,44 @@
 
 ## 1. Purpose
 
-This document answers: **What is actually implemented right now?** It records verified implementation/development state and distinguishes it from product requirements, approved architecture, planned work, scaffolding, unfinished work, and unresolved decisions.
+This document records the checked-out repository's verified implementation state. A model, route, or test file existing does not mean its domain behavior is complete or approved. Business decisions remain governed by `business-rules.md` and the relevant domain specifications.
 
-Use explicit statuses such as `Implemented`, `Partially Implemented`, `Scaffolded / No Business Logic`, `Planned`, `Blocked / Requires Decision`, and `Not Started`. Avoid vague summaries such as "mostly done." Implementation state is not proof of an approved product decision.
+## 2. Current Stage
 
-## 2. Current Project Stage
+The project has a Django modular-monolith foundation and partial identity and Shop implementation. Catalog has a single Master Category model. Most business domains remain documentation-only or empty scaffolds. No end-to-end grocery ordering workflow is implemented.
 
-The project is in the **foundation / architecture stage**. The repository contains a standard Django project scaffold, DRF registration, environment-based PostgreSQL configuration, and ten generated domain-app scaffolds. The domain applications contain no verified business functionality.
+The project uses Python, Django, and DRF. `backend/config/settings.py` uses PostgreSQL when `POSTGRES_DB` is set and otherwise falls back to SQLite. A live PostgreSQL connection was not verified. JWT configuration requires `JWT_SIGNING_KEY` at startup. An `.env.example` exists; no `.env` file is included in the repository. No dotenv-loading behavior was verified.
 
-Versions recorded during project setup were Python 3.12.1, Django 5.0.6, and DRF 3.15.2. `backend/requirements.txt` declares version ranges rather than exact pins. A repository-local `.venv/` exists; its package versions were not separately verified in this status inspection.
+## 3. Verified Repository and Application State
 
-The architecture is a modular monolith with domain-oriented Django applications. PostgreSQL is configured as the intended primary database, but this document does not claim a live PostgreSQL server or connection has been verified.
-
-## 3. Repository Foundation
-
-Repository inspection found the following. Items marked **planned** are not present as files/directories at this inspection; `.venv/` is a local ignored environment.
-
-```text
-grocery-platform/
-├── AGENTS.md
-├── .ai/
-│   ├── project-context/
-│   │   ├── product.md
-│   │   ├── architecture.md
-│   │   ├── business-rules.md
-│   │   └── development-status.md (this file)
-│   └── skills/
-│       ├── django/SKILL.md
-│       ├── drf/SKILL.md
-│       ├── database-design/SKILL.md
-│       ├── api-design/SKILL.md
-│       ├── multi-tenancy/SKILL.md
-│       ├── security/SKILL.md
-│       └── testing/SKILL.md
-├── .venv/ (local, ignored)
-├── backend/
-│   ├── manage.py
-│   ├── requirements.txt
-│   ├── config/
-│   └── ten domain apps
-├── .env.example
-├── .gitignore
-├── README.md
-├── docs/ (not present)
-├── CONTRIBUTING.md (planned; not present)
-└── .github/workflows/ (not present)
-```
-
-No frontend directory, Dockerfile/Compose file, or CI workflow was found in the repository root/current file inventory.
-
-## 4. Backend Scaffold Status
-
-The `backend/` directory contains `manage.py`, `requirements.txt`, and a standard `config/` project package (`settings.py`, `urls.py`, `asgi.py`, `wsgi.py`). It also contains the ten domain applications listed below.
-
-`settings.py` registers Django's standard applications, DRF, and all ten domain apps. `config/urls.py` routes only Django's standard `/admin/` interface; no `/api/v1/` application route is registered. App files are standard scaffolds: model and view files have no model/view declarations, test files have no test cases, migrations directories contain only `__init__.py`, and no app-level `urls.py` or `serializers.py` files exist.
-
-## 5. Implemented vs Not Implemented
-
-| Area | Status | Verified current state |
+| Area | Status | Verified state |
 |---|---|---|
-| Project structure | Implemented | Django project and ten app scaffolds exist under `backend/`. |
-| Django configuration | Implemented | Standard settings; DRF and all domain apps registered. Last recorded `manage.py check` passed. |
-| PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
-| Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
-| `users` | Partially Implemented | Custom Django User model with globally unique email/mobile, role-aware credential backend, one-to-one Merchant profile, Merchant JWT login/password-change/logout/refresh and mobile OTP recovery endpoints, and revocable session metadata. Super Admin login exists; approved Super Admin self-recovery and administrative reset are documented but not implemented. Shop relationship is not implemented because the Shop model does not exist. |
-| `shops` | Partially Implemented | Shop model structure, constraints, and Merchant Shop Creation API (`POST /api/v1/shops/`) finalized under SHOP-001, SHOP-002, SHOP-003 & SHOP-004: 1-to-1 Merchant relationship, structured address, contact mirroring, Super Admin lifecycle (ACTIVE/DEACTIVATED/SUSPENDED), Option 2 flexible delivery policy (FIXED vs CONFIRMED_ON_WHATSAPP), single-slot hours, public slug QR token rotation, Super Admin-only deletion with merchant login cleanup, authenticated Merchant Shop Creation API, migrations, and unit tests. |
-| Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, Super Admin-only deletion, and access rules are documented. Implementation has not started. |
-| Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
-| `catalog` | Scaffolded / No Business Logic | App files exist; no Catalog models, migrations, APIs, tests, or frontend work have been implemented. |
-| Inventory business decisions | Finalized | Shop-scoped stock, granularity, quantities, initial stock, merchant updates, reservation/deduction/release/restoration, manual insufficient-quantity reduction with customer notification, customer visibility, no low-stock threshold or movement ledger, and removal behavior are documented. Technical/database design remains open. |
-| `inventory` | Scaffolded / No Business Logic | Inventory implementation has not started. It remains dependent on technical/database design and relevant Orders integration. No inventory models, migrations, APIs, tests, or frontend work are complete. |
-| `customers` | Scaffolded / No Business Logic | App files exist; no customer identity implementation. |
-| `cart` | Scaffolded / No Business Logic | App files exist; no cart behavior or persistence. |
-| `orders` | Scaffolded / No Business Logic | App files exist; no order behavior or state machine. |
-| Orders business rules | Finalized | Lifecycle, cancellation/rejection outcomes, inventory effects, payment, pricing, fulfillment, customer Order history access, and Shop deletion behavior are documented. Order implementation has not started. |
-| Campaigns business rules | Finalized | Platform-level Super Admin campaigns, Shop display scope, lifecycle, optional scheduling, pricing/order boundaries, visibility, and MVP exclusions are documented. Technical design remains open. |
-| Notifications business rules | Finalized | WhatsApp-only MVP Order event matrix, recipients, delivery guarantees, fixed-template requirement, privacy boundaries, and exclusions are documented. Technical design remains open, including notification-history retention. |
-| `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior or implementation. |
-| `notifications` | Scaffolded / No Business Logic | App files exist; approved MVP WhatsApp order events, recipients, delivery guarantees, and exclusions are documented; no notification or WhatsApp integration. Technical design, including history retention, remains open. |
-| `analytics` | Scaffolded / No Business Logic | App files exist; no analytics implementation. |
-| Authentication | Partially Implemented | Credential backend, identity models, Merchant and Super Admin login, Merchant password change, logout, refresh, JWT session enforcement, and Merchant mobile OTP recovery are implemented. Super Admin self-recovery and administrative reset are approved and documented but not implemented. Authorization beyond the temporary-password restriction remains undecided. |
-| Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
-| Multi-tenancy implementation | Not Started | Shop-level isolation is an approved requirement; no tenant-context or tenant-query enforcement was found. |
-| API endpoints | Partially Implemented | Merchant and Super Admin login, refresh, logout, Merchant password-change, and Merchant password-recovery endpoints are routed under `/api/v1/auth/`. Super Admin self-recovery and administrative-reset endpoints are not implemented; other application APIs are not implemented. |
-| Database schema | Not Started | No domain model declarations or domain schema were found. |
-| Domain migrations | Partially Implemented | Identity migrations exist for User and Merchant; `users.0004` adds session metadata, `users.0005` generalizes it to authenticated Users while preserving existing sessions, and `users.0006` adds Merchant recovery challenges and IP throttles. Simple JWT blacklist migrations support refresh revocation. No Super Admin recovery/reset data migration exists. |
-| Security implementation | Partially Implemented | Standard Django middleware is configured. Product-specific authorization, tenant controls, and production security configuration are not verified; settings default `DEBUG` to true. |
-| Automated tests | Scaffolded / No Business Logic | Each app has a generated `tests.py`, but inspection found zero test cases. Test execution status is not established by this inventory. |
-| CI/CD | Not Started | No `.github/workflows/` directory or CI configuration was found. |
-| WhatsApp integration | Not Started | Product requirement is documented; no provider or integration code was found. |
-| Payment integration | Not Started | MVP payment is merchant-handled; no centralized gateway is approved or implemented. |
-| Storage/media | Not Started | No storage provider or integration was found; provider is not finalized. |
-| Analytics implementation | Not Started | Metrics are conceptual in product documentation; no aggregation/reporting code was found. |
-| Frontend | Not Started | No frontend/client application directory was found. |
-| Docker support | Not Started | No Dockerfile or Compose configuration was found in the inspected repository. |
+| Django project and app registration | Implemented foundation | `backend/config` and ten domain apps exist; Django, DRF, and apps are registered. |
+| `users` models and migrations | Partially implemented | Custom `User`, `Merchant`, authenticated-session, Merchant recovery, and Super Admin recovery/throttle models exist. Migrations `users.0001` through `users.0007` exist. |
+| `users` APIs | Partially implemented | `/api/v1/auth/` routes cover Merchant and Super Admin login, password change, Merchant recovery, Super Admin recovery and administrative reset, logout, and refresh. External delivery adapters for recovery are configuration callbacks, not provider integrations. |
+| `users` tests | Present | `tests.py` and `test_migrations.py` contain test classes. Their execution and pass status were not verified in this documentation review. |
+| `shops` model and migrations | Partially implemented | Shop model and migrations `shops.0001` and `shops.0002` exist. The model implements required profile fields, one-to-one Merchant linkage, status choices, delivery settings, a generated public slug, status helper methods, and custom deletion behavior. |
+| `shops` API | Partially implemented | Only authenticated Merchant Shop creation (`POST /api/v1/shops/`) is routed. There are no Shop read/update, Merchant deactivation, Shop deactivation, Super Admin reactivation, deletion, or public QR/link resolution endpoints. |
+| `shops` tests | Present | `backend/shops/tests.py` contains tests. Execution and pass status were not verified here. |
+| Shop deletion behavior | Implementation/documentation discrepancy | `Shop.delete()` removes the Merchant profile and associated User credentials. The reconciled business rules require the same Merchant to be able to create a replacement Shop, leaving credential survival unresolved for approval. The implementation does not yet satisfy a settled rule for this case. |
+| `catalog` | Minimal partial implementation | `MasterCategory` model and `catalog.0001` migration exist. No Shop Product, Variant, category API, serializer, or business workflow was found. No catalog-specific tests were found. |
+| `inventory`, `customers`, `cart`, `orders`, `campaigns`, `notifications`, `analytics` | Documentation-only / scaffolded | Apps and generated files exist, but no domain models, migrations, APIs, serializers, or business workflows were found. Test modules contain no verified domain tests. |
+| API coverage | Partial | Auth and Shop creation endpoints are routed under `/api/v1/`. No customer, catalog, inventory, cart, order, campaign, notification, or analytics APIs were found. |
+| Tenant authorization | Partial / incomplete | `IsActiveMerchant` protects Shop creation, and its serializer derives Merchant ownership from the authenticated user. A complete Shop-scoped permission/queryset strategy across domains is not implemented. |
+| Database | Partial | Identity, Shop, and Master Category migrations exist. The rest of the domain schema is not implemented. No live database connection was verified. |
+| Automated checks | Not verified | Tests/checks were not run as part of this documentation task; no CI workflow was found. Existing test files are not evidence of passing behavior. |
+| Infrastructure | Not found | No Dockerfile/Compose setup, CI workflow, frontend, or external WhatsApp/payment integration was found. |
 
-## 6. Current Django App Status
+## 4. Business Decisions and Implementation Work
 
-Repository inspection checked all ten app directories. Each has generated `models.py`, `views.py`, `tests.py`, and `migrations/__init__.py`; none has model/view declarations, test cases, or domain migration files. None has an app-level `urls.py` or `serializers.py`.
+The documentation now records the approved MVP direction for direct Super Admin Merchant creation, one Shop at a time per Merchant with replacement Shop identity, Merchant Shop deactivation, Super Admin Shop reactivation, variant-authoritative stock, pending-order expiry, no-OTP repeat-customer intent with access mechanism unresolved, and analytics/retention exclusions.
 
-| App | App exists | Models | Domain migrations | APIs/business logic | Tests |
-|---|---|---|---|---|---|
-| `users` | Yes | None found | None | None found | Stub only; no cases |
-| `shops` | Yes | None found | None | None found | Stub only; no cases |
-| `catalog` | Yes | None found | None | None found | Stub only; no cases |
-| `inventory` | Yes | None found | None | None found | Stub only; no cases |
-| `customers` | Yes | None found | None | None found | Stub only; no cases |
-| `cart` | Yes | None found | None | None found | Stub only; no cases |
-| `orders` | Yes | None found | None | None found | Stub only; no cases |
-| `campaigns` | Yes | None found | None | None found | Stub only; no cases |
-| `notifications` | Yes | None found | None | None found | Stub only; no cases |
-| `analytics` | Yes | None found | None | None found | Stub only; no cases |
+Those decisions are not implemented across the platform. In particular, Shop status and deletion operations lack API workflows; inventory and Order lifecycle are unimplemented; and no customer-history access flow exists. Do not treat these documents as evidence of shipped functionality.
 
-These are scaffolded applications, not implemented domain features.
+The following business decision requires approval before implementation: whether permanent Shop deletion removes or preserves the Merchant account/login credentials. Existing Shop deletion rules say the credentials are removed, while the approved Shop recreation rule requires the same Merchant account to create a replacement Shop.
 
-## 7. Authentication Status
+Other implementation blockers include the privacy-safe customer Order-history mechanism consistent with no OTP; complete Merchant/Super Admin authorization; Shop deletion and retention mechanics; catalog/inventory/Order schema and stock transaction design; pending Order timeout default and existing-state expiry representation; notification-history retention; and the remaining documented API, provider, and technical decisions.
 
-The custom Django User identity model is implemented with only `SUPER_ADMIN` and `MERCHANT` roles and global email/mobile uniqueness. Merchant account status and first-login password-change state are stored on a one-to-one Merchant profile. The configured backend supports Merchant mobile/password and Super Admin email/mobile plus password. Merchant JWT/session behavior and mobile OTP recovery are implemented. Super Admin self-recovery and administrative reset are approved and documented but have no implementation. Customers are not authenticated Users. Authorization beyond the first-login restriction remains unresolved.
+## 5. Repository Boundaries
 
-## 8. Authorization Status
-
-The final authorization model and permission matrix are not finalized. Shop-level tenant isolation is an approved requirement, but actual authorization and tenant enforcement should not be assumed complete. No product-specific permission classes or API authorization behavior were found.
-
-## 9. Multi-Tenancy Status
-
-### Approved
-
-- Shop is the primary tenant boundary.
-- Merchant-owned data is shop-scoped and must not cross shops.
-- Customer identity is shop-specific.
-
-### Implementation
-
-No tenant-context establishment, scoped application querysets, or cross-tenant enforcement was found in the scaffold. The multi-tenancy skill documents the requirement; the skill itself is not implementation. See `.ai/skills/multi-tenancy/SKILL.md`.
-
-## 10. Database Status
-
-### Approved architecture
-
-- PostgreSQL is the primary database.
-- Django ORM is the default data-access layer.
-- Django migrations are the schema-history mechanism.
-- Constraints and indexes should follow documented invariants and real query patterns.
-
-### Current implementation
-
-Domain models and domain migrations were not found. Django settings support PostgreSQL environment variables but fall back to a local SQLite database when `POSTGRES_DB` is unset. `backend/db.sqlite3` was absent during inspection. No seed data was found. A live PostgreSQL service or database connection was not verified.
-
-## 11. API Status
-
-### Approved
-
-- DRF implementation.
-- `/api/v1/` version prefix.
-- Resource-oriented contracts.
-- Serializers for validation and representation.
-- Explicit workflow operations where appropriate.
-
-### Current implementation
-
-DRF is declared in `backend/requirements.txt` and registered in `INSTALLED_APPS`. No application endpoints, serializers, app URL modules, authentication wiring, or DRF permission wiring were found. Root URL configuration exposes only Django Admin. API standards are documented in `.ai/skills/api-design/SKILL.md` and `.ai/skills/drf/SKILL.md`; those standards are not endpoint implementations.
-
-## 12. Testing Status
-
-Each app has a generated `tests.py`, but no test cases were found. No domain, API, tenant-isolation, security, or database-constraint tests were found. No CI workflow was found that executes tests. No coverage percentage is established. A Django system check passed during initial project setup; this is not evidence of application test coverage.
-
-## 13. External Integration Status
-
-### WhatsApp
-
-The approved MVP event and recipient matrix is documented in `.ai/project-context/domains/notifications.md`. Provider/architecture is not finalized, and no integration implementation was found. Notification history retention must be decided before implementation.
-
-### Payments
-
-MVP payment is merchant-handled. A centralized payment gateway is not approved; no gateway implementation was found.
-
-### Storage / Media
-
-The provider is not finalized. No storage integration was found.
-
-## 14. Domain Implementation Roadmap
-
-The following is a conceptual planning view, not a committed sequence. Dependencies and order may change as domain decisions are approved:
-
-```text
-Foundation
-    ↓
-Domain Design
-    ↓
-Database Design
-    ↓
-Authentication / Authorization Design
-    ↓
-Catalog
-    ↓
-Inventory
-    ↓
-Customer / Cart
-    ↓
-Orders
-    ↓
-Notifications
-    ↓
-Campaigns
-    ↓
-Analytics
-    ↓
-Hardening / Testing
-```
-
-## 15. Current Blockers / Decisions Required
-
-See `.ai/project-context/business-rules.md` for the canonical unresolved-decision list. Current decisions that block or constrain implementation include:
-
-- Authentication mechanism and authorization model.
-- Merchant account lifecycle enforcement and Shop relationship implementation.
-- Customer identity mechanism.
-- Physical representation of independent Shop Products and optional Master Product selection.
-- Catalog schema details, attribute representation, image storage, inventory mapping, and historical Order product snapshot/reference strategy.
-- Inventory and Order technical/database representation, aggregate Product quantity behavior, inventory transaction/concurrency design, and expiry-state representation.
-- Configured pending-timeout default; business timeout behavior is finalized, but no default duration has been chosen.
-- Order snapshot representation, total calculation implementation, validation, authorization, and API contracts.
-- Merchant handling mechanism for delivery-charge changes affecting existing/pending Orders; the business decision leaves this under Merchant control without specifying a mechanism.
-- Responsibilities for external refunds, if any; no centralized refund workflow is approved for MVP.
-- Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.
-- Campaign schema, API and authorization design, Shop display-scope representation, schedule/timezone handling, and retention mechanics; Campaign business rules are finalized.
-- Analytics formulas.
-- Physical deletion mechanics for Shop-related records; deletion/retention rules for other entities and historical-data requirements beyond the approved Shop rules.
-
-Do not resolve these by assumption in implementation.
-
-## 16. Do Not Implement Yet
-
-Until corresponding decisions and technical designs are completed, do not implement final authentication or authorization, final user/membership architecture, Order workflows, Inventory technical/database design or Orders integration, a centralized payment gateway, delivery-partner management, microservices, advanced event-driven architecture, or complex ERP accounting. Order and Inventory business rules are finalized; remaining technical work must not be resolved by assumption. Follow `product.md`, `architecture.md`, and `business-rules.md` for current boundaries.
-
-## 17. Change Tracking
-
-When implementation status changes:
-
-1. Update this file with verifiable current state.
-2. Update relevant domain documentation.
-3. Update tests.
-4. Update architecture or ADR documentation if an architectural decision changes.
-5. Keep status factual; planned or discussed work is not implemented work.
-
-## 18. Source-of-Truth Rules
-
-```text
-product.md
-    = what the product should do
-
-architecture.md
-    = how the system is architecturally organized
-
-business-rules.md
-    = approved business rules and invariants
-
-development-status.md
-    = what is actually implemented right now
-
-skills/
-    = how engineering work should be performed
-```
-
-When implementation differs from approved documentation, do not silently redefine the product. Identify the discrepancy, update the appropriate source of truth through an approved change, then update implementation and status.
-
-## 19. AI Agent Development Workflow
-
-Before implementing a new task, an AI agent MUST:
-
-1. Read `AGENTS.md`.
-2. Read `product.md`.
-3. Read `architecture.md`.
-4. Read `business-rules.md`.
-5. Read this `development-status.md`.
-6. Read relevant skills.
-7. Verify whether the requested functionality is already implemented.
-8. Verify required business decisions are finalized.
-9. Check the current Git working tree.
-10. Ask for clarification if implementation requires an unresolved decision.
-11. Implement only the approved scope.
-12. Update tests.
-13. Update documentation/status when appropriate.
-
-## 20. Git Workflow
-
-Follow the mandatory repository workflow:
-
-```text
-git status
-git checkout main
-git pull origin main
-git checkout -b <task-id>/<short-description>
-```
-
-Never work directly on `main`. Inspect existing changes first and do not discard them automatically. Destructive Git commands require explicit approval. Ask for a task ID before creating a branch when none is provided. Keep commits small and task-related, never commit secrets, push the task branch, and create a PR against `main`. Do not force-push or rewrite history without authorization. Follow `AGENTS.md` for the complete workflow.
-
-## 21. What This File Does Not Define
-
-This document records implementation/development status only. It does not define product requirements, business rules, architecture decisions, database schema, API contracts, authentication or authorization design, infrastructure, future implementation estimates, or unapproved technical decisions.
-
-## Final Requirement
-
-Create only `.ai/project-context/development-status.md`. Do not modify application code, models, migrations, APIs, authentication, permissions, or infrastructure. Do not invent implementation status. If repository evidence and documentation differ, report the discrepancy rather than silently resolving it.
+The architecture remains a Django modular monolith. PostgreSQL is the intended primary database, with a local SQLite fallback in settings. No repository-local Docker or CI infrastructure was found. Keep implementation status separate from documented product requirements and do not infer completeness from generated files.
