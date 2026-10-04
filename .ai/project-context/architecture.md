@@ -157,7 +157,7 @@ These are architectural classifications derived from product context, not final 
 
 ## 10. Authentication and Authorization Boundary
 
-Email/mobile plus password credential authentication is implemented with a Django backend. Session/token architecture and authorization are **not finalized**. This document does not select OAuth, API keys, identity providers, permission classes, role tables, or membership tables.
+Email/mobile plus password credential authentication is implemented with a Django backend. Merchant API authentication uses the approved JWT contract: bearer access tokens last 30 minutes, rotating refresh tokens last 30 days, and JWT signing keys are supplied through environment-based secret management. Temporary-password tokens are restricted to password change, logout, and refresh; password changes and Merchant deactivation invalidate existing sessions. Missing or invalid JWTs receive `401 Unauthorized`. Authorization remains **not finalized**. This document does not select OAuth, API keys, identity providers, permission classes, role tables, or membership tables.
 
 The architectural requirement is:
 
