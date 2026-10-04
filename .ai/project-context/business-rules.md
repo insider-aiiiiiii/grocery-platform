@@ -264,6 +264,8 @@ The successful login response contains `access`, `refresh`, `user` (`id`, `role`
 
 Super Admin login accepts email or mobile number with a password. Email and mobile number are each globally unique across all User accounts. Multiple Super Admin accounts are allowed, and a Super Admin may create another Super Admin account. A Super Admin does not automatically own a Shop.
 
+Super Admin self-recovery may use the registered email address or mobile number and requires one-time verification through that channel. Codes are single-use, expire after a configurable period, and are subject to request and attempt rate limits. Recovery must not reveal whether the submitted contact belongs to an account. Only a different authenticated Super Admin may initiate an administrative reset, after re-entering their own password; a Super Admin cannot use this flow to reset their own password. Record the initiating administrator and request time. Notify the affected Super Admin through a registered contact using a time-limited, single-use reset link or code; the affected administrator sets their own password. Successful password resets invalidate the affected administrator's sessions and refresh tokens. See the Users & Merchant Accounts domain specification for the detailed rules. Provider selection and integration are technical decisions; credentials stay outside source code.
+
 ## 22. Campaign / Advertising Rules
 
 Campaigns are platform-level promotional content managed exclusively by Super Admin. A campaign may display across all Shops or a selected set of Shops; display does not make a Shop the campaign owner. Campaigns may mention products, categories, brands, or Shops as content only; the MVP has no persistent Catalog targeting relationships.

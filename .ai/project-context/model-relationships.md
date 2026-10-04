@@ -208,8 +208,9 @@ These concepts must not be collapsed into one entity. Merchant means the Shop Ow
 
 - Meaning: A Super Admin is a platform-level User that can be created by another Super Admin.
 - Identity: Super Admin login accepts email or mobile number with a password. Each identifier is globally unique across all User accounts.
+- Recovery: Super Admin may self-recover through verified registered email or mobile. Administrative reset is initiated only by another authenticated Super Admin after password re-entry; the audit record identifies the initiator and request time. The affected Super Admin chooses a new password from a single-use, expiring link or code sent through a registered contact. Successful resets invalidate that User's sessions and refresh tokens.
+- Status: **APPROVED** for recovery/reset behavior; exact provider and technical representation remain implementation decisions.
 - Shop ownership: Super Admin does not automatically own a Shop.
-- Status: **APPROVED**.
 
 ### Merchant → Shop
 
