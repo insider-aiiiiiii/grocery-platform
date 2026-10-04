@@ -300,7 +300,7 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 \- Status: **\*\*APPROVED\*\*** as a business concept.
 
-Customer identity is shop-specific, not globally shared. The same WhatsApp number may exist as separate customer identities at different Shops. A customer at Shop A must not access or expose Shop B customer history.
+Each Customer profile belongs to one Shop, and Customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. A WhatsApp number does not grant access to customer history.
 
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
@@ -890,9 +890,9 @@ User = Merchant = Shop
 
 This is not approved. Identity, business/operator context, tenant context, and authorization are distinct concepts.
 
-**### Do not make Customer global**
+**### Keep Customer profiles shop-scoped**
 
-A global customer identity keyed by WhatsApp number is not approved. Customer identity is shop-specific.
+Each Customer profile belongs to one Shop and customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins, but the number alone does not authorize access to customer history. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
 
 **### Do not make Merchant the tenant**
 
@@ -1059,7 +1059,7 @@ No Django model implementation should begin before this relationship map and the
 |---|---|---|---|---|
 | User ↔ Merchant representation | One custom Django User supports SUPER_ADMIN and MERCHANT; each Merchant has a one-to-one profile with status and first-login state | Merchant profile lifecycle enforcement and physical relationship to Shop remain unresolved | Users, Shops | Merchant/Shop relationship |
 | Merchant credentials ↔ Shop access | Credentials access the Merchant's one active Shop and may be shared with staff | Authentication/access schema is not finalized | Users, Shops | Credential and access representation |
-| Shop ↔ Customer identity matching | One current Customer record per Shop, recognized primarily by the Shop-scoped WhatsApp number | Phone normalization, formatting, verification, and physical uniqueness representation remain open | Customers, Orders | Customer uniqueness/matching implementation |
+| Shop ↔ Customer identity matching | Every Customer profile belongs to one Shop; WhatsApp is globally unique across Customers, Merchants, and Super Admins | Shop model dependency, phone normalization, formatting, verification, and cross-domain uniqueness representation remain open | Customers, Users, Shops, Orders | Customer model and shared WhatsApp uniqueness implementation |
 | Shop ↔ Cart cardinality | Cart is Shop-scoped | Active-cart persistence/cardinality remains to be finalized | Cart, Shops | Cart identity/schema |
 | Product/Variant physical model | Product may be directly sellable or have variants | Exact fields, identity, and schema remain DB decisions | Catalog, Inventory | Catalog schema |
 | Master Product ↔ Shop Product representation | Shop Product may be selected from Master Catalog or created directly; each remains independent. Promotion does not auto-link the originating Shop Product. | Exact optional reference representation remains a technical decision | Catalog | Catalog reference fields |

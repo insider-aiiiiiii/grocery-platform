@@ -32,7 +32,8 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 - Merchant-owned data belongs to a Shop and must remain isolated from other Shops.
 - Merchants must not access another Shop's tenant-owned data.
 - Super Admin cannot view Shop information, edit Shop information, or deactivate a Shop in MVP. Super Admin may reactivate a deactivated Shop.
-- Customer identity is Shop-specific; the same WhatsApp number does not automatically create a globally shared customer identity.
+- Every Customer profile belongs to one Shop, and customer history remains Shop-scoped.
+- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. A WhatsApp number alone does not authorize access to customer history.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This document does not define technical tenant-context implementation.
@@ -121,14 +122,15 @@ Exact database representation, Product aggregate recalculation, transaction/conc
 
 ## 12. Customer Identity Rules
 
-- Customer identity is shop-specific, not globally shared across merchants by assumption.
+- Each Customer profile belongs to one Shop and is separate from authenticated User accounts.
+- A WhatsApp number is globally unique across Customer, Merchant, and Super Admin identities.
 - Within a Shop, the customer's WhatsApp number is the primary identifier for recognizing a returning Customer.
 - A permanent Shop-specific Customer record is created when the customer first provides their WhatsApp number for that Shop, even before an Order is successfully created.
 - Customer information may be reused or pre-filled for future orders at the same shop when the customer provides the same WhatsApp number.
 - A WhatsApp number must not expose another shop's customer history.
 - Traditional customer username/password accounts are not required by the current MVP concept.
 
-Phone-number normalization and formatting, detailed recognition behavior, privacy handling, and authentication mechanism are **Not Finalized / Require Decision**. The Shop-scoped WhatsApp identity rule and pre-order Customer creation are approved.
+Phone-number normalization and formatting, detailed recognition behavior, privacy handling, and authentication mechanism are **Not Finalized / Require Decision**. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
 
 ## 13. Cart Rules
 

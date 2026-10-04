@@ -8,7 +8,7 @@ It does not own merchant users or authentication, shop identity, products, inven
 
 ## 2. Customer Identity Model
 
-The current product does not require traditional customer accounts with usernames/passwords, customer login, or global platform accounts. The product concept is a lightweight, shop-specific customer identity.
+The current product does not require traditional customer accounts with usernames/passwords or customer login. A Customer is a lightweight profile that must belong to one Shop. Customer profiles remain separate from authenticated User accounts. A WhatsApp number is globally unique across the platform, including Customer, Merchant, and Super Admin identities.
 
 ```text
 Shop A
@@ -18,7 +18,7 @@ Shop B
    └── Customer Y
 ```
 
-Even if the same person shops at both stores, the platform must not automatically treat them as one global customer. Within a Shop, the customer's WhatsApp number is the primary identifier for recognizing a returning Customer.
+Customer profiles and history remain Shop-scoped; the platform does not automatically link one person's customer history across Shops. A WhatsApp number can be registered for at most one identity across the platform. Within a Customer's Shop, that number is the primary identifier for recognizing a returning Customer.
 
 ## 3. Shop-Specific Customer Isolation
 
@@ -27,7 +27,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` as the governing engineering rule.
 - Customer identity and history belong to a specific shop.
 - Customer information must not cross shop boundaries.
 - Shop A must not access Shop B's customer records.
-- The same WhatsApp number may exist as separate customer identities in multiple shops.
+- A WhatsApp number may be associated with at most one identity across the platform, including Customer, Merchant, and Super Admin identities.
 - An identifier from one shop must not grant access to another shop's customer data.
 
 These are business and security requirements; this specification does not design their technical implementation.
@@ -44,16 +44,16 @@ Do not automatically add email, date of birth, gender, profile photo, loyalty in
 
 ## 5. WhatsApp Number
 
-The product uses a WhatsApp number as customer contact information and an order-communication destination. It may also participate in repeat-order recognition or prefill context within the same shop.
+The product uses a WhatsApp number as customer contact information and an order-communication destination. It is also the primary identifier for recognizing a returning Customer within the Customer's Shop. The number is globally unique across Customer and authenticated User identities.
 
-A WhatsApp number must not become a global identity that merges customers across shops or, by itself, authorize access to customer history. For example:
+A globally unique WhatsApp number does not make the Customer profile global: every Customer profile still belongs to one Shop, and the number alone does not authorize access to customer history. The same number cannot be registered as a Customer at a second Shop or as a Merchant/Super Admin identity. For example:
 
 ```text
 Shop A: Customer identity with name Rahul and WhatsApp number X
-Shop B: Customer identity with name Rahul and WhatsApp number X
+Shop B: No second Customer profile can use WhatsApp number X
 ```
 
-These remain separate shop-specific customer identities unless a future approved requirement changes this. Phone-number normalization and formatting rules are not finalized.
+Customer information and history remain Shop-scoped. Phone-number normalization and formatting rules are not finalized.
 
 ## 6. Customer Creation
 
@@ -149,7 +149,7 @@ Customer deletion, anonymization, deactivation, and restoration behavior are not
 
 - Customer information remains shop-scoped.
 - One shop must not expose another shop's customers or customer history.
-- A WhatsApp number must not merge customers across shops.
+- WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities.
 - Customer information is exposed only to authorized users and processes.
 - Public customer-facing pages do not expose customer records.
 - Catalog/public-shop behavior does not expose customer information.
@@ -174,7 +174,7 @@ Possession or knowledge of a WhatsApp number must not be treated as authorizatio
 
 ## 18. Customer Access by Merchant
 
-Merchants may need customer information for legitimate shop operations such as order fulfillment. Merchant access is limited to the merchant's authorized shop and does not extend to customers of another shop. Customer identity is not platform-global.
+Merchants may need customer information for legitimate shop operations such as order fulfillment. Merchant access is limited to the merchant's authorized shop and does not extend to customers of another shop. Customer profiles remain Shop-scoped even though WhatsApp numbers are globally unique.
 
 Permanent Shop-specific Customer record is created or recognized
 
@@ -187,8 +187,8 @@ The permanent Shop-specific Customer record is created when the customer first p
 The following requirements are approved by the product and business-rule sources:
 
 - Customer identity is shop-specific.
-- The same person may have separate customer identities across different shops.
-- The same WhatsApp number may exist in multiple shops without merging those identities.
+- Customer profiles and history are shop-specific; they are not automatically linked across Shops.
+- A WhatsApp number is associated with at most one identity across all Shops and authenticated User accounts.
 - Customer history remains shop-scoped.
 - Merchant access to customer information is limited to authorized shops.
 A returning customer may be recognized within the same Shop using the customer's WhatsApp number as the primary identifier. The intended experience may prefill a customer name or reuse previously known delivery information where appropriate.
@@ -202,7 +202,7 @@ These are conceptual domain relationships, not necessarily database foreign keys
 ### Shops
 
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
-| Physical uniqueness enforcement within a shop. | One current Customer record exists per customer at a Shop, identified by the Shop-scoped WhatsApp number. | The database representation of that business rule remains open. |
+| Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
 | Returning-customer recognition details. | WhatsApp number is the approved primary identifier within a Shop. | Prefill, update, verification, and privacy behavior remain open. |
 
 Determines who may access customer information, subject to approved authorization.
@@ -234,7 +234,7 @@ No decision below is finalized by this specification.
 | Decision | Why unresolved | Impact |
 |---|---|---|
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
-| Physical uniqueness enforcement within a shop. | One current Customer record exists per customer at a Shop, identified by the Shop-scoped WhatsApp number. | The database representation of that business rule remains open. |
+| Cross-domain WhatsApp uniqueness implementation. | WhatsApp numbers must be unique across Customers, Merchants, and Super Admins. | A shared database representation is required; independent per-table constraints cannot enforce this rule. |
 | Phone-number normalization and formatting. | No format or normalization rule is documented. | Comparisons and accepted input formats cannot be specified. |
 | Whether WhatsApp verification is required. | No verification requirement or mechanism is approved. | Trust in contact information and account recovery cannot be decided. |
 | Whether customers can edit their information. | Product requirements do not define editing rules. | Customer-data correction behavior remains open. |
@@ -259,6 +259,8 @@ This specification does not define Django models, database schema, migrations, s
 ## 24. Implementation Gate
 
 > The Customers domain must not be implemented until the unresolved customer-identity, privacy, and checkout-related decisions required for implementation are reviewed and approved.
+
+Customer model implementation also depends on the Shops domain model: every Customer profile must reference an existing Shop.
 
 After approval, implementation must follow `AGENTS.md`, `.ai/project-context/product.md`, `.ai/project-context/architecture.md`, `.ai/project-context/business-rules.md`, `.ai/project-context/development-status.md`, `.ai/project-context/domains/users-and-merchant-accounts.md`, `.ai/project-context/domains/shops.md`, `.ai/project-context/domains/catalog.md`, `.ai/project-context/domains/inventory.md`, this domain specification, and relevant engineering skills. The implementation agent must not silently resolve unresolved business decisions.
 
