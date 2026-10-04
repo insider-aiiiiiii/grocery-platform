@@ -23,13 +23,21 @@ from users.views import (
     MerchantPasswordRecoveryConfirmView,
     MerchantPasswordRecoveryRequestView,
     RefreshView,
+    SuperAdminAdministrativeResetConfirmView,
+    SuperAdminAdministrativeResetRequestView,
     SuperAdminLoginView,
+    SuperAdminSelfRecoveryConfirmView,
+    SuperAdminSelfRecoveryRequestView,
 )
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/auth/login/', LoginView.as_view(), name='auth-login'),
     path('api/v1/auth/super-admin/login/', SuperAdminLoginView.as_view(), name='auth-super-admin-login'),
+    path('api/v1/auth/super-admin/recovery/', SuperAdminSelfRecoveryRequestView.as_view(), name='auth-super-admin-recovery-request'),
+    path('api/v1/auth/super-admin/recovery/confirm/', SuperAdminSelfRecoveryConfirmView.as_view(), name='auth-super-admin-recovery-confirm'),
+    path('api/v1/auth/super-admin/password-reset-requests/', SuperAdminAdministrativeResetRequestView.as_view(), name='auth-super-admin-reset-request'),
+    path('api/v1/auth/super-admin/password-reset-requests/confirm/', SuperAdminAdministrativeResetConfirmView.as_view(), name='auth-super-admin-reset-confirm'),
     path('api/v1/auth/change-password/', ChangePasswordView.as_view(), name='auth-change-password'),
     path('api/v1/auth/merchant-password-recovery/', MerchantPasswordRecoveryRequestView.as_view(), name='auth-merchant-password-recovery-request'),
     path('api/v1/auth/merchant-password-recovery/confirm/', MerchantPasswordRecoveryConfirmView.as_view(), name='auth-merchant-password-recovery-confirm'),

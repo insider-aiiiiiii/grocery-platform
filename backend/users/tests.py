@@ -17,6 +17,7 @@ from rest_framework.permissions import IsAuthenticated
 from .models import (
     Merchant,
     MerchantPasswordRecoveryChallenge,
+    SuperAdminRecoveryChallenge,
     User,
     UserAuthSession,
 )
@@ -439,6 +440,227 @@ class SuperAdminAuthenticationAPITests(TestCase):
         return APIRequestFactory().get(
             "/api/probe/", HTTP_AUTHORIZATION=authorization
         )
+
+
+class SuperAdminRecoveryAPITests(TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        from django.test import override_settings
+
+        self.client = APIClient()
+        self.sent_codes = []
+
+        def sender(contact, code):
+            self.sent_codes.append((contact, code))
+
+        self.sender_settings = override_settings(
+            SUPER_ADMIN_RECOVERY_SECRET_PEPPER="a-test-super-admin-recovery-pepper-over-32-bytes",
+            SUPER_ADMIN_RECOVERY_EMAIL_SENDER="test.email_sender",
+            SUPER_ADMIN_RECOVERY_SMS_SENDER="test.sms_sender",
+            SUPER_ADMIN_RECOVERY_CODE_TTL_SECONDS=300,
+            SUPER_ADMIN_RECOVERY_REQUEST_LIMIT=3,
+            SUPER_ADMIN_RECOVERY_REQUEST_WINDOW_SECONDS=3600,
+            SUPER_ADMIN_RECOVERY_ATTEMPT_LIMIT=5,
+            SUPER_ADMIN_RECOVERY_REAUTH_ATTEMPT_LIMIT=5,
+            SUPER_ADMIN_RECOVERY_IP_REQUEST_LIMIT=10,
+            SUPER_ADMIN_RECOVERY_IP_WINDOW_SECONDS=900,
+        )
+        self.sender_settings.enable()
+        self.sender_patch = patch("users.super_admin_recovery._sender", return_value=sender)
+        self.sender_patch.start()
+
+        self.admin = self.create_super_admin(
+            "admin-recovery", "admin-recovery@example.com", "+911111111111",
+        )
+        self.second_admin = self.create_super_admin(
+            "second-admin-recovery", "second-admin@example.com", "+912222222222",
+        )
+
+    def tearDown(self):
+        self.sender_patch.stop()
+        self.sender_settings.disable()
+        super().tearDown()
+
+    def create_super_admin(self, username, email, mobile, password="Current-admin-password-2026!"):
+        return User.objects.create_user(
+            username=username,
+            email=email,
+            mobile_number=mobile,
+            password=password,
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def login(self, user, password="Current-admin-password-2026!"):
+        return self.client.post(reverse("auth-super-admin-login"), {
+            "identifier": user.email,
+            "password": password,
+        }, format="json")
+
+    def test_self_recovery_is_generic_for_known_and_unknown_email_and_mobile(self):
+        for channel, contact, unknown in (
+            ("EMAIL", self.admin.email, "unknown-recovery@example.com"),
+            ("MOBILE", self.admin.mobile_number, "+919999999999"),
+        ):
+            with self.subTest(channel=channel):
+                url = reverse("auth-super-admin-recovery-request")
+                known = self.client.post(url, {
+                    "channel": channel, "contact": contact,
+                }, format="json")
+                unknown_response = self.client.post(url, {
+                    "channel": channel, "contact": unknown,
+                }, format="json")
+                self.assertEqual(known.status_code, 202)
+                self.assertEqual(known.data, unknown_response.data)
+                self.assertEqual(self.sent_codes[-1][0], contact)
+
+        challenge = SuperAdminRecoveryChallenge.objects.filter(
+            purpose=SuperAdminRecoveryChallenge.Purpose.SELF_RECOVERY,
+            subject=self.admin,
+        ).latest("requested_at")
+        self.assertNotEqual(challenge.code_hash, self.sent_codes[0][1])
+        self.assertIsNone(challenge.initiated_by)
+        self.assertTrue(SuperAdminRecoveryChallenge.objects.filter(
+            subject__isnull=True,
+        ).exists())
+
+    def test_self_recovery_code_is_single_use_and_revokes_sessions(self):
+        first = self.login(self.admin).data
+        second = self.login(self.admin).data
+        requested = self.client.post(reverse("auth-super-admin-recovery-request"), {
+            "channel": "EMAIL", "contact": self.admin.email,
+        }, format="json")
+        self.assertEqual(requested.status_code, 202)
+        code = self.sent_codes[-1][1]
+
+        reset = self.client.post(reverse("auth-super-admin-recovery-confirm"), {
+            "channel": "EMAIL",
+            "contact": self.admin.email,
+            "code": code,
+            "new_password": "A-new-super-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(reset.status_code, 204)
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.check_password("A-new-super-admin-password-2026!"))
+        self.assertEqual(UserAuthSession.objects.filter(user=self.admin).count(), 0)
+        from rest_framework.test import APIRequestFactory
+        old_access = AuthenticatedProbe.as_view()(APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=f"Bearer {first['access']}"
+        ))
+        self.assertEqual(old_access.status_code, 401)
+        for tokens in (first, second):
+            response = self.client.post(reverse("auth-refresh"), {
+                "refresh": tokens["refresh"],
+            }, format="json")
+            self.assertEqual(response.status_code, 401)
+        reused = self.client.post(reverse("auth-super-admin-recovery-confirm"), {
+            "channel": "EMAIL",
+            "contact": self.admin.email,
+            "code": code,
+            "new_password": "Another-new-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(reused.status_code, 400)
+        self.assertEqual(self.login(self.admin, "A-new-super-admin-password-2026!").status_code, 200)
+
+    def test_self_recovery_limits_wrong_codes_and_expired_codes(self):
+        self.client.post(reverse("auth-super-admin-recovery-request"), {
+            "channel": "MOBILE", "contact": self.admin.mobile_number,
+        }, format="json")
+        wrong_code = "0000000"
+        if wrong_code == self.sent_codes[-1][1]:
+            wrong_code = "0000001"
+        url = reverse("auth-super-admin-recovery-confirm")
+        for _ in range(5):
+            response = self.client.post(url, {
+                "channel": "MOBILE",
+                "contact": self.admin.mobile_number,
+                "code": wrong_code,
+                "new_password": "A-new-super-admin-password-2026!",
+            }, format="json")
+            self.assertEqual(response.status_code, 400)
+        challenge = SuperAdminRecoveryChallenge.objects.get(
+            purpose=SuperAdminRecoveryChallenge.Purpose.SELF_RECOVERY,
+            subject=self.admin,
+        )
+        self.assertEqual(challenge.failed_attempts, 5)
+
+        self.client.post(reverse("auth-super-admin-recovery-request"), {
+            "channel": "EMAIL", "contact": self.second_admin.email,
+        }, format="json")
+        expiring = SuperAdminRecoveryChallenge.objects.filter(subject=self.second_admin).get()
+        expiring.expires_at = timezone.now() - timedelta(seconds=1)
+        expiring.save(update_fields=["expires_at"])
+        expired = self.client.post(url, {
+            "channel": "EMAIL",
+            "contact": self.second_admin.email,
+            "code": self.sent_codes[-1][1],
+            "new_password": "A-new-super-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(expired.status_code, 400)
+        self.assertFalse(self.second_admin.check_password("A-new-super-admin-password-2026!"))
+
+    def test_administrative_reset_requires_different_admin_and_reauthentication(self):
+        initiator_tokens = self.login(self.admin).data
+        url = reverse("auth-super-admin-reset-request")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {initiator_tokens['access']}")
+        wrong_password = self.client.post(url, {
+            "target_user_id": self.second_admin.pk,
+            "channel": "MOBILE",
+            "current_password": "wrong-password",
+        }, format="json")
+        self.assertEqual(wrong_password.status_code, 400)
+        self.assertFalse(SuperAdminRecoveryChallenge.objects.exists())
+
+        self_reset = self.client.post(url, {
+            "target_user_id": self.admin.pk,
+            "channel": "EMAIL",
+            "current_password": "Current-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(self_reset.status_code, 400)
+
+        request = self.client.post(url, {
+            "target_user_id": self.second_admin.pk,
+            "channel": "MOBILE",
+            "current_password": "Current-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(request.status_code, 202)
+        self.assertEqual(self.sent_codes[-1][0], self.second_admin.mobile_number)
+        challenge = SuperAdminRecoveryChallenge.objects.get(
+            purpose=SuperAdminRecoveryChallenge.Purpose.ADMIN_RESET,
+            subject=self.second_admin,
+        )
+        self.assertEqual(challenge.initiated_by, self.admin)
+        self.assertIsNotNone(challenge.requested_at)
+
+    def test_administrative_reset_target_sets_password_and_sessions_are_revoked(self):
+        initiator_tokens = self.login(self.admin).data
+        affected_first = self.login(self.second_admin).data
+        affected_second = self.login(self.second_admin).data
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {initiator_tokens['access']}")
+        requested = self.client.post(reverse("auth-super-admin-reset-request"), {
+            "target_user_id": self.second_admin.pk,
+            "channel": "EMAIL",
+            "current_password": "Current-admin-password-2026!",
+        }, format="json")
+        self.assertEqual(requested.status_code, 202)
+        code = self.sent_codes[-1][1]
+
+        self.client.credentials()
+        completed = self.client.post(reverse("auth-super-admin-reset-confirm"), {
+            "channel": "EMAIL",
+            "contact": self.second_admin.email,
+            "code": code,
+            "new_password": "A-reset-by-affected-admin-2026!",
+        }, format="json")
+        self.assertEqual(completed.status_code, 204)
+        self.second_admin.refresh_from_db()
+        self.assertTrue(self.second_admin.check_password("A-reset-by-affected-admin-2026!"))
+        self.assertFalse(self.second_admin.check_password("Current-admin-password-2026!"))
+        self.assertEqual(UserAuthSession.objects.filter(user=self.second_admin).count(), 0)
+        for tokens in (affected_first, affected_second):
+            self.assertEqual(self.client.post(reverse("auth-refresh"), {
+                "refresh": tokens["refresh"],
+            }, format="json").status_code, 401)
+        self.assertEqual(self.login(self.admin).status_code, 200)
 
 
 class UserRoleTests(TestCase):

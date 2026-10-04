@@ -124,3 +124,44 @@ class MerchantPasswordRecoveryIPThrottle(models.Model):
     ip_hash = models.CharField(max_length=64, unique=True)
     window_started_at = models.DateTimeField()
     request_count = models.PositiveSmallIntegerField(default=0)
+
+
+class SuperAdminRecoveryThrottle(models.Model):
+    """Hashed contact/IP key used to limit Super Admin recovery requests."""
+
+    fingerprint = models.CharField(max_length=64, unique=True)
+    window_started_at = models.DateTimeField()
+    request_count = models.PositiveSmallIntegerField(default=0)
+
+
+class SuperAdminRecoveryChallenge(models.Model):
+    class Purpose(models.TextChoices):
+        SELF_RECOVERY = "SELF_RECOVERY", "Self recovery"
+        ADMIN_RESET = "ADMIN_RESET", "Administrative reset"
+
+    class Channel(models.TextChoices):
+        EMAIL = "EMAIL", "Email"
+        MOBILE = "MOBILE", "Mobile"
+
+    purpose = models.CharField(max_length=16, choices=Purpose.choices)
+    subject = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="super_admin_recovery_challenges",
+    )
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="initiated_super_admin_resets",
+    )
+    channel = models.CharField(max_length=6, choices=Channel.choices)
+    contact_fingerprint = models.CharField(max_length=64)
+    code_hash = models.CharField(max_length=64)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)

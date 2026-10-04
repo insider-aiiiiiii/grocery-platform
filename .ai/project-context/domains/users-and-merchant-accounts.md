@@ -140,6 +140,14 @@ Super Admin self-recovery and administrative reset are separate approved flows:
 - **Session invalidation:** Once either flow successfully changes the password, invalidate all sessions and refresh tokens belonging to the affected Super Admin, including their associated access-token sessions. Apply the configured platform password validators. Do not change Merchant temporary-password or `must_change_password` behavior, add roles, or add another administrator approval step.
 - **Delivery and security:** Use the configured email delivery provider for email recovery and the configured SMS/OTP provider for mobile recovery. Do not hardcode a provider. Keep provider credentials outside source code; protect verification/reset secrets, avoid logging credentials or codes, and apply server-side authentication, authorization, throttling, and appropriate audit logging.
 
+The implemented API contracts are:
+
+- `POST /api/v1/auth/super-admin/recovery/` accepts `channel` (`EMAIL` or `MOBILE`) and `contact`. It returns `202 Accepted` with the same generic response for eligible and unknown contacts. `POST /api/v1/auth/super-admin/recovery/confirm/` accepts `channel`, `contact`, `code`, and `new_password`; success returns `204 No Content`.
+- `POST /api/v1/auth/super-admin/password-reset-requests/` requires an authenticated Super Admin and accepts `target_user_id`, `channel`, and `current_password`. `POST /api/v1/auth/super-admin/password-reset-requests/confirm/` accepts `channel`, `contact`, `code`, and `new_password`; success returns `204 No Content`.
+- Recovery codes contain seven digits. Defaults are five minutes to expire, three requests per contact per hour, ten requests per IP per 15 minutes, five code attempts, and five administrative reauthentication attempts per hour. The corresponding `SUPER_ADMIN_RECOVERY_*` settings configure these limits and expiry.
+- A dedicated `SUPER_ADMIN_RECOVERY_SECRET_PEPPER` of at least 32 bytes keys stored code/contact/IP digests. The configured `SUPER_ADMIN_RECOVERY_EMAIL_SENDER` and `SUPER_ADMIN_RECOVERY_SMS_SENDER` are importable callbacks accepting `(contact, code)`; each adapter must enqueue delivery and return promptly. Missing provider or pepper configuration leaves the recovery-request endpoints unavailable with `503`.
+- The reset challenge record stores the affected account, initiating Super Admin when applicable, selected channel, request time, expiry, attempt count, and code digest. Passwords, raw codes, and contact details are not included in the audit log.
+
 ## 11. Approved Business Invariants
 
 - Merchant is the Shop Owner / business entity, separate from User and Shop.
@@ -166,7 +174,7 @@ The following remain unresolved because they concern technical representation or
 | Session/token implementation and exact logout mechanics | JWT sessions, refresh rotation/blacklisting, and current-session logout are implemented. Logout invalidates only the presented active session; a global logout-all-devices operation is not defined. |
 | API contracts and database fields/constraints | Not specified. |
 | Phone/email normalization | Not specified. |
-| Super Admin recovery/reset implementation details | The approved flows are described above. The verification-code lifetime, rate-limit thresholds, reset-link/code format, delivery/provider configuration, secure persistence, and audit-record implementation remain technical decisions. Both reset links and verification codes are allowed for administrative reset. |
+| Super Admin recovery/reset delivery details | The approved flows and API contracts are described above. Provider selection/credentials, callback wiring, and deployment-specific values for the configurable expiry and limits remain deployment decisions. Administrative reset uses the allowed verification-code mechanism; no reset UI is defined. |
 
 ## 13. Explicit Non-Goals
 
