@@ -90,7 +90,7 @@ An order is associated with a shop-specific customer context. The Customers doma
 
 ## 10. Customer Contact Information
 
-The current checkout concept includes customer name and WhatsApp number. The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose Order history. The privacy-safe access mechanism remains unresolved pending approval. Do not implement or prescribe a new authentication mechanism or introduce Customer login/authentication by assumption. Limit exposed customer information to what is needed for the Order experience.
+The current checkout concept includes customer name and WhatsApp number. The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose Order history. The approved mechanism is a customer-specific access link/token scoped to the relevant Customer and Shop. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse are technical design requirements to settle before implementation. Do not implement or prescribe a new authentication mechanism or introduce Customer login/authentication by assumption. Limit exposed customer information to what is needed for the Order experience.
 
 Home delivery also requires a delivery address. Additional contact fields are not defined here.
 
@@ -167,9 +167,9 @@ Operations are scoped to shops the merchant is authorized to manage. Merchants d
 
 ## 21. Customer Order Visibility
 
-The approved repeat-customer/order-history flow must not require OTP. Knowledge of a WhatsApp number alone must not expose Orders. A privacy-safe access mechanism consistent with no OTP remains unresolved and requires approval; no authentication mechanism is prescribed here. Minimize customer information exposed through this access.
+The approved repeat-customer/order-history flow must not require OTP. Knowledge of a WhatsApp number alone must not expose Orders. A customer-specific access link/token scoped to the relevant Customer and Shop is approved. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse remain technical design requirements to settle before implementation. Minimize customer information exposed through this access.
 
-Do not assume a customer account/login or expose private order/customer information through a public access mechanism.
+Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
 ## 22. Order Cancellation
 
@@ -227,7 +227,7 @@ WhatsApp messages must never accept, reject, cancel, or otherwise change an Orde
 
 ## 29. Order History
 
-Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. The approved customer repeat/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders; its privacy-safe access mechanism remains unresolved. Shop deletion removes its Orders. Minimize exposed customer information.
+Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. The approved customer repeat/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders; the approved access mechanism is a customer-specific link/token scoped to that Customer and Shop; its expiry, revocation, generation, delivery, storage, and unauthorized-reuse protections must be settled before implementation. Shop deletion removes its Orders. Minimize exposed customer information.
 
 ## 30. Order Data Visibility
 
@@ -243,7 +243,7 @@ Minimize exposed customer data. Exact fields and permissions remain for approved
 
 Orders represent historical business transactions. Consider preservation of product/variant meaning, order-time pricing, customer/order context, fulfillment choice, and relevant order status history. This specification requires that later Catalog or Cart changes do not silently rewrite an existing order's historical meaning or purchase price.
 
-Order history is retained while the Shop exists. Deleting the Shop deletes its Orders. The Customer entity remains after Shop deletion; customer data is not globally deleted solely because a Shop is deleted. The exact snapshot representation remains a technical decision.
+Order history is retained while the Shop exists. Deleting the Shop deletes its Orders. The Customer entity remains after Shop deletion; customer data is not globally deleted solely because a Shop is deleted. The exact snapshot representation remains a technical decision. Customer entities that remain after Shop deletion are not automatically associated with a replacement Shop.
 
 ## 32. Concurrency and Idempotency
 
@@ -350,7 +350,7 @@ No decision below is finalized by this specification.
 | Inventory concurrency and transaction behavior. | Business stock effects are finalized; locking/error semantics are not. | Inventory/Order technical integration remains open. |
 | Duplicate checkout and repeated state-transition behavior. | No idempotency/concurrency business behavior is approved. | Duplicate orders or operations cannot be handled by an assumed rule. |
 | Exact Customer/merchant authorization implementation and data minimization details. | Business access is defined; implementation and field-level privacy controls remain open. | Access-control and response design remain open. |
-| Physical Shop deletion mechanics and behavior while a Shop is deactivated. | Shop deletion removes Orders; data mechanics and deactivation access implementation remain technical decisions. | Database deletion design remains open. |
+| Physical Shop deletion mechanics and behavior while a Shop is deactivated. | Shop deletion removes Shop Products and Orders, preserves the Merchant account, and does not associate deleted Shop data with a replacement Shop. | Database deletion design and tenant-isolation mechanics remain open. |
 
 ## 38. Explicit Non-Goals
 

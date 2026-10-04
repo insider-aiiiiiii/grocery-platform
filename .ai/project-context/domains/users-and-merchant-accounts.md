@@ -99,7 +99,7 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 - A deactivated Merchant cannot log in or access the platform through that account, effective immediately.
 - Merchant data is not permanently deleted in MVP when the account is deactivated.
 - A deactivated Merchant cannot be reactivated in MVP. No reactivation workflow is defined.
-- Permanent Shop deletion and Merchant account deletion are not the same approved decision. Existing Shop rules say deletion removes associated Merchant credentials, which conflicts with the approved ability for the same Merchant account to create a replacement Shop. This conflict requires approval; do not infer account deletion or retention behavior.
+- Permanent Shop deletion does not delete or deactivate the Merchant account. The Merchant retains existing login credentials and may create a replacement Shop with a new Shop identity and public QR/link. Data from the deleted Shop is not carried into or associated with the replacement Shop. Customer entities are not globally deleted solely because of Shop deletion under the existing Customer rules and are not automatically transferred.
 - If the Merchant's Shop is deactivated, Merchant login immediately stops working.
 
 ## 9. Roles and Access
@@ -153,7 +153,7 @@ Super Admin self-recovery and administrative reset are separate approved flows:
 - Shop deactivation immediately stops Merchant login.
 - Merchant may manage Merchant personal information and Shop profile; Super Admin cannot edit either after creation.
 - Merchant application flow and ownership transfer are not supported in MVP.
-- A Merchant may create a new Shop after permanent deletion of the prior Shop. The Shop deletion effect on Merchant account credentials remains unresolved as described above.
+- Shop deletion does not delete or deactivate the Merchant account; existing login credentials are retained, and the Merchant may create a replacement Shop with a new identity and public QR/link. Deleted Shop data is not carried into or associated with that replacement.
 
 ## 12. Unresolved Technical Decisions
 
