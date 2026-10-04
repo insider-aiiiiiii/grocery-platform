@@ -16,11 +16,11 @@ Technical Implementation
 
 ### Super Admin
 
-The Super Admin is a platform-level actor responsible for approved administrative operations, including merchant/shop onboarding and review, platform master-catalog management, merchant-created product review, campaigns/advertisements, and platform analytics. This document does not define the final permissions.
+The Super Admin is a platform-level actor responsible for approved administrative operations, including creating Merchant accounts, managing the platform Master Catalog, campaigns/advertisements, and platform analytics. Super Admin may view dashboard information about Merchant-created products and may promote them into the Master Catalog. In MVP, Super Admin cannot edit Merchant or Shop information after creation. This document does not define the final permissions.
 
 ### Merchant / Shopkeeper
 
-A Merchant / Shopkeeper operates a shop and is responsible for shop management, the merchant catalog, products and variants, pricing, inventory and availability, incoming orders and order processing, merchant-side analytics, and merchant-provided payment instructions. This document does not define the final user or account architecture.
+A Merchant means the Shop Owner / business owner and is a business entity separate from User and Shop. A Merchant operates their one active Shop at a time in MVP and is responsible for Shop management, the merchant catalog, products and variants, pricing, inventory and availability, incoming orders and order processing, merchant-side analytics, and merchant-provided payment instructions. This document does not define the final user or account architecture.
 
 ### Customer
 
@@ -28,58 +28,70 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 
 ## 3. Shop / Tenant Rules
 
-- A shop is the primary tenant boundary.
-- Merchant-owned data belongs to a shop and must remain isolated from other shops.
-- Merchants must not access another shop's tenant-owned data.
-- Super Admin may operate across shops according to the final authorization design.
-- Customer identity is shop-specific; the same WhatsApp number does not automatically create a globally shared customer identity.
+- Shop is the primary tenant boundary.
+- Merchant-owned data belongs to a Shop and must remain isolated from other Shops.
+- Merchants must not access another Shop's tenant-owned data.
+- Super Admin cannot view Shop information, edit Shop information, or deactivate a Shop in MVP. Super Admin may reactivate a deactivated Shop.
+- Customer identity is Shop-specific; the same WhatsApp number does not automatically create a globally shared customer identity.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
 
-Follow `.ai/skills/multi-tenancy/SKILL.md` for the engineering requirements. This document does not define technical tenant-context implementation.
+Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This document does not define technical tenant-context implementation.
 
-## 4. Merchant / Shop Onboarding Rules
+## 4. Merchant Account and Shop Setup Rules
 
-A shop may be created/onboarded by a Super Admin or submitted by a merchant for review and approval. The conceptual lifecycle must distinguish pending/review, approved, and rejected outcomes, but the exact status names are not finalized.
-
-An unapproved merchant/shop must not receive normal approved-shop functionality. The exact onboarding process, approval behavior, account activation, and authorization details require domain decisions; do not define them here.
+- Only a Super Admin creates a Merchant account in MVP. There is no Merchant application, review, approval, rejection, re-application, or application status flow.
+- The system generates an initial temporary password when it creates the Merchant account. Merchant must change it on first login.
+- Merchant logs in using a mobile number unique across Merchant accounts. Email is also unique across Merchant accounts, is used for contact/recovery, and is not the login identifier.
+- Merchant exists before Shop creation and may log in without a Shop.
+- If the Merchant has no Shop, show the Create Shop flow after login. Merchant creates their own Shop; Super Admin does not create it.
+- A newly created Shop becomes ACTIVE immediately.
+- A Merchant can have only one active Shop at a time. A Shop belongs to exactly one Merchant and cannot exist without a Merchant.
+- Merchant cannot have multiple active Shops. After permanently deleting their current Shop, Merchant may immediately create another Shop; it is a new Shop entity.
+- Ownership transfer between Merchants is not supported in MVP.
 
 ## 5. Shop Profile Rules
 
-A shop has a public-facing identity used in the customer-facing experience. Its profile may contain information necessary for that experience. The exact profile fields are **Not Finalized / Requires Decision**; do not invent them.
+- Required Shop information: Shop name; structured address with address line, area, city, state, and pincode; Shop contact number equal to the Merchant's mobile number.
+- Shop name does not need to be unique. Shop description and Shop logo are optional.
+- Merchant can edit all Shop details, but cannot change Shop contact number separately from the Merchant mobile number.
+- Merchant can manage Merchant personal information and Shop profile. Super Admin cannot edit Merchant or Shop information after creation and cannot view Shop information.
 
 ## 6. QR / Public Shop Access Rules
 
-- Each shop can have a permanent, shop-specific QR entry point.
-- Scanning it should lead to that shop's public catalog and ordering experience without requiring manual shop search.
-- QR access identifies the intended shop context.
-- Public access must not expose private merchant information.
-- Changing a QR target must not accidentally expose another shop's private data.
-
-The QR format and URL structure are **Not Finalized / Requires Decision**.
-
+- Customers access a Shop through its system-generated Shop QR code or public Shop link. Public Shop links can be shared.
+- The customer flow is QR/public Shop link → Shop details → Categories → Products.
+- The QR uses a system-generated public link and does not expose or use the Shop ID as its public identifier. Merchant can regenerate the QR code.
+- When a Shop is deactivated, its QR remains technically valid but shows the Shop as unavailable. If the Shop is deleted, the QR and public link become unavailable immediately.
+- Deleting and recreating a Shop does not restore its previous QR. If a deactivated Shop is reactivated, its old QR does not work; a new QR must be generated.
+- Public access must not expose private Merchant information or grant Merchant/admin access.
 ## 7. Master Catalog Rules
 
-The platform maintains master-catalog information under Super Admin management. Merchant catalog configuration is separate from the platform master catalog. A merchant may create products not present in the master catalog; these initially belong to the merchant's catalog and may enter Super Admin review.
-
-Not every merchant product must originate from the master catalog. The product-review, approval, rejection, and catalog-merging workflow is **Not Finalized / Requires Decision**.
+- The Master Catalog is a platform-level reusable product library managed by Super Admin.
+- Every Shop has an independent Shop Catalog, fully controlled by its Merchant. Master Catalog data does not control or automatically synchronize to existing Shop Products.
+- A Merchant may select a Master Product or create a Shop Product directly. Directly created products require no Super Admin approval and may be sold by that Merchant.
+- Super Admin may view Merchant-created product information on the dashboard and may promote a product into the Master Catalog. Promotion makes the Master Product available for other Merchants to select; it does not automatically link, replace, or update the original Shop Product.
+- Multiple Shops may select the same Master Product while maintaining independent Shop Product information. Deleting a Master Product does not delete or impair existing Shop Products.
+- Do not automatically match or merge products by name, brand, category, or SKU. Master Products are identified by Master Product ID.
 
 ## 8. Merchant Catalog Rules
 
-Each merchant has a shop-specific catalog. Catalog behavior may include products, categories, variants, pricing, availability, and inventory-related information, subject to domain specifications.
-
-Merchant-specific configuration must not modify another merchant's catalog or accidentally modify platform-global master-catalog data.
+- Each Shop has its own Shop Catalog. The Merchant has full control over Shop Products and Shop-specific catalog information, including product information, variants, prices, categories, brands, custom attributes, images, visibility, and manual availability.
+- Merchant catalog operations must remain isolated from other Shops and must not modify Master Catalog data unless Super Admin performs a Master Catalog operation.
+- Merchants may create and manage Shop Catalog categories with CRUD, including subcategories. Products may belong to multiple categories. Deleting an assigned category leaves its products uncategorized.
+- Merchants control their Shop Catalog brands and custom attributes. Products may have multiple attributes and values; variants may have custom attributes. No fixed global attribute system is required by this decision.
 
 ## 9. Product Rules
 
-Approved conceptual rules:
-
-- Products belong to a catalog/domain context and may have variants.
-- Merchants may have shop-specific product configuration.
-- Merchant-created products may exist in a merchant catalog independently of master-catalog approval.
-- Product visibility and availability follow the relevant merchant/shop configuration.
-- One merchant's product configuration must not change another merchant's configuration.
-
-SKU format, exact product fields, variant structure, tax and unit models, and the product-approval algorithm are **Not Finalized / Require Decision** unless approved in future domain documentation.
+- A Shop Product can be sellable without variants or can have variants. Product-level and variant-level information are supported. Merchants can create, edit, and delete variants, including name, price, SKU, image, and custom attributes. Merchants may add Shop-specific variants to a selected Master Product.
+- Product information includes name, description, image, category, and brand. Products may have no image. A product's name need not be unique; do not infer identity or auto-match by product name.
+- MVP supports one image per product and an optional image per variant. A variant can use the product image as fallback. Merchants can replace/delete images; a primary image is supported when images exist. Image galleries are not included.
+- Merchant-entered SKUs may be changed and need not be unique. Duplicate SKUs, including across variants, are allowed.
+- Product pricing is Shop-specific and Merchant-controlled. Non-variant products may have a price; variant products support product-level and variant-level prices. Decimal values are supported. Master Catalog pricing does not control Shop prices.
+- Merchants control product visibility. Hidden products are not visible to customers and cannot be ordered; Merchants may make them visible again.
+- Manual availability is separate from inventory quantity. Manually unavailable products remain in the catalog but cannot be ordered.
+- Out-of-stock products remain visible, are shown as **Out of Stock**, and cannot be ordered. Customers see only available variants; if every variant is unavailable or out of stock, the main product shows **Out of Stock**.
+- Customers may see product name, description, brand, attributes, SKU, images, available variants, and applicable price. Hidden products are not visible; out-of-stock and manually unavailable products cannot be ordered.
+- Merchants may delete Shop Products. This does not delete a Master Product or affect another Shop. Historical Orders must retain required product information/references after deletion; physical retention and snapshot strategy are technical decisions.
 
 ## 10. Pricing Rules
 
@@ -92,12 +104,20 @@ Tax and discount calculation, currency architecture, price history, and promotio
 
 ## 11. Inventory and Availability Rules
 
-- Product availability and inventory are merchant/shop-specific.
-- One merchant's stock must not affect another merchant's stock.
-- Customer-facing availability reflects the shop's configured availability.
-- Inventory-related updates preserve tenant isolation.
+- Inventory is Shop-scoped and isolated; a Merchant may modify it only in the Merchant's authorized Shop. Client-provided Shop, Product, or Variant IDs cannot bypass tenant authorization. Super Admin does not modify Merchant inventory in MVP.
+- A Shop Product without variants has Product-level stock. A product with variants has independently tracked Variant stock and an overall/aggregate Product-level quantity. The Merchant may modify both levels. Aggregate recalculation behavior remains undefined.
+- Decimal quantities are allowed and respect the Catalog Product/Variant sellable unit. No separate Unit-of-Measure system or fixed global unit list is introduced.
+- New Shop Products and Variants start with stock `0`. Stock cannot become negative; minimum quantity is `0`.
+- The Merchant may add stock, subtract stock, or set the exact quantity. No reason is required for a manual adjustment.
+- MVP stores current stock only; it does not maintain a persistent inventory movement/history ledger.
+- Creating an Order reserves the required quantity, visible to the Merchant. Accepting the Order deducts the reserved stock. Rejecting the Order releases the reservation. Cancelling an accepted Order restores the deducted quantity, which is immediately available again.
+- When requested quantity exceeds available stock, partial quantity is allowed. Detailed customer confirmation, quantity adjustment, and Order behavior remain an Inventory/Orders dependency and must be finalized with the Orders domain.
+- Customers can see the exact available quantity. At `0`, they see **Out of Stock**; the product remains visible but cannot be ordered.
+- The MVP has no low-stock threshold. Do not add configurable thresholds, alerts, or low-stock notification events.
+- Removing a Catalog Product or Variant from a Shop Catalog removes its Inventory record. This does not prescribe hard-delete or soft-delete mechanics.
+- Inventory quantity and Catalog manual availability/visibility remain separate concepts.
 
-Reservation logic, stock-deduction timing, low-stock thresholds, overselling behavior, warehouse concepts, and reconciliation algorithms are **Not Finalized / Require Decision**.
+Exact database representation, Product aggregate recalculation, transaction/concurrency implementation, partial-quantity Order behavior, additional cancellation scenarios, and the complete Order state machine remain unresolved where applicable.
 
 ## 12. Customer Identity Rules
 
@@ -125,17 +145,18 @@ Cart persistence, guest-session mechanism, expiration, quantity limits, and pric
 
 The current checkout concept requires customer name and WhatsApp number, selected products/variants, quantities, and a pickup or home-delivery choice. Home delivery requires an address. Pickup does not require a delivery address unless another approved requirement says otherwise.
 
-Do not invent additional mandatory checkout fields. Address validation and delivery-zone rules remain subject to domain decisions.
+Do not invent additional mandatory checkout fields. Address validation remains subject to domain decisions. Merchant handles delivery eligibility manually; no delivery-radius or delivery-area configuration exists in MVP.
 
-## 15. Delivery / Pickup Rules
+## 15. Delivery / Pickup and Business Hours Rules
 
-The MVP supports:
-
-- **Pickup:** the customer collects the order from the shop.
-- **Home delivery:** the customer provides a delivery address.
-
-The MVP does not include centralized delivery-partner management. Delivery pricing, delivery zones, distance calculations, delivery-partner assignment, and ETA algorithms are **Not Finalized / Require Decision**.
-
+- Shop supports Home Delivery and Pickup. Merchant can independently enable or disable each option. A disabled option is hidden from customers.
+- Merchant controls the delivery charge and may change it at any time. Merchant decides whether a delivery charge of ₹0 is allowed for the Shop. Delivery charge is shown to the customer at checkout.
+- No delivery radius or delivery-area configuration exists in MVP. Merchant handles delivery eligibility manually.
+- Pickup means the customer collects the order from the Shop. Home Delivery requires a delivery address.
+- Business hours are an MVP feature managed by the Merchant. One opening time and one closing time apply to each configured Shop schedule; multiple daily time slots are not part of MVP.
+- Merchant can change business hours at any time and can temporarily mark the Shop closed outside normal operating hours.
+- While closed, customers see **"Shop Closed"** and can still place orders.
+- The MVP does not include centralized delivery-partner management.
 ## 16. Order Rules
 
 The product requirements describe this conceptual order lifecycle:
@@ -188,9 +209,9 @@ It is not the primary merchant interface for accepting or rejecting orders, chan
 
 ## 21. Merchant Accounts
 
-The MVP concept allows merchant-side access to potentially be shared by a small number of people. The architecture should not prevent future individual merchant accounts and role-based access.
+Merchant credentials may be shared with employees/staff in MVP. Individual employee accounts, roles, and individual staff permissions are not required; they may be introduced later. Merchant may log in from multiple devices. Merchant logout invalidates the current session/token according to the eventual authentication implementation. Failed login attempts have no special application-level lockout rule in MVP; normal authentication security still applies.
 
-The number of users per shop, membership model, roles, invitation flow, and authentication mechanism are **Not Finalized / Require Decision**.
+Merchant status is `ACTIVE` or `DEACTIVATED`. Deactivation immediately prevents Merchant login and platform access; Merchant data is not permanently deleted. A deactivated Merchant cannot be reactivated in MVP. Deactivating the Merchant account automatically deactivates their Shop. Both Merchant and Super Admin can change or reset the Merchant password. Standard platform password rules apply. The authentication technology and exact session/token implementation remain unresolved technical decisions.
 
 ## 22. Campaign / Advertising Rules
 
@@ -200,7 +221,7 @@ Advertising pricing, targeting algorithms, campaign bidding, monetization, and a
 
 ## 23. Analytics Rules
 
-Merchant analytics must be shop-scoped. Conceptual merchant metrics may include orders, sales/revenue-related metrics, top products, low stock, rejected/completed orders, average order value, and customers.
+Merchant analytics must be shop-scoped. Conceptual merchant metrics may include orders, sales/revenue-related metrics, top products, rejected/completed orders, average order value, and customers. MVP does not define a low-stock threshold or low-stock metric/alert.
 
 Platform analytics may include shops, orders, sales, shop performance, product performance, customers, and campaigns. Do not define exact metric formulas unless they have been finalized.
 
@@ -222,22 +243,20 @@ These are business invariants, not a definition of database constraints or schem
 
 When a business operation changes current information, consider whether historical records must preserve the state that existed when an event occurred. Relevant examples may include order information, the pricing used for an order, the customer/order relationship, and merchant/shop state.
 
-The exact snapshot strategy and historical-data requirements are **Not Finalized / Require Decision**.
+The exact snapshot strategy and historical-data requirements remain **Not Finalized / Require Decision**, subject to the approved Shop deletion rule that deletes Shop Orders.
 
 ## 26. Deactivation / Deletion
 
-Deletion behavior is not fully defined. The following are **Not Finalized / Require Decision**:
+Shop lifecycle and deletion rules are approved:
 
-- Shop deletion.
-- Merchant deletion.
-- Customer deletion.
-- Product deletion.
-- Order deletion.
-- Historical-data retention.
-- Customer/order access for a deactivated shop.
+- Shop status is `ACTIVE` or `DEACTIVATED`.
+- Merchant can deactivate their Shop. Super Admin cannot deactivate it; only Super Admin can reactivate it.
+- A deactivated Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
+- Merchant account deactivation automatically deactivates the Merchant's Shop.
+- Merchant can permanently delete the Shop, including when it has existing orders. Deletion requires confirmation and a clear warning that Shop data and orders will be deleted.
+- Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Merchant may then immediately create a new Shop.
 
-Do not invent soft-delete rules.
-
+Deletion and retention rules for other business entities remain unresolved. Do not infer physical database deletion mechanics from these business rules.
 ## 27. Business Rules vs Implementation
 
 A business rule states required behavior:
@@ -261,25 +280,22 @@ This document defines the business rule, not a premature implementation choice.
 
 The following require product/business approval and must not be answered by assumption:
 
-- Final merchant/shop onboarding statuses.
-- Merchant account and membership model.
 - Customer phone-number normalization and formatting.
-- Exact catalog/master-catalog approval workflow.
-- Product and variant structure.
-- Inventory deduction behavior.
-- Overselling behavior.
-- Low-stock rules.
+- Physical representation of Shop Products and any Master Product selection/link reference.
+- Product/variant schema, attribute representation, image storage, and inventory mapping.
+- Historical Order product snapshot/reference strategy.
+- Detailed partial-quantity behavior with Orders.
+- Complete Order state machine and cancellation scenarios beyond accepted-order cancellation stock restoration.
+- Inventory technical/database representation, aggregate Product stock recalculation, and transaction/concurrency implementation.
 - Complete order state machine.
 - Cancellation behavior.
 - Refund behavior.
-- Delivery pricing.
-- Delivery zones.
 - Customer order-history behavior.
 - Payment verification.
 - Campaign rules.
 - Analytics formulas.
-- Deletion and retention policies.
-- Historical-data requirements.
+- Deletion and retention policies for entities other than the approved Shop deletion behavior.
+- Historical-data requirements outside approved Shop lifecycle and deletion rules.
 
 ## 29. AI Agent Business-Rule Workflow
 

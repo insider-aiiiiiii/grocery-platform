@@ -66,9 +66,12 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
 | `users` | Scaffolded / No Business Logic | App files exist; no product user model or authentication flow. |
-| `shops` | Scaffolded / No Business Logic | App files exist; no shop model or onboarding behavior. |
-| `catalog` | Scaffolded / No Business Logic | App files exist; no catalog models or review behavior. |
-| `inventory` | Scaffolded / No Business Logic | App files exist; no inventory behavior. |
+| `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
+| Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
+| Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
+| `catalog` | Scaffolded / No Business Logic | App files exist; no Catalog models, migrations, APIs, tests, or frontend work have been implemented. |
+| Inventory business decisions | Finalized | Shop-scoped stock, granularity, quantities, initial stock, merchant updates, order reservation/deduction/restoration, customer visibility, no low-stock threshold or movement ledger, and removal behavior are documented. Partial-quantity details and other Orders dependencies remain open. |
+| `inventory` | Scaffolded / No Business Logic | Inventory implementation has not started. It remains dependent on technical/database design and relevant Orders integration. No inventory models, migrations, APIs, tests, or frontend work are complete. |
 | `customers` | Scaffolded / No Business Logic | App files exist; no customer identity implementation. |
 | `cart` | Scaffolded / No Business Logic | App files exist; no cart behavior or persistence. |
 | `orders` | Scaffolded / No Business Logic | App files exist; no order behavior or state machine. |
@@ -212,20 +215,20 @@ See `.ai/project-context/business-rules.md` for the canonical unresolved-decisio
 - Authentication mechanism and authorization model.
 - Merchant account/membership model.
 - Customer identity mechanism.
-- Catalog approval and master-catalog relationship.
-- Product/variant structure.
-- Inventory deduction, overselling, and low-stock behavior.
+- Physical representation of independent Shop Products and optional Master Product selection.
+- Catalog schema details, attribute representation, image storage, inventory mapping, and historical Order product snapshot/reference strategy.
+- Inventory technical/database representation, aggregate Product quantity behavior, partial-quantity Orders behavior, other Order cancellation/state-machine decisions, and transaction/concurrency design.
 - Complete order state machine, cancellation, and refunds.
-- Delivery rules, pricing, and zones.
+- Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.
 - Payment verification.
 - Campaign rules and analytics formulas.
-- Deletion, retention, and historical-data behavior.
+- Physical deletion mechanics for Shop-related records; deletion/retention rules for other entities and historical-data requirements beyond the approved Shop rules.
 
 Do not resolve these by assumption in implementation.
 
 ## 16. Do Not Implement Yet
 
-Until corresponding decisions are approved, do not implement final authentication or authorization, final user/membership architecture, detailed order workflows, inventory deduction or overselling rules, a centralized payment gateway, delivery-partner management, microservices, advanced event-driven architecture, or complex ERP accounting. Follow `product.md`, `architecture.md`, and `business-rules.md` for current boundaries.
+Until corresponding decisions and technical designs are completed, do not implement final authentication or authorization, final user/membership architecture, detailed Order workflows, Inventory technical/database design or Orders integration, a centralized payment gateway, delivery-partner management, microservices, advanced event-driven architecture, or complex ERP accounting. Inventory business rules are finalized; remaining Orders dependencies must not be resolved by assumption. Follow `product.md`, `architecture.md`, and `business-rules.md` for current boundaries.
 
 ## 17. Change Tracking
 
