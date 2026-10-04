@@ -20,6 +20,8 @@ Shop B
 
 Customer profiles and Order history are Shop-scoped; the platform does not automatically link customer history across Shops. The repeat-customer/order-history experience must not require OTP, but a WhatsApp number alone is not proof of identity and must not expose Order history. The approved mechanism is a customer-specific access link/token scoped to the relevant Customer and Shop. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse are technical design requirements to settle before implementation; this mechanism is not implemented here.
 
+See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal. Its suggested link/session flow and settings remain proposals pending review; it does not change the approved no-OTP and no-phone-number-only-access rules.
+
 ## 3. Shop-Specific Customer Isolation
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` as the governing engineering rule.
@@ -203,7 +205,7 @@ These are conceptual domain relationships, not necessarily database foreign keys
 
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
 | Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
-| Order-history access link/token design. | A customer-specific link/token scoped to the Customer and Shop is approved; WhatsApp number alone is insufficient to authorize access and OTP is not required. | Expiry, revocation, generation, delivery, storage, and unauthorized-reuse protections must be settled before implementation. |
+| Order-history access link/token design. | A customer-specific link/token scoped to the Customer and Shop is approved; WhatsApp number alone is insufficient to authorize access and OTP is not required. | See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 proposal. Delivery, lifetimes, session count, cancellation authority, origin, and revocation choices require review before implementation. |
 
 Determines who may access customer information, subject to approved authorization.
 
