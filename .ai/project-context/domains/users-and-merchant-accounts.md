@@ -119,6 +119,7 @@ The application uses a custom Django `User` model derived from `AbstractUser`. I
 - Require `JWT_SIGNING_KEY` from the process environment. Do not silently fall back to Django's `SECRET_KEY` or a hardcoded key.
 - Access JWT strings are never stored server-side. Revocable per-login session metadata and refresh-token blacklist records support logout, password changes, and account deactivation.
 - Refresh accepts only a valid, unexpired, non-blacklisted refresh token that matches the current active session. Successful refresh rotates the token and blacklists the submitted token. Expired, malformed, revoked, previously rotated, or session-mismatched tokens return HTTP `401` with `{"detail":"Invalid refresh token."}` and no tokens are issued; the user must authenticate again. An invalid refresh token is never renewed or exchanged for a replacement.
+- `POST /api/v1/auth/logout/` requires the current Bearer access token and that login session's current refresh token. A valid pair blacklists that refresh token and revokes only its associated session, immediately rejecting that session's access tokens. Logout returns `204 No Content`; invalid, revoked, or mismatched refresh tokens return `401` without changing any session. Other device sessions remain active.
 
 ## 11. Approved Business Invariants
 
@@ -143,7 +144,7 @@ The following remain unresolved because they concern technical representation or
 | Authentication mechanism | JWT bearer authentication is approved with 30-minute access tokens, 30-day rotating refresh tokens, and the first-login restriction defined above. |
 | Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. Django's `is_active` field controls whether a Super Admin can authenticate. |
 | Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
-| Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
+| Session/token implementation and exact logout mechanics | JWT sessions, refresh rotation/blacklisting, and current-session logout are implemented. Logout invalidates only the presented active session; a global logout-all-devices operation is not defined. |
 | API contracts and database fields/constraints | Not specified. |
 | Phone/email normalization | Not specified. |
 

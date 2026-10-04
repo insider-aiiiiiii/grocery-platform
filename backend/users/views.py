@@ -56,6 +56,13 @@ def authorized_refresh(raw_token, *, require_session=True):
     return refresh, user, merchant, session
 
 
+def lock_active_session(session):
+    try:
+        return UserAuthSession.objects.select_for_update().get(pk=session.pk)
+    except UserAuthSession.DoesNotExist:
+        raise AuthenticationFailed("Invalid refresh token.")
+
+
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -137,7 +144,7 @@ class RefreshView(APIView):
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             old_refresh, user, merchant, session = authorized_refresh(serializer.validated_data["refresh"])
-            session = UserAuthSession.objects.select_for_update().get(pk=session.pk)
+            session = lock_active_session(session)
             # Revalidate after acquiring the lock to prevent concurrent rotations.
             if session.refresh_token.jti != old_refresh["jti"]:
                 raise AuthenticationFailed("Invalid refresh token.")
@@ -159,8 +166,8 @@ class LogoutView(APIView):
         serializer = LogoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
-            refresh, user, _merchant, session = authorized_refresh(serializer.validated_data["refresh"])
-            session = UserAuthSession.objects.select_for_update().get(pk=session.pk)
+            refresh, _user, _merchant, session = authorized_refresh(serializer.validated_data["refresh"])
+            session = lock_active_session(session)
             if request.auth.get("session_id") != str(session.session_id):
                 raise AuthenticationFailed("Invalid refresh token.")
             if session.refresh_token.jti != refresh["jti"]:
