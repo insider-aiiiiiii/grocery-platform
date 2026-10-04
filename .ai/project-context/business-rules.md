@@ -14,6 +14,8 @@ Technical Implementation
 
 ## 2. Actors
 
+The consolidated actor/resource permissions and current implementation coverage are documented in `.ai/project-context/authorization-matrix.md`. This matrix does not replace the domain rules below.
+
 ### Super Admin
 
 The Super Admin is a platform-level actor responsible for approved administrative operations, including creating Merchant accounts, managing the platform Master Catalog, campaigns/advertisements, and platform analytics. Super Admin may view dashboard information about Merchant-created products and may promote them into the Master Catalog. In MVP, Super Admin cannot edit Merchant or Shop information after creation. This document does not define the final permissions.
