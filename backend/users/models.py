@@ -11,12 +11,37 @@ class User(AbstractUser):
         MERCHANT = "MERCHANT", "Merchant"
 
     role = models.CharField(max_length=11, choices=Role.choices)
+    mobile_number = models.CharField(max_length=32, blank=True, null=True)
 
     class Meta:
         constraints = [
             models.CheckConstraint(
                 check=Q(role__in=["SUPER_ADMIN", "MERCHANT"]),
                 name="users_user_valid_role",
+            ),
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=~Q(email=""),
+                name="users_user_email_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["mobile_number"],
+                condition=Q(mobile_number__isnull=False) & ~Q(mobile_number=""),
+                name="users_user_mobile_unique",
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~Q(role="MERCHANT")
+                    | (Q(mobile_number__isnull=False) & ~Q(mobile_number=""))
+                ),
+                name="users_merchant_requires_mobile",
+            ),
+            models.CheckConstraint(
+                check=(
+                    ~Q(role="SUPER_ADMIN")
+                    | (~Q(email="") | (Q(mobile_number__isnull=False) & ~Q(mobile_number="")))
+                ),
+                name="users_super_admin_requires_login_id",
             ),
         ]
 
@@ -31,8 +56,6 @@ class Merchant(models.Model):
         on_delete=models.PROTECT,
         related_name="merchant",
     )
-    mobile_number = models.CharField(max_length=32, unique=True)
-    email = models.EmailField(blank=True, null=True, unique=True)
     status = models.CharField(
         max_length=11,
         choices=Status.choices,
@@ -50,5 +73,8 @@ class Merchant(models.Model):
 
     def clean(self):
         super().clean()
-        if self.user_id and self.user.role != User.Role.MERCHANT:
-            raise ValidationError({"user": "Merchant profiles require a MERCHANT user."})
+        if self.user_id:
+            if self.user.role != User.Role.MERCHANT:
+                raise ValidationError({"user": "Merchant profiles require a MERCHANT user."})
+            if not self.user.mobile_number:
+                raise ValidationError({"user": "Merchant users require a mobile number."})
