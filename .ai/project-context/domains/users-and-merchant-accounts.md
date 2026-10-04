@@ -110,7 +110,15 @@ Merchant access is limited to the Merchant's Shop. Server-side authorization mus
 
 ## 10. Authentication and Technical Boundaries
 
-The application uses a custom Django `User` model derived from `AbstractUser`. Its email and mobile fields have global uniqueness constraints across all User accounts, and a Super Admin must have at least one of those login identifiers. The configured Django authentication backend accepts Merchant mobile/password and Super Admin email/password or mobile/password. A separate Merchant profile stores status (`ACTIVE` or `DEACTIVATED`, default `ACTIVE`) and a first-login password-change flag (default true). Django stores password hashes on User. Phone/email normalization, session/token behavior, APIs, and other profile fields remain unspecified.
+The application uses a custom Django `User` model derived from `AbstractUser`. Its email and mobile fields have global uniqueness constraints across all User accounts, and a Super Admin must have at least one of those login identifiers. The configured Django authentication backend accepts Merchant mobile/password and Super Admin email/password or mobile/password. A separate Merchant profile stores status (`ACTIVE` or `DEACTIVATED`, default `ACTIVE`) and a first-login password-change flag (default true). Django stores password hashes on User. Phone/email normalization remains unspecified.
+
+### JWT Technical Decisions
+
+- Use `Authorization: Bearer <access_token>` for access-token authentication.
+- Access tokens last 30 minutes and refresh tokens last 30 days, including local development. Refresh tokens rotate on every successful refresh.
+- Require `JWT_SIGNING_KEY` from the process environment. Do not silently fall back to Django's `SECRET_KEY` or a hardcoded key.
+- Access JWT strings are never stored server-side. Revocable per-login session metadata and refresh-token blacklist records support logout, password changes, and account deactivation.
+- Refresh accepts only a valid, unexpired, non-blacklisted refresh token that matches the current active session. Successful refresh rotates the token and blacklists the submitted token. Expired, malformed, revoked, previously rotated, or session-mismatched tokens return HTTP `401` with `{"detail":"Invalid refresh token."}` and no tokens are issued; the user must authenticate again. An invalid refresh token is never renewed or exchanged for a replacement.
 
 ## 11. Approved Business Invariants
 
