@@ -97,7 +97,7 @@ Customer information
 Order history
 ```
 
-Customer Order history is available within the relevant Shop/customer context using the customer's WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Previously provided name or address may be reused or pre-filled according to Customer-domain rules.
+Customer Order history is available only within the relevant Customer + Shop context through the approved one-use access link and scoped Customer session. Knowing a WhatsApp number alone never grants access. OTP and traditional Customer login are not required. The link expires after 15 minutes; the session has a maximum absolute lifetime of 30 days, with one active session per Customer + Shop. Minimize exposed customer information. Previously provided name or address may be reused or pre-filled according to Customer-domain rules. See `.ai/project-context/customer-order-history-access.md` for the security design and remaining deployment decisions.
 
 ## 10. Orders
 

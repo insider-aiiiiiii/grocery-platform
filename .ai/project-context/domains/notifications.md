@@ -240,7 +240,7 @@ Resolve the customer recipient from the relevant Shop-specific Customer record, 
 
 Customer notifications must target that Customer in the Order's Shop context and must not expose unrelated customer data or reach another Shop's customer.
 
-The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval. Notification delivery itself does not authorize Order-history access.
+The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not expose Orders. AUTH-015 finalizes the one-use link and Customer + Shop-scoped session security rules; delivery-provider and deployment details remain unresolved. Notification delivery itself does not authorize Order-history access. See `.ai/project-context/customer-order-history-access.md`.
 
 ## 12. Customer Privacy
 

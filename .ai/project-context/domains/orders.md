@@ -90,7 +90,7 @@ An order is associated with a shop-specific customer context. The Customers doma
 
 ## 10. Customer Contact Information
 
-The current checkout concept includes customer name and WhatsApp number. The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose Order history. The approved mechanism is a customer-specific access link/token scoped to the relevant Customer and Shop. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse are technical design requirements to settle before implementation. Do not implement or prescribe a new authentication mechanism or introduce Customer login/authentication by assumption. Limit exposed customer information to what is needed for the Order experience.
+The current checkout concept includes customer name and WhatsApp number. The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is never authorization. The finalized mechanism is a single-use link with a 15-minute expiry, exchanged for a server-side Customer session scoped to the exact Customer and Shop. A session lasts no more than 30 days, with one active session per Customer + Shop. Do not introduce a traditional Customer account or reuse Merchant/Super Admin JWT authentication. Limit exposed customer information to what is needed for the Order experience. See `.ai/project-context/customer-order-history-access.md` for security controls and deployment decisions still open.
 
 Home delivery also requires a delivery address. Additional contact fields are not defined here.
 
@@ -167,15 +167,15 @@ Operations are scoped to shops the merchant is authorized to manage. Merchants d
 
 ## 21. Customer Order Visibility
 
-The approved repeat-customer/order-history flow must not require OTP. Knowledge of a WhatsApp number alone must not expose Orders. A customer-specific access link/token scoped to the relevant Customer and Shop is approved. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse remain technical design requirements to settle before implementation. Minimize customer information exposed through this access.
+The approved repeat-customer/order-history flow must not require OTP. Knowledge of a WhatsApp number alone must not expose Orders or customer details. A single-use access link expires after 15 minutes and exchanges for a server-side session scoped to the exact Customer and Shop. The session has a maximum absolute lifetime of 30 days; only one active session is allowed per Customer + Shop, and redeeming a new link replaces the previous session. Shop deletion revokes all grants and sessions for that Shop. This mechanism is designed but not implemented; deployment details remain open in `.ai/project-context/customer-order-history-access.md`.
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
-See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal, including the proposed restricted session and the unresolved question of whether it authorizes pending Order cancellation. The proposal does not authorize implementation before review.
+The authenticated Customer + Shop-scoped session authorizes cancellation only for that Customer's own `PENDING` Order. Require explicit confirmation and CSRF protection, revalidate Customer ownership, Shop association, and current Order state on every request, and use the existing `REJECTED` outcome. The session cannot cancel another Customer's Order, another Shop's Order, or an Order no longer `PENDING`. See `.ai/project-context/customer-order-history-access.md` for security controls. Exact API contracts remain for later design.
 
 ## 22. Order Cancellation
 
-The Customer may cancel while an Order is `PENDING`, before Merchant acceptance. The Merchant may cancel an accepted Order only before `PREPARING`. Both use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. Customer cancellation releases reserved stock immediately; Merchant cancellation after acceptance restores/releases reserved stock automatically. No centralized refund workflow is included in MVP.
+The Customer may cancel only their own Order while it is `PENDING`, using the authenticated Customer + Shop-scoped session and explicit confirmation. The server verifies session scope, Order ownership, Shop association, and current status on every request and protects the state-changing request against CSRF. The Merchant may cancel an accepted Order only before `PREPARING`. Both use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. Customer cancellation releases reserved stock immediately; Merchant cancellation after acceptance restores/releases reserved stock automatically. No centralized refund workflow is included in MVP.
 
 ## 23. Refunds
 
@@ -229,7 +229,7 @@ WhatsApp messages must never accept, reject, cancel, or otherwise change an Orde
 
 ## 29. Order History
 
-Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. The approved customer repeat/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders; the approved access mechanism is a customer-specific link/token scoped to that Customer and Shop; its expiry, revocation, generation, delivery, storage, and unauthorized-reuse protections must be settled before implementation. Shop deletion removes its Orders. Minimize exposed customer information.
+Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. Customer history uses the no-OTP, one-use 15-minute link exchanged for a Customer + Shop-scoped session with a 30-day maximum absolute lifetime and one active session per Customer + Shop. A WhatsApp number alone must not expose Orders. The scoped session authorizes cancellation only of that Customer's own `PENDING` Order, subject to explicit confirmation and CSRF protection. Shop deletion revokes its grants and sessions and removes its Orders; retained Customer entities and their credentials are never transferred to a replacement Shop. Minimize exposed customer information. See `.ai/project-context/customer-order-history-access.md` for deployment details still open.
 
 ## 30. Order Data Visibility
 
