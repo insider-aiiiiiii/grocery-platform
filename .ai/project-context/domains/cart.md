@@ -90,7 +90,7 @@ Catalog defines the current shop-specific price. Cart uses the applicable price 
 
 Once an order has been created, later Catalog or Cart changes must not retroactively change that order's historical purchase price or meaning. The exact order representation and snapshot strategy remain an Orders-domain decision; the existing business-rules source also marks the snapshot strategy as unresolved.
 
-Checkout uses the latest applicable Catalog price. The Order preserves that historical purchase price after creation. No tax calculation applies in MVP unless explicitly documented elsewhere, and no discount engine is introduced unless Campaigns later defines one. Cart price-lock timing and other unapproved charges remain unspecified.
+Checkout uses the latest valid Shop Catalog price; a price displayed when an item was added is not guaranteed. The Order preserves that historical purchase price after creation. No tax calculation applies in MVP unless explicitly documented elsewhere, and no discount engine is introduced unless Campaigns later defines one. Other unapproved charges remain unspecified.
 
 ## 9. Cart Totals
 
@@ -112,17 +112,17 @@ Inventory
 Availability validation
 ```
 
-Do not assume that adding an item to a cart reserves inventory. The validation point and response to stock changes require an approved business decision.
+Adding an item to a cart does not reserve inventory. Stock is reserved as part of Order creation under the Inventory/Orders rules, not by adding to the Cart.
 
 ## 11. Stock Reservation
 
-Whether adding an item to a cart reserves stock is **Not Finalized / Requires Decision**. `Add to Cart` does not mean `Reserve Stock` unless an approved business rule explicitly establishes that behavior.
+`Add to Cart` does not mean `Reserve Stock`. Inventory reservation and subsequent stock effects follow the Inventory and Orders rules.
 
-Physical, reserved, and available quantities are possible concepts to evaluate, not approved Inventory states or fields. See `.ai/project-context/domains/inventory.md`.
+Order creation reserves required stock under the approved Inventory/Orders flow. The technical representation of reserved and available quantities remains an Inventory implementation detail; see `.ai/project-context/domains/inventory.md`.
 
 ## 12. Out-of-Stock Behavior
 
-The following cases require defined behavior:
+If an item becomes unavailable or out of stock while in the Cart, keep it visible in the Cart, but prevent checkout until the customer removes or corrects it. Catalog defines visibility, manual availability, and stock presentation; Inventory owns stock state. This applies to these cases:
 
 - A product is out of stock when added to a cart.
 - A product becomes out of stock while in a cart.
@@ -130,27 +130,24 @@ The following cases require defined behavior:
 - A product becomes unavailable after being added.
 - A product or variant is removed or deactivated after being added.
 
-Do not choose whether to reject, remove, warn, allow, hide, or otherwise handle these cases. Record the approved behaviors in the relevant Cart, Catalog, Inventory, and Order specifications.
+Checkout must not proceed with an unavailable or out-of-stock item. The customer must remove it or correct the Cart (for example, by choosing an eligible item or quantity).
 
 ## 13. Cart Validation
 
-Before checkout/order creation, cart information may need validation against current domain state, including:
+Before creating an Order, revalidate all of the following against current domain state:
 
-- The shop still exists and is eligible for the requested operation.
-- Each product still exists and is offered by that shop.
-- Each selected variant remains valid for that product and shop.
-- Requested quantities are allowed.
-- Product availability and inventory satisfy approved rules.
-- Prices follow approved shop-specific pricing rules.
-- Pickup or delivery selection and required checkout details satisfy approved Orders/fulfillment rules.
+- The Shop still exists and is eligible for the requested operation.
+- Each product and selected variant still exists, belongs to the Cart's Shop, and is offered by that Shop.
+- Each product remains visible and manually available.
+- Requested quantities are valid and can be fulfilled from current stock.
+- Current valid Shop Catalog prices are used.
+- The selected fulfillment option is eligible for the Shop, and required checkout details are valid.
 
-This is a conceptual checklist, not a finalized validation contract. The final validation list and behavior depend on unresolved Shop, Catalog, Inventory, Customer, and Order decisions.
+The business validation requirements above are finalized for MVP. Exact implementation, error presentation, and technical transaction/concurrency behavior remain implementation decisions; relevant domain rules govern Shop, Catalog, Inventory, Customers, and Orders details.
 
 ## 14. Cart Lifecycle
 
-No final Cart lifecycle or state model is approved. Concepts such as active, checked out, abandoned, expired, or cleared are not automatically approved states.
-
-Whether the cart persists after checkout, can be resumed, expires, or changes state when an order is created requires a decision.
+Preserve Cart items when a customer leaves and returns, until the Cart expires or an Order is successfully created. Cart expiration duration must be configurable; this specification does not set a duration. Clear the Cart only after successful Order creation, not when checkout begins or fails. Exact lifecycle states and persistence representation are not defined here.
 
 ## 15. Cart Modification
 
@@ -160,9 +157,7 @@ Each operation must remain within the cart's shop context and follow approved Ca
 
 ## 16. Multiple Carts / Multiple Shops
 
-One cart cannot mix products from different shops. It is not finalized whether a customer can have carts for multiple shops simultaneously, one active cart per shop, or how opening a different shop affects an existing cart.
-
-Do not assume that switching shops clears, preserves, or replaces a cart. These behaviors require explicit approval.
+One Cart is scoped to one Shop. A customer may have separate carts for separate Shops; cart operations and contents remain isolated to the relevant Shop. Whether there may be multiple carts for the same customer and Shop, and the active-cart selection/cardinality rules, remain unresolved.
 
 ## 17. Checkout Handoff
 
@@ -180,7 +175,7 @@ Order creation
 Order owns the transaction
 ```
 
-Cart supplies validated shopping intent. Once an order is created, Orders owns the purchase lifecycle. This does not define the final handoff operation, transaction boundary, or Order state machine.
+Cart supplies validated shopping intent. Checkout does not itself clear the Cart. Once an Order is successfully created, Orders owns the purchase lifecycle and the Cart is cleared. A failed checkout leaves the Cart intact. The technical handoff and transaction boundary remain implementation decisions.
 
 ## 18. Cart and Order Independence
 
@@ -194,11 +189,11 @@ Order
 historical purchase transaction
 ```
 
-Changing or clearing a cart must not modify an already-created order. An order retains its historical meaning independently of future catalog or cart changes. The specific order snapshot representation remains the responsibility of the Orders domain and is not defined here.
+After successful Order creation, subsequent Cart changes must not modify that Order. An Order retains its historical meaning independently of future catalog or Cart changes. The specific order snapshot representation remains the responsibility of the Orders domain and is not defined here.
 
 ## 19. Customer Information at Checkout
 
-Cart may hold or reference customer context before or during checkout, but Customers owns customer identity and Orders owns order/customer information. When the customer first provides their WhatsApp number for the Shop, Customer creation/recognition may occur before an Order exists. Conceptually:
+Customers owns customer identity and profile information; Orders defines the order-time customer information. Checkout collects the customer's name and WhatsApp number. When the customer first provides their WhatsApp number for the Shop, the permanent Shop-specific Customer record is created or recognized before successful Order creation; an abandoned Cart may therefore be associated with a Customer. Orders may be accessed with the WhatsApp number in the relevant Shop/customer context without OTP under the MVP rules. Conceptually:
 
 ```text
 Customer
@@ -214,23 +209,21 @@ Checkout
 Order
 ```
 
-Whether customer information is copied, referenced, snapshotted, or otherwise persisted by Orders is not decided here. The Customers and Orders specifications govern those decisions.
+Follow the Customers and Orders specifications for customer profile, saved-address selection, and order-time delivery details. Exact address structure, saved-address cardinality/labels, and historical customer/address snapshot representation remain unresolved there; do not decide them in Cart.
 
 ## 20. Pickup vs Delivery
 
-The current product supports pickup and home delivery. Checkout may require a fulfillment choice; pickup does not require a delivery address, while home delivery requires an address.
+The current product supports Pickup and Home Delivery. Pickup does not require a delivery address. Home Delivery requires a valid address, which may be selected from saved addresses or newly entered at checkout under the Orders rules. Checkout must validate fulfillment eligibility before Order creation.
 
 The Orders/fulfillment design owns final validation. Delivery zones, pricing, and delivery-partner behavior are not defined by Cart.
 
 ## 21. Cart Expiration / Abandonment
 
-The following are **Not Finalized / Require Decision**: whether carts expire, how long they remain, how abandoned carts are retained, whether they affect inventory, whether customers can return later, and whether carts survive browser/session changes. Do not assume a timeout or inventory reservation.
+Cart items persist when a customer leaves and returns until the Cart expires or an Order is successfully created. The Cart expiration duration is configurable, but its configured value and technical expiration representation remain unresolved. Cart expiration does not reserve or otherwise affect stock.
 
 ## 22. Cart Deletion / Clearing
 
-The product concept includes removing individual cart items. Behavior for clearing the entire cart, a product becoming unavailable, a shop becoming unavailable, or a customer returning later is not finalized. Retention and cleanup behavior are also unresolved.
-
-Clearing a cart must not alter an already-created Order.
+Customers may remove individual items or clear a Cart. An unavailable or out-of-stock item remains visible and blocks checkout until removed or corrected. Clear the Cart after successful Order creation only; preserve it when checkout fails or merely begins. Clearing or later changing the Cart cannot alter an already-created Order.
 
 ## 23. Concurrency
 
@@ -246,9 +239,13 @@ The following invariants are supported by product and business-rule sources:
 - A cart cannot contain products from different shops.
 - Cart items reference products/variants valid for that shop.
 - Customer identity remains shop-specific.
-- Adding an item does not automatically imply inventory reservation unless explicitly approved.
+- Adding an item does not reserve inventory.
 - Cart changes do not modify historical orders.
-- Order creation uses validated cart information.
+- Order creation revalidates product existence, Shop ownership, visibility, manual availability, stock, quantities, current prices, and fulfillment eligibility.
+- An unavailable or out-of-stock item remains visible and prevents checkout until removed or corrected.
+- Cart items persist until expiration or successful Order creation; expiration duration is configurable.
+- Cart clearing occurs after successful Order creation, not when checkout begins or fails.
+- Separate Shops have separate Cart contexts, and cross-Shop Cart access/operations are prohibited.
 - Cross-shop identifiers do not bypass tenant isolation.
 - Later catalog/cart changes do not retroactively alter an already-created order's historical purchase price or meaning.
 
@@ -297,31 +294,20 @@ May consume cart metrics such as abandonment if approved. No cart analytics requ
 
 ## 27. Unresolved Decisions
 
-No decision below is finalized by this specification.
+The MVP business rules above are finalized where stated. The following business or technical details remain unresolved and must not be inferred from this specification:
 
 | Decision | Why unresolved | Impact |
 |---|---|---|
-| Cart identity. | No cart identifier or identity mechanism is approved. | Cart lookup and ownership cannot be finalized. |
-| Anonymous cart behavior. | Customer authentication is not required, but anonymous/session behavior is unspecified. | Guest cart continuity and access remain open. |
-| Customer/cart relationship. | An initially anonymous Cart may become associated with the Shop-specific Customer when the customer first provides their WhatsApp number. | Exact persistence and physical association representation remain open. |
-| One cart versus multiple carts per shop. | No active-cart cardinality is approved. | Cart creation, reuse, and switching behavior remain open. |
-| Multiple-shop carts and switching behavior. | Cross-shop carts are not approved; handling separate carts when switching shops is unspecified. | Existing carts may not be assumed cleared, retained, or merged. |
-| Cart persistence and browser/session continuity. | No persistence strategy is approved. | Returning to an in-progress cart cannot be specified. |
-| Cart expiration and abandoned-cart retention. | No timeout or retention rule is documented. | Cleanup and customer-return behavior remain open. |
-| Price locking and price-change behavior. | Shop-specific pricing is approved, but cart price validity/locking is not. | Existing cart totals after catalog changes cannot be determined. |
-| Other Cart total presentation and any charges not approved in product rules. | Tax calculation is excluded in MVP; no discount engine is introduced unless Campaigns later defines one. | Do not add unapproved charges or adjustments. |
-| Inventory reservation. | No reservation rule is approved. | Adding to cart cannot be treated as holding stock. |
-| Inventory validation timing. | Inventory deduction and order workflows are unresolved. | Add-to-cart and checkout validation timing remain open. |
-| Out-of-stock and unavailable-product behavior. | Hide/warn/remove/allow/reject behavior is unspecified. | Cart repair and checkout outcomes cannot be finalized. |
-| Quantity rules and fractional quantities. | Catalog/Inventory quantity semantics and limits are unresolved. | Valid cart quantities cannot be fully defined. |
-| Checkout validation contract. | Rules depend on Catalog, Inventory, Customers, Shops, and Orders. | Final readiness criteria are not set. |
-| Pickup/delivery validation. | Fulfillment details belong to Orders/fulfillment and per-shop capabilities are unresolved. | Cart checkout cannot define all fulfillment checks. |
-| Cart-to-Order handoff. | The final order-creation behavior and transaction boundary are not defined. | Handoff and failure behavior remain open. |
-| Cart clearing after order creation. | Cart lifecycle after checkout is not approved. | Post-order cart state cannot be assumed. |
-| Failed checkout behavior. | Retry, preservation, and recovery behavior are unspecified. | Customer recovery and duplicate submission behavior remain open. |
-| Customer information handoff. | Orders owns the historical representation; copy/reference/snapshot behavior is unresolved. | Checkout information transfer cannot be finalized. |
-| Cart privacy and merchant access. | Final authorization and support visibility are not specified. | Merchant cart visibility and access boundaries need approval. |
-| Cart restoration and retention. | No restoration or retained-cart behavior is approved. | Recovery after clearing, expiry, or interruption remains open. |
+| Cart identity and anonymous access mechanism. | Customer login is not required, but the Cart identifier and secure guest/session access behavior are unspecified. | Cart lookup and anonymous access implementation remain open. |
+| Cart persistence mechanism and browser/session continuity. | Persistence across a customer's return is required, but storage and continuity mechanism are not specified. | Technical persistence design remains open. |
+| Number of carts for the same customer and Shop. | Separate Shops have separate carts, but same-Shop cart cardinality and active-cart selection are not approved. | Cart reuse and selection behavior remain open. |
+| Configured Cart expiration value and representation. | Expiration is required to be configurable, but the configured duration and technical representation are not set. | Deployment configuration and expiration implementation remain open. |
+| Quantity limits, units, and fractional quantity behavior. | Quantities must be validated against Catalog and Inventory, but Cart-specific limits and fractional semantics are not set here. | Exact accepted quantities remain governed by relevant domain decisions. |
+| Fulfillment eligibility details. | Cart must revalidate fulfillment eligibility; Shop capabilities and any further eligibility rules are not fully specified here. | Exact eligibility criteria remain with Shops/Orders decisions. |
+| Cart-to-Order transaction and failure mechanics. | Cart is cleared only after successful Order creation and remains on checkout failure; atomicity, retries, and duplicate submission handling are technical/business details not finalized here. | Handoff implementation remains open. |
+| Order-time customer and address representation. | Orders requires name and WhatsApp and a valid delivery address for Home Delivery, but historical snapshot representation and exact address structure remain unresolved in Customers/Orders. | Do not invent fields or snapshot mechanics in Cart. |
+| Other Cart total presentation or charges not approved in product rules. | Tax is excluded in MVP; no discount engine is introduced unless Campaigns later defines one. | Do not add unapproved charges or adjustments. |
+| Merchant/support access to customer Carts. | Cart is shop-isolated, but exceptional support visibility and implementation details are not defined. | Do not infer merchant access beyond approved authorization. |
 
 ## 28. Explicit Non-Goals
 
