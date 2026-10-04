@@ -2,7 +2,7 @@ from django.contrib.auth import authenticate, password_validation
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import status
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from .models import Merchant, User, UserAuthSession
+from .permissions import IsMerchant, IsSuperAdmin
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -198,14 +199,12 @@ class LogoutView(APIView):
 
 
 class ChangePasswordView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsMerchant]
 
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user
-        if user.role != User.Role.MERCHANT:
-            raise PermissionDenied("This operation is not available for this account.")
         if not user.check_password(serializer.validated_data["current_password"]):
             raise ValidationError({"current_password": "Current password is incorrect."})
         try:
@@ -290,11 +289,9 @@ class SuperAdminSelfRecoveryConfirmView(APIView):
 
 
 class SuperAdminAdministrativeResetRequestView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
 
     def post(self, request):
-        if request.user.role != User.Role.SUPER_ADMIN:
-            raise PermissionDenied("Super Admin authorization is required.")
         serializer = SuperAdminAdministrativeResetRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request_super_admin_administrative_reset(
