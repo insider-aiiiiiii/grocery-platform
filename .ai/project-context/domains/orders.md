@@ -48,9 +48,9 @@ The exact order-creation transaction, validation implementation, duplicate-submi
 
 ## 5. Order Snapshot / Historical Meaning
 
-An order represents what the customer actually ordered at the time it was created. Later changes to product name or information, variant information, catalog price, shop catalog, inventory, or customer profile must not silently rewrite the historical meaning of an already-created order.
+An order represents what the customer actually ordered at the time it was created. Later changes to product name or information, variant information, catalog price, shop catalog, inventory, or customer profile must not silently rewrite the historical meaning or purchase price of an already-created order. The delivery charge used for the Order is also preserved.
 
-The exact snapshot implementation is unresolved. Do not choose whether to copy fields, reference immutable records, store snapshots, or use another approach. The required historical meaning is a business boundary; its representation belongs in later design.
+The exact snapshot implementation is unresolved. Do not choose whether to copy fields, reference immutable records, store snapshots, or use another approach. The required historical meaning is a business boundary; its representation belongs in later design. Merchant-controlled quantity reductions before acceptance are an approved adjustment and recalculate the Order total.
 
 ## 6. Order Items
 
@@ -66,25 +66,23 @@ Distinguish:
 - **Cart:** price associated with current shopping state, subject to Cart rules.
 - **Order:** historical purchase price for the created transaction.
 
-Once an order exists, later catalog price changes must not alter its historical price. This does not define how the historical price is represented.
+Checkout uses the latest Catalog price. Once an Order exists, later Catalog price changes must not alter its historical purchase price. If the Merchant reduces an item's fulfillable quantity before acceptance, the Order total is recalculated using the reduced quantity. The delivery charge used for an Order is preserved as part of its history. The Merchant may change the Shop delivery charge; the effect of such a change on an existing or pending Order is controlled by the Merchant, and no more specific mechanism is defined.
+
+No tax calculation applies in MVP unless explicitly documented elsewhere. No discount engine is introduced unless the Campaigns domain later defines one.
 
 ## 8. Order Total
 
-Conceptually, an order total may be derived from item totals plus delivery or other approved charges, less approved discounts. These are possible components only, not a claim that each exists:
+The Order total reflects its item quantities and prices and, where applicable, the delivery charge preserved for that Order. No tax calculation applies in MVP unless explicitly documented elsewhere. No discount engine is defined unless Campaigns later approves one.
 
 ```text
-Item totals
+Item totals, including any Merchant-approved quantity adjustment
 +
-Delivery charges, if applicable
-+
-Other approved charges
--
-Approved discounts
+Preserved delivery charge, for Home Delivery where applicable
 =
 Order total
 ```
 
-Do not assume taxes, fees, discounts, delivery charges, or a calculation formula unless approved. The MVP has no centralized online payment gateway; do not introduce gateway calculations here.
+Do not add unapproved fees or discount calculations. The MVP has no centralized online payment gateway.
 
 ## 9. Customer Information
 
@@ -92,7 +90,7 @@ An order is associated with a shop-specific customer context. The Customers doma
 
 ## 10. Customer Contact Information
 
-The current checkout concept includes customer name and WhatsApp number. The WhatsApp number may be used for order communication. It is contact information, not authentication, and must not grant access to order history by itself.
+The current checkout concept includes customer name and WhatsApp number. A customer may access their Order history using their WhatsApp number in the relevant Shop/customer context; OTP is not required by this MVP decision. Do not introduce Customer login/authentication. Limit exposed customer information to what is needed for the Order experience.
 
 Home delivery also requires a delivery address. Additional contact fields are not defined here.
 
@@ -107,7 +105,7 @@ Fulfillment choice is part of the order context. The MVP does not include centra
 
 ## 12. Delivery Address
 
-For home-delivery orders, an appropriate delivery address is required under the approved checkout concept. Pickup does not require a delivery address unless another approved requirement says otherwise.
+For Home Delivery, an address is required. At checkout, the customer may select a saved address or enter a new address. Pickup does not require a delivery address.
 
 The address may need to remain meaningful for the order, but its exact structure and snapshot behavior are unresolved. Free-form versus structured address, pincode, landmark, coordinates, and saved customer addresses are not decided here.
 
@@ -135,63 +133,61 @@ PENDING
 REJECTED
 ```
 
-This is the current conceptual lifecycle, not a complete or finalized state machine. Do not infer states such as CANCELLED, FAILED, REFUNDED, EXPIRED, or DELIVERED unless approved in the source of truth.
+This is the approved MVP lifecycle. Rejection and cancellation use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. A `PENDING` Order automatically expires after a configured timeout; the timeout's default value remains a configuration/technical decision and no value is specified here.
 
 ## 14. PENDING
 
-Conceptually, the customer has submitted the order and it is awaiting merchant action. The merchant has not yet accepted or rejected it. Timeout behavior and automatic state changes are not defined.
+The customer has submitted the Order and it is awaiting Merchant action. It automatically expires after a configured timeout. The exact default timeout value is not defined.
 
 ## 15. ACCEPTED
 
-Conceptually, the merchant has accepted the order for fulfillment by the shop. Exact acceptance conditions and inventory deduction timing are not defined here and depend on approved Order and Inventory decisions.
+The Merchant has accepted the Order for fulfillment by the Shop. An `UNPAID` Order may be accepted and prepared. The Merchant decides per Order whether payment is required before acceptance.
 
 ## 16. PREPARING
 
-Conceptually, the shop is preparing the accepted order. The exact entry conditions and whether the transition is manual or automatic are not finalized.
+The Shop is preparing the accepted Order. The Merchant controls fulfillment status through the ERP/web interface. Merchant cancellation is allowed after acceptance only before the Order enters `PREPARING`.
 
 ## 17. READY
 
-Conceptually, the order is ready for customer pickup or applicable fulfillment completion. Additional delivery-specific state or behavior is not defined here.
+The Order is ready for customer pickup or Home Delivery completion.
 
 ## 18. COMPLETED
 
-Conceptually, the order's fulfillment is complete. The exact meaning for pickup versus delivery and who records completion are unresolved.
+The Merchant marks both Pickup and Home Delivery Orders `COMPLETED`. An Order cannot be marked `COMPLETED` while `UNPAID`; it must first become `PAID`.
 
 ## 19. REJECTED
 
-The merchant may reject a pending order; a rejected order is not fulfilled. Whether a rejection reason is required, whether the customer is notified, inventory consequences, and whether reopening is possible are unresolved. Do not infer additional rejection transitions.
+The Merchant may reject a `PENDING` Order and may optionally provide a rejection reason. Rejection is final: the Order cannot be reopened and reserved stock is released automatically. Customer cancellation while the Order is `PENDING` and Merchant cancellation after acceptance but before `PREPARING` use the existing `REJECTED` outcome/state. Rejected/cancelled Orders release or restore reserved stock as defined by Inventory.
 
 ## 20. Merchant Order Operations
 
-The product requires merchant order operations through the merchant ERP/web interface. Conceptually, the merchant can view incoming orders, accept or reject according to the approved workflow, update fulfillment status, and complete orders according to the approved lifecycle.
+The product requires merchant order operations through the merchant ERP/web interface. The Merchant views incoming Orders, accepts or rejects them, controls fulfillment status, and marks Pickup and Home Delivery Orders `COMPLETED` subject to the payment rule.
 
 Operations are scoped to shops the merchant is authorized to manage. Merchants do not accept or reject orders through WhatsApp in the current product scope. Exact UI behavior and API endpoints are not defined here.
 
 ## 21. Customer Order Visibility
 
-Customers need appropriate visibility into their orders, but the product does not define how they identify or access an order after checkout. Possible concepts include an order reference, browser/session context, WhatsApp link, or public status page; none is selected.
+Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision. No Customer login is introduced. Minimize customer information exposed through this access.
 
 Do not assume a customer account/login or expose private order/customer information through a public access mechanism.
 
 ## 22. Order Cancellation
 
-Cancellation is unresolved. Decisions are required on whether a customer or merchant may cancel, permitted states/timing, inventory effects, payment consequences, notifications, and cancellation during or after preparation or readiness. Do not implement or imply a cancellation model without explicit approval.
+The Customer may cancel while an Order is `PENDING`, before Merchant acceptance. The Merchant may cancel an accepted Order only before `PREPARING`. Both use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. Customer cancellation releases reserved stock immediately; Merchant cancellation after acceptance restores/releases reserved stock automatically. No centralized refund workflow is included in MVP.
 
 ## 23. Refunds
 
-The MVP has no centralized online payment gateway. Do not introduce an online refund workflow. If payment has already occurred outside the platform and an order is rejected or cancelled, the merchant's and platform's responsibilities are **Not Finalized / Require Decision**.
+The MVP has no centralized online payment gateway or centralized refund workflow.
 
 ## 24. Payment Context
 
 For the MVP, payment is handled by the merchant. The merchant may provide UPI, UPI QR, or physical payment instructions. Centralized gateway processing is not approved.
 
-The order may eventually need payment-related context, but this does not define a payment system. Whether payment status is recorded, who records it, whether proof is stored, whether an unpaid order may be accepted, and how payment relates to the order lifecycle are unresolved.
+An Order has `PAID` or `UNPAID` payment status. Only the Merchant may update it. The Merchant decides per Order whether payment is required before acceptance. An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it is `PAID`. No centralized payment gateway or refund workflow is included in MVP.
 
 ## 25. Inventory Interaction
 
-Orders interact with Inventory. A conceptual flow may include order creation, inventory validation, merchant acceptance or rejection, and an inventory update, but the sequence and timing are not finalized.
-
-Inventory has unresolved decisions about reservation, deduction, restoration, and overselling. Orders must follow those decisions after approval. See `.ai/project-context/domains/inventory.md`; do not choose inventory behavior here.
+Order creation reserves stock; Merchant acceptance deducts the reserved quantity. Rejection automatically releases reserved stock. Customer cancellation before acceptance releases reserved stock immediately. Merchant cancellation after acceptance and before preparation automatically restores/releases reserved stock. If requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before acceptance, the customer is notified, and the Order reflects the reduced quantity. Quantities must never be reduced automatically without Merchant action. See `.ai/project-context/domains/inventory.md` for the corresponding rules.
 
 ## 26. Order and Cart Boundary
 
@@ -209,7 +205,7 @@ After successful order creation, the order is independent of future cart changes
 
 ## 27. Notifications
 
-Orders may produce conceptual notification events for order creation, acceptance, rejection, preparation, readiness, completion, and cancellation if later approved. The product explicitly includes customer order-received and order-accepted communications, and a merchant new-order notification. The exact event set, recipients, and timing remain subject to domain decisions.
+Orders produce approved notifications, including notifying the Customer when the Merchant manually reduces a fulfillable quantity. The Notifications domain defines delivery behavior. Do not implement notifications here.
 
 The Notifications domain defines delivery behavior. Do not implement notifications here.
 
@@ -231,9 +227,7 @@ WhatsApp is a notification/acknowledgement channel. Merchant order operations re
 
 ## 29. Order History
 
-Orders are historical business records. Merchants see orders belonging to shops they are authorized to manage. Customers may need access to their own order history within the relevant shop-specific customer context. Super Admin may have platform-level operational or reporting visibility according to approved authorization.
-
-The exact retention, history access mechanism, and visibility policies are unresolved. Do not assume a final permission matrix.
+Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. Customers can view all their Orders available within the Shop/customer context using their WhatsApp number; OTP is not required for this MVP decision. Shop deletion removes its Orders. Minimize exposed customer information.
 
 ## 30. Order Data Visibility
 
@@ -249,7 +243,7 @@ Minimize exposed customer data. Exact fields and permissions remain for approved
 
 Orders represent historical business transactions. Consider preservation of product/variant meaning, order-time pricing, customer/order context, fulfillment choice, and relevant order status history. This specification requires that later Catalog or Cart changes do not silently rewrite an existing order's historical meaning or purchase price.
 
-The exact snapshot representation, retention period, archival, deletion, and access rules remain unresolved. See the business-rules source and the Catalog, Customers, and Inventory specifications.
+Order history is retained while the Shop exists. Deleting the Shop deletes its Orders. The Customer entity remains after Shop deletion; customer data is not globally deleted solely because a Shop is deleted. The exact snapshot representation remains a technical decision.
 
 ## 32. Concurrency and Idempotency
 
@@ -264,12 +258,13 @@ The currently described transitions are:
 | Current state | Conceptual next state | Actor / notes |
 |---|---|---|
 | `PENDING` | `ACCEPTED` | Merchant reviews and accepts through the ERP/web interface. |
-| `PENDING` | `REJECTED` | Merchant rejects through the ERP/web interface. |
-| `ACCEPTED` | `PREPARING` | Merchant may progress the accepted order through fulfillment; exact transition authority is not finalized. |
-| `PREPARING` | `READY` | Conceptual fulfillment progression; exact transition authority is not finalized. |
-| `READY` | `COMPLETED` | Conceptual completion; exact pickup/delivery meaning and who records it are unresolved. |
+| `PENDING` | `REJECTED` | Merchant rejects, or Customer cancels before acceptance. |
+| `ACCEPTED` | `REJECTED` | Merchant cancels before `PREPARING`. |
+| `ACCEPTED` | `PREPARING` | Merchant controls fulfillment status. |
+| `PREPARING` | `READY` | Merchant controls fulfillment status. |
+| `READY` | `COMPLETED` | Merchant completes Pickup or Home Delivery; Order must be `PAID`. |
 
-This table is conceptual and does not finalize a complete state machine or permission rules. Do not add transitions absent approval. Invalid transitions must eventually be prevented by implementation according to the approved state machine.
+Rejected/cancelled Orders cannot be reopened. A pending timeout automatically expires the Order after a configured period; its resulting state representation remains a technical/design detail. Invalid transitions must be prevented by implementation according to these approved rules.
 
 ## 34. Business Invariants
 
@@ -277,12 +272,15 @@ The following requirements are supported by current product and business documen
 
 - An order belongs to exactly one shop.
 - An order must not expose another shop's data.
-- An order represents the purchase made at creation time; later catalog price changes must not change its historical purchase price.
+- Checkout uses the latest Catalog price; later Catalog changes do not alter the historical purchase price or delivery charge of an existing Order.
 - Merchant order operations are limited to authorized shops.
 - Customer identity and history remain shop-specific.
 - Merchant order operations happen through the ERP/web interface; WhatsApp does not replace order management.
 - Order state changes follow the approved lifecycle and transition rules.
-- Inventory consequences follow finalized Inventory rules; timing and behavior are not yet defined.
+- Inventory is reserved on Order creation, deducted on acceptance, released on rejection or pending Customer cancellation, and restored on eligible Merchant cancellation.
+- The Merchant manually reduces insufficient quantities before acceptance; the Customer is notified, and the Order total is recalculated.
+- Only the Merchant updates payment status; unpaid Orders may be accepted/prepared but cannot be completed.
+- Shop deletion deletes the Shop's Orders; the Customer remains.
 
 ## 35. Security Requirements
 
@@ -344,24 +342,15 @@ No decision below is finalized by this specification.
 | Decision | Why unresolved | Impact |
 |---|---|---|
 | Exact order identifier, order number, and public reference. | No identifier or reference format is approved. | Order identification and customer access cannot be finalized. |
-| Order creation validation and transaction boundary. | Checkout dependencies exist, but exact validation and transaction behavior is not specified. | Order creation readiness and failure behavior remain open. |
-| Historical snapshot representation and order item structure. | Historical meaning is required, but exact item fields and snapshot approach are unresolved. | Data representation cannot be chosen. |
-| Order-time price, item total, and order total calculation. | Shop-specific pricing is approved; full calculation rules are not. | Totals, taxes, fees, and adjustments remain open. |
-| Taxes, fees, discounts, and delivery charges. | No formulas or applicable components are finalized. | Final payable total cannot be specified. |
+| Order creation validation and transaction boundary. | Checkout dependencies exist, but exact validation and transaction behavior is not specified. | Order creation implementation remains open. |
+| Historical snapshot representation and Order item structure. | Historical meaning is required, but exact fields and snapshot approach are unresolved. | Data representation cannot be chosen. |
+| Configured pending timeout and expiry representation. | Pending Orders expire automatically, but the default duration and technical representation are not finalized. | Configuration and state persistence remain open. |
+| Delivery-charge change handling for an existing/pending Order. | Merchant controls the effect; no more specific mechanism is approved. | Do not assume automatic repricing or a particular workflow. |
 | Customer information and delivery-address snapshot. | Checkout requirements exist, but what Orders preserves historically is unresolved. | Historical customer/order context cannot be finalized. |
-| Exact lifecycle state definitions and transition permissions. | The lifecycle is conceptual and incomplete. | State behavior and authorized actors require approval. |
-| Acceptance conditions and merchant review details. | Merchant review is required, but exact rules are not documented. | Acceptance behavior cannot be completed by assumption. |
-| Preparation, readiness, and completion criteria. | State meanings are conceptual; fulfillment specifics are deferred. | Progression and completion criteria remain open. |
-| Rejection reasons and customer notification. | Rejection is supported; reason and notification rules are unspecified. | Rejection records and communications cannot be finalized. |
-| Cancellation actors, allowed states, and effects. | Cancellation is not defined. | Customer/merchant cancellation behavior is blocked. |
-| Refund behavior. | MVP payment is merchant-handled and no gateway/refund process is approved. | Refund responsibilities and records remain open. |
-| Payment status, who records it, proof, and lifecycle effects. | Payment is merchant-handled; status behavior is not defined. | Payment/order coupling cannot be determined. |
-| Inventory reservation, deduction timing, restoration, and overselling. | Inventory rules and complete order lifecycle are unresolved. | Stock effects and order acceptance behavior cannot be finalized. |
+| Inventory concurrency and transaction behavior. | Business stock effects are finalized; locking/error semantics are not. | Inventory/Order technical integration remains open. |
 | Duplicate checkout and repeated state-transition behavior. | No idempotency/concurrency business behavior is approved. | Duplicate orders or operations cannot be handled by an assumed rule. |
-| Customer order access and history. | Customer identity is shop-specific, but order access mechanism is unresolved. | Customer visibility cannot be finalized. |
-| Merchant and Super Admin order visibility. | Final authorization matrix is not approved. | Access scope and privileged visibility remain open. |
-| Order retention, deletion, archival, and behavior after shop deactivation. | Historical-data and deletion policies are unresolved. | Order history and access duration remain open. |
-| Pickup versus delivery completion semantics. | Fulfillment choices exist, but completion behavior differs potentially and is unspecified. | `COMPLETED` meaning cannot be fully defined. |
+| Exact Customer/merchant authorization implementation and data minimization details. | Business access is defined; implementation and field-level privacy controls remain open. | Access-control and response design remain open. |
+| Physical Shop deletion mechanics and behavior while a Shop is deactivated. | Shop deletion removes Orders; data mechanics and deactivation access implementation remain technical decisions. | Database deletion design remains open. |
 
 ## 38. Explicit Non-Goals
 
@@ -369,7 +358,7 @@ This specification does not define Django models, database schema, migrations, s
 
 ## 39. Implementation Gate
 
-> The Orders domain must not be implemented until the unresolved order-lifecycle, inventory, pricing, fulfillment, customer-access, and payment-context decisions are reviewed and approved.
+> Order business rules are finalized. Order implementation remains gated on technical/database design: state and timeout representation, Order snapshots/totals, inventory transaction/concurrency behavior, authorization, and API contracts. Do not reopen finalized business decisions or invent missing technical details.
 
 After approval, implementation must follow `AGENTS.md`, `.ai/project-context/product.md`, `.ai/project-context/architecture.md`, `.ai/project-context/business-rules.md`, `.ai/project-context/development-status.md`, `.ai/project-context/domains/users-and-merchant-accounts.md`, `.ai/project-context/domains/shops.md`, `.ai/project-context/domains/catalog.md`, `.ai/project-context/domains/inventory.md`, `.ai/project-context/domains/customers.md`, `.ai/project-context/domains/cart.md`, this domain specification, and relevant engineering skills. The implementation agent must not silently resolve unresolved business decisions.
 

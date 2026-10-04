@@ -303,7 +303,7 @@ If a promoted product becomes unavailable, out of stock, or removed from the mer
 
 ## 15. Order Relationship
 
-Campaigns must not interfere with the historical meaning of an order. The Orders domain explicitly requires that historical order meaning and purchase price remain unchanged after catalog or cart changes, and it states that price history and snapshot strategy remain unresolved.
+Campaigns must not interfere with the historical meaning of an Order. The historical purchase price is finalized: it uses the latest Catalog price at checkout and does not change with later Catalog changes. The physical snapshot/reference strategy remains a technical decision.
 
 Campaigns are therefore conceptually separate from Orders. A campaign may present or reference promotional content, but it must not silently alter the historical purchase transaction of an order unless an explicit approved rule is added.
 

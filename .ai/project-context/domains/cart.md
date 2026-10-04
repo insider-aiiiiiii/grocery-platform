@@ -90,13 +90,13 @@ Catalog defines the current shop-specific price. Cart uses the applicable price 
 
 Once an order has been created, later Catalog or Cart changes must not retroactively change that order's historical purchase price or meaning. The exact order representation and snapshot strategy remain an Orders-domain decision; the existing business-rules source also marks the snapshot strategy as unresolved.
 
-Do not decide whether cart prices are locked, how long a price remains valid, whether a price change updates an existing cart, or how discounts, taxes, and fees work. These remain unresolved.
+Checkout uses the latest applicable Catalog price. The Order preserves that historical purchase price after creation. No tax calculation applies in MVP unless explicitly documented elsewhere, and no discount engine is introduced unless Campaigns later defines one. Cart price-lock timing and other unapproved charges remain unspecified.
 
 ## 9. Cart Totals
 
-A cart may conceptually present the sum of its item amounts. A total could account for an item subtotal, approved delivery fee, other approved charges, and approved discounts, but no unapproved charge or calculation is implied by this example.
+A cart total reflects item amounts and, when applicable, the Shop delivery charge shown for the order flow. No tax calculation applies in MVP unless explicitly documented elsewhere. No discount engine is introduced unless Campaigns later defines one; do not add other unapproved charges.
 
-The existence and calculation of taxes, delivery fees, discounts, and other charges are unresolved. The MVP has no approved centralized payment gateway; payment calculation/processing does not belong to Cart.
+The delivery-charge change effect on an existing or pending Order is controlled by the Merchant, with no more specific mechanism defined. The MVP has no centralized payment gateway; payment processing does not belong to Cart.
 
 ## 10. Inventory Interaction
 
@@ -309,7 +309,7 @@ No decision below is finalized by this specification.
 | Cart persistence and browser/session continuity. | No persistence strategy is approved. | Returning to an in-progress cart cannot be specified. |
 | Cart expiration and abandoned-cart retention. | No timeout or retention rule is documented. | Cleanup and customer-return behavior remain open. |
 | Price locking and price-change behavior. | Shop-specific pricing is approved, but cart price validity/locking is not. | Existing cart totals after catalog changes cannot be determined. |
-| Discounts, taxes, and fees. | No calculation rules are approved. | Final cart totals cannot include assumed charges or adjustments. |
+| Other Cart total presentation and any charges not approved in product rules. | Tax calculation is excluded in MVP; no discount engine is introduced unless Campaigns later defines one. | Do not add unapproved charges or adjustments. |
 | Inventory reservation. | No reservation rule is approved. | Adding to cart cannot be treated as holding stock. |
 | Inventory validation timing. | Inventory deduction and order workflows are unresolved. | Add-to-cart and checkout validation timing remain open. |
 | Out-of-stock and unavailable-product behavior. | Hide/warn/remove/allow/reject behavior is unspecified. | Cart repair and checkout outcomes cannot be finalized. |
