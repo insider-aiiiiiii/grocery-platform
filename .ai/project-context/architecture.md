@@ -46,7 +46,7 @@ Each current Django app represents a business domain. The responsibilities below
 
 ### `users`
 
-Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles. Authentication flows, Merchant profile/Shop relationships, and authorization remain to be finalized.
+Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles. Merchant credentials and account state live in a separate Merchant profile. Authentication flows, Merchant profile/Shop relationships, and authorization remain to be finalized.
 
 ### `shops`
 
