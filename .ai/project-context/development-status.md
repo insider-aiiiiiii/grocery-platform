@@ -65,8 +65,8 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | Django configuration | Implemented | Standard settings; DRF and all domain apps registered. Last recorded `manage.py check` passed. |
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
-| `users` | Partially Implemented | Custom Django User model with globally unique email/mobile, role-aware credential backend, and one-to-one Merchant profile with status and first-login state; APIs and Merchant/Shop relationship are not implemented. |
-| `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
+| `users` | Partially Implemented | Custom Django User model with globally unique email/mobile, role-aware credential backend, one-to-one Merchant profile, Merchant JWT login/password-change/logout/refresh endpoints, and revocable session metadata. Shop relationship is not implemented because the Shop model does not exist. |
+| `shops` | Partially Implemented | Shop model with 1-to-1 Merchant relationship, structured address, operational controls, SUSPENDED status, DB constraints, migrations, and unit tests implemented under SHOP-001. Shop APIs not yet started. |
 | Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
 | Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
 | `catalog` | Scaffolded / No Business Logic | App files exist; no Catalog models, migrations, APIs, tests, or frontend work have been implemented. |
@@ -82,9 +82,9 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | Authentication | Partially Implemented | Credential backend and identity models exist. Merchant JWT contract is finalized; Merchant login, password-change, logout, refresh endpoints, and token enforcement are pending. Authorization beyond the temporary-password restriction remains undecided. |
 | Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
 | Multi-tenancy implementation | Not Started | Shop-level isolation is an approved requirement; no tenant-context or tenant-query enforcement was found. |
-| API endpoints | Not Started | No application API endpoints or `/api/v1/` routing; only Django Admin is routed. |
+| API endpoints | Partially Implemented | Merchant authentication endpoints are routed under `/api/v1/auth/`; other application APIs are not implemented. |
 | Database schema | Not Started | No domain model declarations or domain schema were found. |
-| Domain migrations | Not Started | Each app has only the generated migrations package initializer; no domain migrations. |
+| Domain migrations | Partially Implemented | Identity migrations exist for User and Merchant; `users.0004` adds Merchant session metadata, and Simple JWT blacklist migrations are enabled for refresh revocation. |
 | Security implementation | Partially Implemented | Standard Django middleware is configured. Product-specific authorization, tenant controls, and production security configuration are not verified; settings default `DEBUG` to true. |
 | Automated tests | Scaffolded / No Business Logic | Each app has a generated `tests.py`, but inspection found zero test cases. Test execution status is not established by this inventory. |
 | CI/CD | Not Started | No `.github/workflows/` directory or CI configuration was found. |

@@ -3,8 +3,103 @@ from django.contrib.auth import get_backends
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 
 from .models import Merchant, User
+
+
+class AuthenticatedProbe(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from rest_framework.response import Response
+        return Response({"ok": True})
+
+
+class MerchantAuthenticationAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="merchant-auth", mobile_number="+911234567890",
+            password="temporary-password", role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(user=self.user)
+
+    def login(self, password="temporary-password"):
+        return self.client.post(reverse("auth-login"), {
+            "mobile_number": self.user.mobile_number, "password": password,
+        }, format="json")
+
+    def test_login_response_has_contract_and_temporary_flag_without_secrets(self):
+        response = self.login()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.data), {"access", "refresh", "user", "must_change_password"})
+        self.assertEqual(response.data["user"], {
+            "id": self.user.pk, "role": "MERCHANT", "shop_id": None,
+        })
+        self.assertTrue(response.data["must_change_password"])
+        self.assertNotIn("password", response.data)
+        self.assertNotIn("password_hash", response.data)
+
+    def test_missing_or_invalid_bearer_token_returns_401(self):
+        from rest_framework.test import APIRequestFactory
+        factory = APIRequestFactory()
+        missing = AuthenticatedProbe.as_view()(factory.get("/api/probe/"))
+        invalid = AuthenticatedProbe.as_view()(factory.get(
+            "/api/probe/", HTTP_AUTHORIZATION="Bearer invalid-token"
+        ))
+        self.assertEqual(missing.status_code, 401)
+        self.assertEqual(invalid.status_code, 401)
+
+    def test_deactivated_merchant_cannot_login_or_use_existing_access(self):
+        tokens = self.login().data
+        self.merchant.status = Merchant.Status.DEACTIVATED
+        self.merchant.save(update_fields=["status"])
+        response = self.login()
+        self.assertEqual(response.status_code, 401, response.data)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
+
+    def _request(self, path):
+        from rest_framework.test import APIRequestFactory
+        request = APIRequestFactory().get(path, HTTP_AUTHORIZATION=self.client._credentials.get("HTTP_AUTHORIZATION", ""))
+        return request
+
+    def test_temporary_token_restricts_and_password_change_revokes_all_tokens(self):
+        first = self.login().data
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
+        request = self._request("/api/probe/")
+        response = AuthenticatedProbe.as_view()(request)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data, {
+            "detail": "Password change required.", "code": "PASSWORD_CHANGE_REQUIRED",
+        })
+        changed = self.client.post(reverse("auth-change-password"), {
+            "current_password": "temporary-password", "new_password": "A-longer-secure-password-2026!",
+        }, format="json")
+        self.assertEqual(changed.status_code, 204)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
+        self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
+        refreshed = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
+        self.assertEqual(refreshed.status_code, 401, refreshed.data)
+        next_login = self.login("A-longer-secure-password-2026!")
+        self.assertEqual(next_login.status_code, 200)
+        self.assertFalse(next_login.data["must_change_password"])
+
+    def test_refresh_rotation_and_logout_revoke_session(self):
+        first = self.login().data
+        rotated = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
+        self.assertEqual(rotated.status_code, 200)
+        self.assertNotEqual(rotated.data["refresh"], first["refresh"])
+        reused = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
+        self.assertEqual(reused.status_code, 401, reused.data)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {rotated.data['access']}")
+        logged_out = self.client.post(reverse("auth-logout"), {"refresh": rotated.data["refresh"]}, format="json")
+        self.assertEqual(logged_out.status_code, 204)
+        self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
 
 
 class UserRoleTests(TestCase):
@@ -168,4 +263,4 @@ class MerchantProfileTests(TestCase):
             merchant.full_clean()
 
     def test_merchant_has_no_shop_fields(self):
-        self.assertNotIn("shop", {field.name for field in Merchant._meta.get_fields()})
+        self.assertNotIn("shop", {field.name for field in Merchant._meta.fields})
