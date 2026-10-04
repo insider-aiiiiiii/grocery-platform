@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import (
     Merchant,
@@ -205,6 +206,23 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertNotIn("password", response.data)
         self.assertNotIn("password_hash", response.data)
 
+    def test_merchant_login_rejects_unknown_number_and_wrong_password_without_session(self):
+        responses = (
+            self.login(password="wrong-password"),
+            self.client.post(reverse("auth-login"), {
+                "mobile_number": "+919999999999",
+                "password": "temporary-password",
+            }, format="json"),
+        )
+
+        for response in responses:
+            with self.subTest(status=response.status_code):
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.data, {"detail": "Invalid mobile number or password."})
+                self.assertNotIn("access", response.data)
+                self.assertNotIn("refresh", response.data)
+        self.assertFalse(UserAuthSession.objects.filter(user=self.user).exists())
+
     def test_super_admin_is_denied_merchant_password_change_before_validation(self):
         super_admin = User.objects.create_user(
             username="password-change-admin",
@@ -242,6 +260,10 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertEqual(response.status_code, 401, response.data)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
         self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
+        refresh_response = self.client.post(reverse("auth-refresh"), {
+            "refresh": tokens["refresh"],
+        }, format="json")
+        self.assertEqual(refresh_response.status_code, 401)
 
     def _request(self, path):
         from rest_framework.test import APIRequestFactory
@@ -310,6 +332,42 @@ class MerchantAuthenticationAPITests(TestCase):
         }, format="json")
         self.assertEqual(change_password.status_code, 204)
 
+    def test_refresh_uses_current_temporary_password_state(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        tokens = self.login().data
+
+        self.merchant.must_change_password = True
+        self.merchant.save(update_fields=["must_change_password"])
+        refreshed = self.client.post(reverse("auth-refresh"), {
+            "refresh": tokens["refresh"],
+        }, format="json")
+
+        self.assertEqual(refreshed.status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {refreshed.data['access']}")
+        restricted = AuthenticatedProbe.as_view()(self._request("/api/probe/"))
+        self.assertEqual(restricted.status_code, 403)
+        self.assertEqual(restricted.data["code"], "PASSWORD_CHANGE_REQUIRED")
+
+    def test_logout_rejects_missing_or_invalid_refresh_without_revoking_session(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        tokens = self.login().data
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        missing = self.client.post(reverse("auth-logout"), {}, format="json")
+        invalid = self.client.post(reverse("auth-logout"), {
+            "refresh": "invalid-token",
+        }, format="json")
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(invalid.status_code, 401)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 1)
+        still_refreshable = self.client.post(reverse("auth-refresh"), {
+            "refresh": tokens["refresh"],
+        }, format="json")
+        self.assertEqual(still_refreshable.status_code, 200)
+
     def test_password_change_rejects_wrong_current_password(self):
         self.merchant.must_change_password = False
         self.merchant.save(update_fields=["must_change_password"])
@@ -362,6 +420,20 @@ class MerchantAuthenticationAPITests(TestCase):
         logged_out = self.client.post(reverse("auth-logout"), {"refresh": rotated.data["refresh"]}, format="json")
         self.assertEqual(logged_out.status_code, 204)
         self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
+
+    def test_expired_refresh_token_is_rejected_without_issuing_tokens(self):
+        tokens = self.login().data
+        expired = RefreshToken(tokens["refresh"])
+        expired.set_exp(lifetime=timedelta(seconds=-1))
+
+        response = self.client.post(reverse("auth-refresh"), {
+            "refresh": str(expired),
+        }, format="json")
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data, {"detail": "Invalid refresh token."})
+        self.assertNotIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
 
     def test_logout_revokes_only_the_matching_device_session(self):
         self.merchant.must_change_password = False
