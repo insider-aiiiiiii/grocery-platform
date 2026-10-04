@@ -218,6 +218,8 @@ A future design may use a subset or a different lifecycle. For every notificatio
 
 The current product requirements do not provide a finalized state machine; therefore the lifecycle remains subject to later approval.
 
+These are Notification-delivery states only; `CANCELLED` here does not add a separate Order state. Order rejection and cancellation use the approved Order outcome/state documented in the Orders specification.
+
 ## 8. Triggering Notifications
 
 Notifications are triggered by business events, not by an unapproved event bus or background infrastructure design. The business flow is conceptual:
@@ -253,10 +255,11 @@ The approved product requirements mention merchant and customer order notificati
 | Order created / received acknowledgement | Customer | Approved channel | Yes |
 | Order accepted | Customer | Approved channel | Yes |
 | Order rejected | Customer | Approved channel | Yes |
+| Merchant manually reduces fulfillable quantity | Customer | Approved channel | Yes |
 | Order preparing | Customer | Approved channel | Potentially yes; not fully finalized |
 | Order ready | Customer | Approved channel | Potentially yes; not fully finalized |
 | Order completed | Customer | Approved channel | Potentially yes; not fully finalized |
-| Order cancelled | Customer / Merchant | Approved channel | Unresolved |
+| Customer/Merchant cancellation using the `REJECTED` outcome | Customer / Merchant | Approved channel | Unresolved |
 | Order failed or expired | Customer / Merchant | Approved channel | Unresolved |
 
 The fact that a transition exists in Orders does not automatically imply a notification is required. This must be decided by the approved notification and order requirements.
@@ -311,7 +314,7 @@ The exact source of a customer notification address remains a domain boundary qu
 - a historical order snapshot
 - another approved mechanism
 
-It must not be assumed that a WhatsApp number alone is authorization to access order history or other customer information.
+Customers may use their WhatsApp number to access their Orders within the relevant Shop/customer context; OTP is not required for this MVP decision. This does not grant access to another customer's information, another Shop's Orders, or merchant/admin data. Notification delivery itself does not authorize Order-history access.
 
 ## 12. Customer Privacy
 
@@ -333,7 +336,7 @@ Because of this, notification content and delivery must follow privacy and secur
 - merchants must not receive another shop's customer information through a notification
 - public or unauthorized access must not expose customer contact details or order details
 
-Customer contact information is not an authorization credential. A WhatsApp number alone must not grant access to another customer's order or history.
+Customer notification contact information must not grant access to another customer's Orders or history, or to Orders outside the relevant Shop/customer context. For the approved MVP Order-history experience, Customers may use their WhatsApp number within their own Shop/customer context without OTP; minimize exposed customer information.
 
 ## 13. Merchant Privacy and Tenant Isolation
 

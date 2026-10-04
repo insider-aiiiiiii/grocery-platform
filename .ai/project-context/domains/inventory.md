@@ -107,9 +107,9 @@ Quantity Immediately Available Again
 
 Reserved quantity must be visible to the Merchant. Rejected orders release reserved quantity. Cancelling an accepted Order restores the deducted quantity, and restored stock is immediately available again.
 
-When a requested quantity exceeds available stock, partial quantity is allowed. The detailed customer confirmation, quantity adjustment, and Order behavior remain dependent on the Orders domain. Do not define that UX or resolve the dependency here.
+When requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before accepting the Order. The Customer is notified and the Order reflects the reduced quantity. The system does not automatically reduce quantities without Merchant action. The Order total is recalculated for the reduced quantity.
 
-The complete Order state machine and additional cancellation scenarios are not finalized by this Inventory decision.
+The Order lifecycle and cancellation rules are defined in `.ai/project-context/domains/orders.md`. Transaction/concurrency mechanics remain technical decisions.
 
 ## 11. Inventory History
 
@@ -117,11 +117,11 @@ The MVP stores current stock state and does not maintain a persistent inventory 
 
 ## 12. Concurrency and Technical Design
 
-The implementation must preserve the approved stock rules under concurrent operations. Exact transaction, locking, and concurrency behavior are technical design decisions. This document does not select a database mechanism or resolve any remaining Orders behavior.
+The implementation must preserve the approved stock rules under concurrent operations. Exact transaction, locking, and concurrency behavior are technical design decisions. Order business behavior is finalized in the Orders specification.
 
 ## 13. Cart and Customer Ordering
 
-Cart and customer ordering must respect the approved Inventory availability rules. This document does not add Cart behavior or define partial-quantity confirmation, adjustment, or checkout UX; those details depend on Orders.
+Cart and customer ordering must respect the approved Inventory availability rules. This document does not add Cart behavior or prescribe the technical implementation of Merchant quantity adjustment and customer notification.
 
 ## 14. Cross-Domain Relationships
 
@@ -143,7 +143,7 @@ Customer ordering respects Inventory availability. No additional Cart behavior i
 
 ### Orders
 
-Order creation reserves required quantity; acceptance deducts it; rejection releases it; cancellation after acceptance restores it and makes it immediately available. Partial-quantity details, other cancellation scenarios, the complete Order state machine, and exact transaction/concurrency implementation remain Orders or technical dependencies.
+Order creation reserves required quantity; acceptance deducts it; rejection and pending Customer cancellation release it; eligible Merchant cancellation after acceptance restores/releases it. When stock is insufficient, Merchant manually reduces the fulfillable quantity before acceptance, the Customer is notified, and the Order total reflects the reduced quantity. No automatic quantity reduction occurs. Exact transaction/concurrency implementation remains a technical dependency.
 
 ### Notifications and Analytics
 
@@ -153,8 +153,6 @@ No low-stock threshold, low-stock alert/event, or persistent inventory history i
 
 The following remain unresolved and must not be decided in this document:
 
-- Detailed customer/order behavior when partial quantity is allowed; this is an Orders-domain dependency.
-- The complete Order state machine and cancellation scenarios beyond accepted-order cancellation restoring stock.
 - Exact technical/database representation of Product, Variant, and aggregate stock.
 - Aggregate Product-level stock recalculation behavior for products with variants.
 - Exact transaction, locking, and concurrency implementation.
@@ -164,8 +162,8 @@ These unresolved implementation details do not change the finalized Inventory bu
 
 ## 16. Explicit Non-Goals
 
-This specification does not define Django models, database schema, migrations, serializers, API endpoints, authentication technology, authorization implementation, product definitions or variants, Catalog categories, Cart implementation, complete Order state machine, customer partial-quantity UX, payment processing, WhatsApp implementation, delivery management, low-stock thresholds or alerts, inventory history, frontend implementation, or transaction/locking implementation.
+This specification does not define Django models, database schema, migrations, serializers, API endpoints, authentication technology, authorization implementation, product definitions or variants, Catalog categories, Cart implementation, payment processing, WhatsApp implementation, delivery management, low-stock thresholds or alerts, inventory history, frontend implementation, or transaction/locking implementation.
 
 ## 17. Implementation Gate
 
-Inventory business decisions are finalized. Inventory implementation has **not started** and must wait for the relevant technical/database design and Orders integration, including unresolved partial-quantity behavior, remaining Order cancellation/state-machine decisions, and concurrency design. Follow `AGENTS.md`, project architecture and business rules, this specification, and the relevant Catalog and Orders documentation. Do not silently resolve the remaining dependencies.
+Inventory business decisions are finalized. Inventory implementation has **not started** and must wait for the relevant technical/database design and Orders integration, including stock representation and transaction/concurrency design. Follow `AGENTS.md`, project architecture and business rules, this specification, and the relevant Catalog and Orders documentation. Do not silently resolve the remaining technical dependencies.

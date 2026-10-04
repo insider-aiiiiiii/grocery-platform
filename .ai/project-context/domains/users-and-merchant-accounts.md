@@ -75,7 +75,10 @@ Merchant application, review, approval, rejection, re-application, and applicati
 - Both the Merchant and Super Admin can change or reset the Merchant password.
 - Standard platform password rules apply.
 - Merchant credentials may be shared with employees/staff in MVP. Separate employee accounts, roles, and individual staff permissions are not required.
-- Merchant may log in from multiple devices. Logging out invalidates the current session/token according to the eventual authentication implementation.
+- Merchant may log in from multiple devices. Logout invalidates the current session/refresh token.
+- A deactivated Merchant cannot use existing sessions or tokens; deactivation takes effect immediately.
+- Merchant may log in from multiple devices. Logout invalidates the current session/refresh token.
+- A deactivated Merchant cannot use existing sessions or tokens; deactivation takes effect immediately.
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 
@@ -129,8 +132,8 @@ The following remain unresolved because they concern technical representation or
 
 | Decision | Current boundary |
 |---|---|
-| Authentication mechanism | Django authentication backend supports the approved email/mobile and password identifiers; session/token behavior remains unselected. |
-| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. |
+| Authentication mechanism | JWT bearer authentication is approved with 30-minute access tokens, 30-day rotating refresh tokens, and the first-login restriction defined above. |
+| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. Django's `is_active` field controls whether a Super Admin can authenticate. |
 | Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
 | Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
 | API contracts and database fields/constraints | Not specified. |
@@ -138,4 +141,4 @@ The following remain unresolved because they concern technical representation or
 
 ## 13. Explicit Non-Goals
 
-This specification does not define Django models, schema, migrations, APIs, serializers, views, authentication or authorization implementation, frontend screens, password hashing, OTP, or other technical mechanisms.
+This specification does not define non-authentication APIs, serializers, views, authorization implementation, frontend screens, OTP, or other technical mechanisms. The JWT authentication contract above is approved.
