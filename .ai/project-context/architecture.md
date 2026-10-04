@@ -46,7 +46,7 @@ Each current Django app represents a business domain. The responsibilities below
 
 ### `users`
 
-Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles. Merchant credentials and account state live in a separate Merchant profile. Authentication flows, Merchant profile/Shop relationships, and authorization remain to be finalized.
+Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles and globally unique email/mobile identifiers. Merchant account state lives in a separate Merchant profile. Django's configured backend supports the approved role-specific login identifiers; session/token behavior, Merchant/Shop relationships, and authorization remain to be finalized.
 
 ### `shops`
 
@@ -137,7 +137,7 @@ Response serialization
 Client
 ```
 
-The exact authentication and authorization implementation is not finalized.
+Email/mobile plus password credential authentication is configured. Session/token behavior and authorization are not finalized.
 
 ## 8. Tenant Architecture
 
@@ -157,7 +157,7 @@ These are architectural classifications derived from product context, not final 
 
 ## 10. Authentication and Authorization Boundary
 
-Authentication architecture is **not finalized**. Authorization architecture is **not finalized**. This document does not select JWT, session authentication, OAuth, API keys, identity providers, permission classes, role tables, or membership tables.
+Email/mobile plus password credential authentication is implemented with a Django backend. Session/token architecture and authorization are **not finalized**. This document does not select OAuth, API keys, identity providers, permission classes, role tables, or membership tables.
 
 The architectural requirement is:
 
@@ -298,7 +298,7 @@ Record significant architectural decisions with meaningful long-term consequence
 
 ### Not finalized
 
-- Authentication mechanism.
+- Session/token authentication transport.
 - Exact authorization model.
 - Merchant profile and Shop relationship model.
 - Shop/Membership model.

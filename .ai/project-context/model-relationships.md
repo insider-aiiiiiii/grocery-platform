@@ -177,7 +177,7 @@ Super Admin
    └── platform-level authorization and management, subject to final access design
 ```
 
-The Merchant-to-Shop relationship and Shop tenant boundary are approved business relationships. User-to-Merchant technical identity representation remains unresolved. This is a conceptual map, not a schema diagram.
+The Merchant-to-Shop relationship and Shop tenant boundary are approved business relationships. User and Merchant identity representations are documented below. This is a conceptual map, not a schema diagram.
 
 **## 7. Users, Merchant, and Shop**
 
@@ -198,11 +198,18 @@ These concepts must not be collapsed into one entity. Merchant means the Shop Ow
 
 ### User / Merchant login representation
 
-- Meaning: The Merchant has one login/account in MVP; the technical representation of that account in relation to User remains unresolved.
+- Meaning: The Merchant has one login/account in MVP, represented by one `MERCHANT` User and one Merchant profile.
 - Classification: Identity relationship.
-- Cardinality: One Merchant login/account per Merchant in MVP; physical User relationship is `TBD`.
+- Cardinality: One-to-one between Merchant profile and User.
 - Ownership: Merchant remains a separate business entity, not the same thing as User.
-- Status: **UNRESOLVED** for technical identity representation.
+- Status: **IMPLEMENTED** for the User/profile relationship; Merchant-to-Shop remains separate.
+
+### Super Admin identity
+
+- Meaning: A Super Admin is a platform-level User that can be created by another Super Admin.
+- Identity: Super Admin login accepts email or mobile number with a password. Each identifier is globally unique across all User accounts.
+- Shop ownership: Super Admin does not automatically own a Shop.
+- Status: **APPROVED**.
 
 ### Merchant → Shop
 
@@ -216,9 +223,9 @@ These concepts must not be collapsed into one entity. Merchant means the Shop Ow
 
 - Meaning: Merchant login credentials grant access to the Merchant's Shop.
 - Classification: Authorization/access relationship.
-- Cardinality: One Merchant login/account per Merchant in MVP; exact User-to-Merchant technical representation is unresolved.
+- Cardinality: One Merchant login/account and one Merchant profile per Merchant in MVP.
 - Ownership: Credentials may be shared with employees/staff. No separate employee User or Merchant membership is required in MVP. Access is limited to the Merchant's Shop and does not make User the Shop owner.
-- Status: **APPROVED** for the business access rule; technical identity representation remains unresolved.
+- Status: **APPROVED** for the business access rule; profile lifecycle and Shop access enforcement remain unresolved.
 
 ### Shop lifecycle and public access
 
@@ -293,7 +300,7 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 \- Status: **\*\*APPROVED\*\*** as a business concept.
 
-Customer identity is shop-specific, not globally shared. The same WhatsApp number may exist as separate customer identities at different Shops. A customer at Shop A must not access or expose Shop B customer history.
+Each Customer profile belongs to one Shop, and Customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. A WhatsApp number does not grant access to customer history.
 
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
@@ -711,7 +718,8 @@ No separate analytics database or duplicated fact tables is required for MVP.
 |---|---|---|---|---|---|---|
 | Merchant | Shop | Merchant may have one active Shop at a time and may create another after permanent deletion | `1 → 1 active Shop` | Shop | Business ownership | **APPROVED** |
 | Merchant credentials | Merchant's active Shop | Merchant login grants access; credentials may be shared with staff | `1 → 1 active Shop` | Shop access | Authorization | **APPROVED** |
-| User | Merchant | Technical identity representation for Merchant login | `TBD` | Platform/access | Identity | **UNRESOLVED** |
+| User | Merchant | One-to-one Merchant profile; contact login identifiers live on User | 1-to-1 | Platform/access | Identity | **IMPLEMENTED** |
+| User | Super Admin | Platform identity accepts globally unique email or mobile login | Multiple Users | Platform | Identity | **APPROVED** |
 | Shop | Shop Catalog | Shop owns catalog context | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
 | Master Product | Shop Product | Optional selection/source; independent Shop-specific representation | One Master Product may be selected by multiple Shops; physical link unresolved | Global → tenant | Reference, not ownership/sync | **APPROVED business rule** |
 | Shop Product | Variant | Optional Shop-specific variants; product may also be directly sellable | Optional / potentially many; exact schema unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
@@ -882,9 +890,9 @@ User = Merchant = Shop
 
 This is not approved. Identity, business/operator context, tenant context, and authorization are distinct concepts.
 
-**### Do not make Customer global**
+**### Keep Customer profiles shop-scoped**
 
-A global customer identity keyed by WhatsApp number is not approved. Customer identity is shop-specific.
+Each Customer profile belongs to one Shop and customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins, but the number alone does not authorize access to customer history. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
 
 **### Do not make Merchant the tenant**
 
@@ -1049,9 +1057,9 @@ No Django model implementation should begin before this relationship map and the
 
 | Decision | Current understanding | Why still unresolved | Domains affected | Implementation decision blocked |
 |---|---|---|---|---|
-| User ↔ Merchant representation | One custom Django User supports SUPER_ADMIN and MERCHANT; each Merchant has a one-to-one profile with unique mobile, optional unique email, status, and first-login password-change state | Login enforcement, profile lifecycle enforcement, and physical relationship to Shop remain unresolved | Users, Shops | Merchant authentication and Shop relationship |
+| User ↔ Merchant representation | One custom Django User supports SUPER_ADMIN and MERCHANT; each Merchant has a one-to-one profile with status and first-login state | Merchant profile lifecycle enforcement and physical relationship to Shop remain unresolved | Users, Shops | Merchant/Shop relationship |
 | Merchant credentials ↔ Shop access | Credentials access the Merchant's one active Shop and may be shared with staff | Authentication/access schema is not finalized | Users, Shops | Credential and access representation |
-| Shop ↔ Customer identity matching | One current Customer record per Shop, recognized primarily by the Shop-scoped WhatsApp number | Phone normalization, formatting, verification, and physical uniqueness representation remain open | Customers, Orders | Customer uniqueness/matching implementation |
+| Shop ↔ Customer identity matching | Every Customer profile belongs to one Shop; WhatsApp is globally unique across Customers, Merchants, and Super Admins | Shop model dependency, phone normalization, formatting, verification, and cross-domain uniqueness representation remain open | Customers, Users, Shops, Orders | Customer model and shared WhatsApp uniqueness implementation |
 | Shop ↔ Cart cardinality | Cart is Shop-scoped | Active-cart persistence/cardinality remains to be finalized | Cart, Shops | Cart identity/schema |
 | Product/Variant physical model | Product may be directly sellable or have variants | Exact fields, identity, and schema remain DB decisions | Catalog, Inventory | Catalog schema |
 | Master Product ↔ Shop Product representation | Shop Product may be selected from Master Catalog or created directly; each remains independent. Promotion does not auto-link the originating Shop Product. | Exact optional reference representation remains a technical decision | Catalog | Catalog reference fields |

@@ -65,7 +65,7 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | Django configuration | Implemented | Standard settings; DRF and all domain apps registered. Last recorded `manage.py check` passed. |
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
-| `users` | Partially Implemented | Custom Django User model and one-to-one Merchant profile with contact, status, and first-login password-change fields; login flow and Merchant/Shop relationship are not implemented. |
+| `users` | Partially Implemented | Custom Django User model with globally unique email/mobile, role-aware credential backend, and one-to-one Merchant profile with status and first-login state; APIs and Merchant/Shop relationship are not implemented. |
 | `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
 | Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
 | Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
@@ -78,7 +78,7 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior. |
 | `notifications` | Scaffolded / No Business Logic | App files exist; no notification or WhatsApp integration. |
 | `analytics` | Scaffolded / No Business Logic | App files exist; no analytics implementation. |
-| Authentication | Partially Implemented / Requires Decision | A custom Django User model exists with `SUPER_ADMIN` and `MERCHANT` roles. Login flows, credentials lifecycle, and authentication architecture remain undecided and unimplemented. |
+| Authentication | Partially Implemented / Requires Decision | Django backend supports Merchant mobile/password and Super Admin email/mobile plus password. Session/token behavior, API flows, and authorization remain undecided. |
 | Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
 | Multi-tenancy implementation | Not Started | Shop-level isolation is an approved requirement; no tenant-context or tenant-query enforcement was found. |
 | API endpoints | Not Started | No application API endpoints or `/api/v1/` routing; only Django Admin is routed. |
@@ -115,7 +115,7 @@ These are scaffolded applications, not implemented domain features.
 
 ## 7. Authentication Status
 
-The custom Django User identity model is implemented with only `SUPER_ADMIN` and `MERCHANT` roles. A separate Merchant profile stores contact details, account status, and first-login password-change state. Customers are not authenticated Users. Mobile/password login enforcement, login flows, authorization rules, and the authentication mechanism remain unresolved. No product authentication endpoints or flows are implemented.
+The custom Django User identity model is implemented with only `SUPER_ADMIN` and `MERCHANT` roles and global email/mobile uniqueness. Merchant account status and first-login password-change state are stored on a one-to-one Merchant profile. The configured backend supports Merchant mobile/password and Super Admin email/mobile plus password. Customers are not authenticated Users. Session/token behavior, login APIs, and authorization remain unresolved. No product authentication endpoints are implemented.
 
 ## 8. Authorization Status
 

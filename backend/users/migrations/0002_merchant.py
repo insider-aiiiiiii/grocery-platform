@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 ('user', models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name='merchant', to=settings.AUTH_USER_MODEL)),
             ],
             options={
-                'constraints': [models.CheckConstraint(condition=models.Q(('status__in', ['ACTIVE', 'DEACTIVATED'])), name='users_merchant_valid_status')],
+                'constraints': [models.CheckConstraint(check=models.Q(('status__in', ['ACTIVE', 'DEACTIVATED'])), name='users_merchant_valid_status')],
             },
         ),
     ]
