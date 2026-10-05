@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import MasterCategory, MasterProduct, ProductVariant, ShopProduct
+from .models import MasterCategory, MasterProduct, ProductVariant, ShopCategory, ShopProduct
 
 
 @admin.register(MasterCategory)
@@ -16,6 +16,14 @@ class MasterProductAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "category")
 
 
+@admin.register(ShopCategory)
+class ShopCategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "shop", "parent", "is_active", "created_at")
+    search_fields = ("name", "slug")
+    list_filter = ("is_active", "shop")
+    raw_id_fields = ("shop", "parent")
+
+
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
@@ -28,6 +36,7 @@ class ShopProductAdmin(admin.ModelAdmin):
     search_fields = ("name", "brand", "sku")
     list_filter = ("is_visible", "is_available", "shop")
     raw_id_fields = ("shop", "master_product")
+    filter_horizontal = ("categories",)
     inlines = [ProductVariantInline]
 
 
@@ -37,5 +46,6 @@ class ProductVariantAdmin(admin.ModelAdmin):
     search_fields = ("name", "sku", "product__name")
     list_filter = ("is_visible", "is_available", "product__shop")
     raw_id_fields = ("product",)
+
 
 
