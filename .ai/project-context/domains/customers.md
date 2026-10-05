@@ -22,7 +22,7 @@ Customer profiles and Order history are Shop-scoped; the platform does not autom
 
 See `.ai/project-context/customer-order-history-access.md` for the finalized AUTH-015 security design. Provider, deployment, phone-normalization, API, schema, and retention details remain open; this does not change the approved no-OTP and no-phone-number-only-access rules.
 
-See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal. Its suggested link/session flow and settings remain proposals pending review; it does not change the approved no-OTP and no-phone-number-only-access rules.
+See `.ai/project-context/customer-order-history-access.md` for the finalized AUTH-015 behavior and AUTH-017 proposed technical schema/API. The fixed security requirements are approved; exact persistence, routes, contact-identity enforcement, and deployment settings remain technical choices for review.
 
 ## 3. Shop-Specific Customer Isolation
 
@@ -207,7 +207,7 @@ These are conceptual domain relationships, not necessarily database foreign keys
 
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
 | Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
-| Order-history access link/token design. | A customer-specific link/token scoped to the Customer and Shop is approved; WhatsApp number alone is insufficient to authorize access and OTP is not required. | See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 proposal. Delivery, lifetimes, session count, cancellation authority, origin, and revocation choices require review before implementation. |
+| Order-history technical implementation. | No-OTP one-use 15-minute link, digest-only secret, 30-day maximum scoped session, one active session per Customer + Shop, and pending cancellation authority are finalized. | AUTH-017 proposes schema/API and transaction contracts. Provider, deployment cookie/origin, contact registry, rate thresholds, physical Customer-retention behavior, and exact API/schema approval remain outstanding. |
 
 Determines who may access customer information, subject to approved authorization.
 

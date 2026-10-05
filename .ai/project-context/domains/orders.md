@@ -171,7 +171,7 @@ The approved repeat-customer/order-history flow must not require OTP. Knowledge 
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
-See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal, including the proposed restricted session and the unresolved question of whether it authorizes pending Order cancellation. The proposal does not authorize implementation before review.
+The scoped Customer session is the approved proof for the Customer's own `PENDING` Order cancellation. AUTH-017 proposes its exact API and transaction contract in `.ai/project-context/customer-order-history-access.md`; no Order or Customer API is implemented.
 
 ## 22. Order Cancellation
 
@@ -207,7 +207,7 @@ After successful order creation, the order is independent of future cart changes
 
 ## 27. Notifications
 
-Orders is the source of truth for order data, state, and business events; Notifications owns message preparation and delivery handling. The MVP WhatsApp notification events are: successful Order creation notifies the Shop's configured merchant number and sends the Customer an Order-received acknowledgement; acceptance, rejection, manual quantity reduction before acceptance, and Merchant cancellation after acceptance but before preparation notify the Customer; pending Customer cancellation notifies the Shop's configured merchant number. The received acknowledgement must not imply acceptance. Delivery failure does not change Order state. See `.ai/project-context/domains/notifications.md` for the full mapping and delivery rules.
+Orders is the source of truth for order data, state, and business events; Notifications owns message preparation and delivery handling. Successful Order creation notifies the Shop's configured Merchant number and sends the Customer an Order-received acknowledgement with the one-use history link to the number stored on the Shop-specific Customer. Acceptance, rejection, manual quantity reduction before acceptance, and Merchant cancellation after acceptance but before preparation notify the Customer; pending Customer cancellation notifies the Shop's configured Merchant number. The received acknowledgement must not imply acceptance. Delivery failure does not change Order state and is not reported as success before provider confirmation. See `.ai/project-context/domains/notifications.md` and `.ai/project-context/customer-order-history-access.md` for the full rules.
 
 ## 28. WhatsApp Boundary
 
