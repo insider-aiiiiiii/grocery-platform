@@ -10,7 +10,15 @@ from django.test import TestCase, override_settings
 from shops.models import Shop
 from users.models import Merchant, User
 
-from .models import MasterCategory, MasterProduct, Product, ShopProduct
+from .models import (
+    MasterCategory,
+    MasterProduct,
+    Product,
+    ProductVariant,
+    ShopProduct,
+    ShopProductVariant,
+    Variant,
+)
 
 
 
@@ -387,5 +395,212 @@ class ShopProductModelTests(TestCase):
     def test_product_domain_alias(self):
         """Product alias points to ShopProduct."""
         self.assertIs(Product, ShopProduct)
+
+
+class ProductVariantModelTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+        cls.media_override = override_settings(MEDIA_ROOT=cls.temp_media)
+        cls.media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.media_override.disable()
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="merchant_var",
+            email="merchant_var@example.com",
+            mobile_number="+919876543219",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Grocery Corner",
+            address_line="50 Market Lane",
+            area="Downtown",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user.mobile_number,
+        )
+
+        dummy_prod_img = SimpleUploadedFile("product.png", b"prod_img_bytes", content_type="image/png")
+        self.product = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Cold Brew Coffee",
+            description="Organic slow-steeped cold brew",
+            brand="BrewCraft",
+            price=Decimal("4.00"),
+            sku="CB-MAIN",
+            image=dummy_prod_img,
+            attributes={"origin": "Ethiopia", "roast": "Medium"},
+        )
+
+    def test_non_variant_product_representation(self):
+        """
+        Non-variant sellable product has direct price and attributes without variants.
+        """
+        self.assertFalse(self.product.has_variants)
+        self.assertEqual(self.product.price, Decimal("4.00"))
+        self.assertEqual(self.product.attributes["origin"], "Ethiopia")
+        self.assertEqual(self.product.variants.count(), 0)
+
+    def test_variant_creation_with_attributes_and_pricing(self):
+        """
+        Merchants can create variants with specific name, price, SKU, image, and custom attributes.
+        """
+        dummy_var_img = SimpleUploadedFile("variant.png", b"var_img_bytes", content_type="image/png")
+        variant = ProductVariant.objects.create(
+            product=self.product,
+            name="Large (1L Bottle)",
+            price=Decimal("7.50"),
+            sku="CB-1L",
+            image=dummy_var_img,
+            attributes={"volume": "1L", "packaging": "Glass Bottle"},
+            is_visible=True,
+            is_available=True,
+        )
+
+        self.assertEqual(variant.product, self.product)
+        self.assertEqual(variant.name, "Large (1L Bottle)")
+        self.assertEqual(variant.price, Decimal("7.50"))
+        self.assertEqual(variant.sku, "CB-1L")
+        self.assertEqual(variant.attributes, {"volume": "1L", "packaging": "Glass Bottle"})
+        self.assertTrue(self.product.has_variants)
+        self.assertEqual(str(variant), "Cold Brew Coffee - Large (1L Bottle)")
+
+    def test_duplicate_skus_allowed_across_variants_and_products(self):
+        """
+        The catalog specification explicitly specifies that SKUs do not need
+        to be unique, and duplicate SKUs across variants are permitted.
+        """
+        v1 = ProductVariant.objects.create(
+            product=self.product,
+            name="Small 250ml",
+            price=Decimal("3.00"),
+            sku="SHARED-SKU-99",
+        )
+        v2 = ProductVariant.objects.create(
+            product=self.product,
+            name="Medium 500ml",
+            price=Decimal("5.00"),
+            sku="SHARED-SKU-99",
+        )
+
+        self.assertNotEqual(v1.id, v2.id)
+        self.assertEqual(v1.sku, v2.sku)
+        self.assertEqual(ProductVariant.objects.filter(sku="SHARED-SKU-99").count(), 2)
+
+    def test_variant_image_fallback_to_parent_product(self):
+        """
+        When a variant has no image, it falls back to the parent product's image.
+        When it has its own image, that image is used.
+        """
+        dummy_var_img = SimpleUploadedFile("specific.png", b"specific_bytes", content_type="image/png")
+        variant_with_img = ProductVariant.objects.create(
+            product=self.product,
+            name="Special Edition",
+            image=dummy_var_img,
+        )
+        variant_no_img = ProductVariant.objects.create(
+            product=self.product,
+            name="Standard Edition",
+            image=None,
+        )
+
+        self.assertTrue(variant_with_img.effective_image.name.startswith("catalog/variants/specific"))
+        self.assertTrue(variant_no_img.effective_image.name.startswith("catalog/shop_products/product"))
+
+    def test_variant_price_fallback_to_parent_product(self):
+        """
+        When variant price is null, effective_price falls back to the parent product's price.
+        When set, the variant price is used.
+        """
+        v_custom_price = ProductVariant.objects.create(
+            product=self.product,
+            name="Single Shot",
+            price=Decimal("2.50"),
+        )
+        v_inherited_price = ProductVariant.objects.create(
+            product=self.product,
+            name="Standard Serving",
+            price=None,
+        )
+
+        self.assertEqual(v_custom_price.effective_price, Decimal("2.50"))
+        self.assertEqual(v_inherited_price.effective_price, Decimal("4.00"))
+
+    def test_negative_variant_price_validation(self):
+        """Variant price cannot be negative."""
+        variant = ProductVariant(
+            product=self.product,
+            name="Invalid Variant",
+            price=Decimal("-2.00"),
+        )
+        with self.assertRaises(ValidationError):
+            variant.clean()
+
+    def test_get_available_variants_filter(self):
+        """
+        Customers and catalog queries see only visible and manually available variants.
+        """
+        v_avail = ProductVariant.objects.create(
+            product=self.product,
+            name="Avail",
+            is_visible=True,
+            is_available=True,
+        )
+        v_hidden = ProductVariant.objects.create(
+            product=self.product,
+            name="Hidden",
+            is_visible=False,
+            is_available=True,
+        )
+        v_unavail = ProductVariant.objects.create(
+            product=self.product,
+            name="Unavail",
+            is_visible=True,
+            is_available=False,
+        )
+
+        available_variants = self.product.get_available_variants()
+        self.assertIn(v_avail, available_variants)
+        self.assertNotIn(v_hidden, available_variants)
+        self.assertNotIn(v_unavail, available_variants)
+
+    def test_product_deletion_cascades_to_variants(self):
+        """
+        Deleting a ShopProduct deletes its variants.
+        """
+        v = ProductVariant.objects.create(product=self.product, name="Sample Variant")
+        v_id = v.id
+
+        self.product.delete()
+        self.assertFalse(ProductVariant.objects.filter(id=v_id).exists())
+
+    def test_variant_deletion_does_not_delete_product(self):
+        """
+        Deleting a variant removes only the variant; the parent product remains.
+        """
+        v = ProductVariant.objects.create(product=self.product, name="Disposable Variant")
+        v.delete()
+
+        self.assertTrue(ShopProduct.objects.filter(id=self.product.id).exists())
+
+    def test_variant_domain_aliases(self):
+        """Variant aliases point to ProductVariant."""
+        self.assertIs(Variant, ProductVariant)
+        self.assertIs(ShopProductVariant, ProductVariant)
+
 
 

@@ -101,6 +101,7 @@ class ShopProduct(models.Model):
         blank=True,
     )
     sku = models.CharField(max_length=128, blank=True, default="")
+    attributes = models.JSONField(default=dict, blank=True)
     is_visible = models.BooleanField(default=True, db_index=True)
     is_available = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -129,6 +130,15 @@ class ShopProduct(models.Model):
     def __str__(self):
         return f"{self.name} (Shop: {self.shop_id})"
 
+    @property
+    def has_variants(self) -> bool:
+        """Returns True if this product has defined variants."""
+        return self.variants.exists()
+
+    def get_available_variants(self):
+        """Returns variants that are both visible and manually available."""
+        return self.variants.filter(is_visible=True, is_available=True)
+
     @classmethod
     def from_master_product(cls, shop, master_product, **kwargs):
         """
@@ -146,7 +156,87 @@ class ShopProduct(models.Model):
         return cls.objects.create(**data)
 
 
-# Domain alias
+class ProductVariant(models.Model):
+    """
+    Shop-specific variant representation belonging to a Shop Product.
+
+    Merchants can create, edit, and delete variants, configuring variant name,
+    image, price, SKU, and custom attributes. Duplicate SKUs are allowed.
+    If a variant has no image, it falls back to the parent product's image.
+    """
+
+    product = models.ForeignKey(
+        ShopProduct,
+        on_delete=models.CASCADE,
+        related_name="variants",
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    image = models.FileField(
+        upload_to="catalog/variants/",
+        blank=True,
+        null=True,
+    )
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    sku = models.CharField(max_length=128, blank=True, default="")
+    attributes = models.JSONField(default=dict, blank=True)
+    is_visible = models.BooleanField(default=True, db_index=True)
+    is_available = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Product Variant"
+        verbose_name_plural = "Product Variants"
+        ordering = ["product", "name", "id"]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(price__gte=0) | Q(price__isnull=True),
+                name="catalog_productvariant_price_non_negative",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["product", "is_visible", "is_available"], name="catalog_pv_prod_vis_avail_idx"),
+            models.Index(fields=["product", "name"], name="catalog_pv_prod_name_idx"),
+            models.Index(fields=["sku"], name="catalog_pv_sku_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.price is not None and self.price < Decimal("0.00"):
+            raise ValidationError({"price": "Variant price cannot be negative."})
+
+    def __str__(self):
+        return f"{self.product.name} - {self.name}"
+
+    @property
+    def effective_image(self):
+        """
+        When a variant has no image, fallback to parent product image
+        per domain specification.
+        """
+        if bool(self.image):
+            return self.image
+        return self.product.image if self.product_id else None
+
+    @property
+    def effective_price(self):
+        """
+        Returns variant price if set; otherwise falls back to parent product price.
+        """
+        if self.price is not None:
+            return self.price
+        return self.product.price if self.product_id else None
+
+
+# Domain aliases
 Product = ShopProduct
+Variant = ProductVariant
+ShopProductVariant = ProductVariant
+
 
 
