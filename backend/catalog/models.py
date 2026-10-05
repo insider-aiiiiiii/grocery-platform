@@ -316,6 +316,59 @@ class ShopProduct(models.Model):
         return self.brand
 
     @property
+    def has_image(self) -> bool:
+        """Returns True if the product has an image assigned."""
+        return bool(self.image)
+
+    @property
+    def is_customer_visible(self) -> bool:
+        """
+        True if the product is visible in customer-facing catalog.
+        Hidden products are never visible to customers.
+        Out-of-stock and manually unavailable products remain visible.
+        """
+        return self.is_visible
+
+    def is_orderable(self, stock_quantity: int | None = None) -> bool:
+        """
+        Determines if this product can be ordered by a customer.
+        Must be visible AND manually available AND in stock (if stock_quantity provided).
+        Zero inventory or manually unavailable products cannot be ordered.
+        """
+        if not self.is_visible or not self.is_available:
+            return False
+        if stock_quantity is not None and stock_quantity <= 0:
+            return False
+        return True
+
+    def get_display_status(self, stock_quantity: int | None = None, variant_stock_map: dict | None = None) -> str:
+        """
+        Computes customer-facing catalog display state preserving the strict distinction
+        between catalog visibility (hidden vs visible), manual availability (unavailable),
+        and inventory availability (out of stock).
+        """
+        if not self.is_visible:
+            return "HIDDEN"
+        if not self.is_available:
+            return "UNAVAILABLE"
+        if self.has_variants:
+            visible_variants = self.get_visible_variants()
+            if not visible_variants.exists():
+                return "HIDDEN"
+            all_unavail_or_oos = True
+            for var in visible_variants:
+                var_stock = variant_stock_map.get(var.id) if variant_stock_map else None
+                if var.is_orderable(stock_quantity=var_stock):
+                    all_unavail_or_oos = False
+                    break
+            if all_unavail_or_oos:
+                return "OUT_OF_STOCK"
+            return "AVAILABLE"
+        if stock_quantity is not None and stock_quantity <= 0:
+            return "OUT_OF_STOCK"
+        return "AVAILABLE"
+
+    @property
     def has_variants(self) -> bool:
         """Returns True if this product has defined variants."""
         return self.variants.exists()
@@ -325,9 +378,20 @@ class ShopProduct(models.Model):
         """Returns True if the product is not assigned to any category."""
         return not self.categories.exists()
 
-    def get_available_variants(self):
-        """Returns variants that are both visible and manually available."""
-        return self.variants.filter(is_visible=True, is_available=True)
+    def get_visible_variants(self):
+        """Returns variants that are visible to customers."""
+        return self.variants.filter(is_visible=True)
+
+    def get_available_variants(self, stock_map: dict | None = None):
+        """
+        Returns variants that are both visible and manually available.
+        If stock_map is supplied, filters out variants with zero inventory.
+        """
+        qs = self.variants.filter(is_visible=True, is_available=True)
+        if stock_map is not None:
+            available_ids = [v.id for v in qs if stock_map.get(v.id, 0) > 0]
+            return qs.filter(id__in=available_ids)
+        return qs
 
     def get_attribute(self, name: str, default=None):
         """Returns the value(s) for a given attribute name."""
@@ -385,7 +449,7 @@ class ProductVariant(models.Model):
     Shop-specific variant representation belonging to a Shop Product.
 
     Merchants can create, edit, and delete variants, configuring variant name,
-    image, price, SKU, and custom attributes. Duplicate SKUs are allowed.
+    image, price, SKU, description, and custom attributes. Duplicate SKUs are allowed.
     If a variant has no image, it falls back to the parent product's image.
     """
 
@@ -395,6 +459,7 @@ class ProductVariant(models.Model):
         related_name="variants",
     )
     name = models.CharField(max_length=255, db_index=True)
+    description = models.TextField(blank=True, default="")
     image = models.FileField(
         upload_to="catalog/variants/",
         blank=True,
@@ -449,6 +514,11 @@ class ProductVariant(models.Model):
         return f"{self.product.name} - {self.name}"
 
     @property
+    def has_image(self) -> bool:
+        """Returns True if the variant has its own image or effective parent image."""
+        return bool(self.effective_image)
+
+    @property
     def effective_image(self):
         """
         When a variant has no image, fallback to parent product image
@@ -466,6 +536,60 @@ class ProductVariant(models.Model):
         if self.price is not None:
             return self.price
         return self.product.price if self.product_id else None
+
+    @property
+    def effective_description(self) -> str:
+        """
+        Returns variant description if set; otherwise falls back to parent product description.
+        """
+        if self.description:
+            return self.description
+        return self.product.description if self.product_id else ""
+
+    @property
+    def effective_brand(self) -> str:
+        """
+        Returns parent product's effective brand.
+        """
+        return self.product.effective_brand if self.product_id else ""
+
+    @property
+    def is_customer_visible(self) -> bool:
+        """
+        A variant is customer-visible only if both it and its parent product are visible.
+        """
+        if not self.is_visible:
+            return False
+        return self.product.is_visible if self.product_id else True
+
+    def is_orderable(self, stock_quantity: int | None = None) -> bool:
+        """
+        A variant can only be ordered if both it and its parent product are visible,
+        both are manually available, and it is in stock (if stock_quantity provided).
+        """
+        if not self.is_customer_visible:
+            return False
+        if not self.is_available:
+            return False
+        if self.product_id and not self.product.is_available:
+            return False
+        if stock_quantity is not None and stock_quantity <= 0:
+            return False
+        return True
+
+    def get_display_status(self, stock_quantity: int | None = None) -> str:
+        """
+        Computes customer display state for this variant preserving the distinction
+        between catalog visibility (hidden), manual availability (unavailable),
+        and inventory availability (out of stock).
+        """
+        if not self.is_customer_visible:
+            return "HIDDEN"
+        if not self.is_available or (self.product_id and not self.product.is_available):
+            return "UNAVAILABLE"
+        if stock_quantity is not None and stock_quantity <= 0:
+            return "OUT_OF_STOCK"
+        return "AVAILABLE"
 
     def get_attribute(self, name: str, default=None):
         """Returns the value(s) for a given attribute name."""

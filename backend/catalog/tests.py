@@ -1281,3 +1281,237 @@ class ProductAndVariantCustomAttributesTests(TestCase):
         sp.save()
         sp.refresh_from_db()
         self.assertEqual(sp.attributes["Grain"], ["Durum Wheat", "Semolina"])
+
+
+class ShopProductAndVariantFieldsAndAvailabilityTests(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+        cls.media_override = override_settings(MEDIA_ROOT=cls.temp_media)
+        cls.media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.media_override.disable()
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="merchant_cat006",
+            email="merchant_cat006@example.com",
+            mobile_number="+919876543271",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Field Mart",
+            address_line="100 Field St",
+            area="North",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user.mobile_number,
+        )
+        self.category = ShopCategory.objects.create(shop=self.shop, name="Dairy & Eggs")
+        self.brand = ShopBrand.objects.create(shop=self.shop, name="PureFarm")
+
+        dummy_img = SimpleUploadedFile("product.png", b"dummy_img_bytes", content_type="image/png")
+        self.product = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Farm Fresh Whole Milk",
+            description="Pure pasteurized cow milk",
+            brand="PureFarm",
+            brand_ref=self.brand,
+            price=Decimal("3.75"),
+            sku="MILK-FF-01",
+            image=dummy_img,
+            is_visible=True,
+            is_available=True,
+            attributes={"Origin": "Local Dairy", "Fat Content": "3.5%"},
+        )
+        self.product.categories.add(self.category)
+
+    def test_catalog_visibility_hidden_product_and_variant(self):
+        """
+        Hidden products/variants are not visible in customer catalog and cannot be ordered.
+        Hiding a parent product also hides its variants from customer visibility.
+        """
+        # Visible product
+        self.assertTrue(self.product.is_customer_visible)
+        self.assertEqual(self.product.get_display_status(), "AVAILABLE")
+
+        # Hide product
+        self.product.is_visible = False
+        self.assertFalse(self.product.is_customer_visible)
+        self.assertEqual(self.product.get_display_status(), "HIDDEN")
+        self.assertFalse(self.product.is_orderable())
+
+        # Variant visibility under hidden product
+        variant = ProductVariant.objects.create(
+            product=self.product,
+            name="1L Bottle",
+            is_visible=True,
+            is_available=True,
+        )
+        self.assertFalse(variant.is_customer_visible)
+        self.assertEqual(variant.get_display_status(), "HIDDEN")
+        self.assertFalse(variant.is_orderable())
+
+        # Unhide product, but hide variant
+        self.product.is_visible = True
+        self.product.save()
+        variant.is_visible = False
+        variant.save()
+        self.assertTrue(self.product.is_customer_visible)
+        self.assertFalse(variant.is_customer_visible)
+        self.assertEqual(variant.get_display_status(), "HIDDEN")
+        self.assertNotIn(variant, self.product.get_visible_variants())
+
+    def test_distinction_manual_availability_vs_inventory_stock(self):
+        """
+        Preserve strict distinction between manual availability and inventory availability:
+        - Manual availability=False: remains visible in catalog, shows UNAVAILABLE, not orderable.
+        - Out-of-stock (stock=0): remains visible in catalog, shows OUT_OF_STOCK, not orderable. Zero stock does not hide.
+        - In-stock + manually available: AVAILABLE and orderable.
+        """
+        # 1. Manually unavailable: remains visible to customers, cannot be ordered
+        self.product.is_available = False
+        self.assertTrue(self.product.is_customer_visible)
+        self.assertEqual(self.product.get_display_status(), "UNAVAILABLE")
+        self.assertFalse(self.product.is_orderable())
+
+        # 2. Manually available, but out of stock (stock_quantity=0)
+        self.product.is_available = True
+        self.assertTrue(self.product.is_customer_visible)
+        self.assertEqual(self.product.get_display_status(stock_quantity=0), "OUT_OF_STOCK")
+        self.assertFalse(self.product.is_orderable(stock_quantity=0))
+
+        # 3. Manually available and in stock (stock_quantity=10)
+        self.assertTrue(self.product.is_customer_visible)
+        self.assertEqual(self.product.get_display_status(stock_quantity=10), "AVAILABLE")
+        self.assertTrue(self.product.is_orderable(stock_quantity=10))
+
+    def test_variant_availability_permutations_and_all_unavailable_oos_behavior(self):
+        """
+        For variant products:
+        - Customers see only available variants.
+        - If all variants are unavailable or out-of-stock, the main product displays OUT_OF_STOCK.
+        """
+        v1 = ProductVariant.objects.create(
+            product=self.product,
+            name="500ml",
+            price=Decimal("2.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        v2 = ProductVariant.objects.create(
+            product=self.product,
+            name="1L",
+            price=Decimal("3.50"),
+            is_visible=True,
+            is_available=True,
+        )
+
+        stock_map = {v1.id: 5, v2.id: 0}  # v1 in stock, v2 out of stock
+        available_variants = self.product.get_available_variants(stock_map=stock_map)
+        self.assertIn(v1, available_variants)
+        self.assertNotIn(v2, available_variants)
+        self.assertEqual(self.product.get_display_status(variant_stock_map=stock_map), "AVAILABLE")
+
+        # When all variants are out of stock
+        all_oos_stock_map = {v1.id: 0, v2.id: 0}
+        self.assertEqual(self.product.get_display_status(variant_stock_map=all_oos_stock_map), "OUT_OF_STOCK")
+
+        # When all variants are manually unavailable
+        v1.is_available = False
+        v1.save()
+        v2.is_available = False
+        v2.save()
+        self.assertEqual(self.product.get_display_status(), "OUT_OF_STOCK")
+
+    def test_image_behavior_and_variant_fallback(self):
+        """
+        MVP supports one image per product and optional image per variant.
+        Variant without image falls back to parent product image; variant with image uses its own.
+        Product can exist without image.
+        """
+        # Product with image
+        self.assertTrue(self.product.has_image)
+
+        # Variant with no image falls back to product image
+        v_no_img = ProductVariant.objects.create(
+            product=self.product,
+            name="2L Jug",
+            image=None,
+        )
+        self.assertTrue(v_no_img.has_image)
+        self.assertEqual(v_no_img.effective_image, self.product.image)
+
+        # Variant with its own image
+        dummy_var_img = SimpleUploadedFile("var.png", b"var_bytes", content_type="image/png")
+        v_with_img = ProductVariant.objects.create(
+            product=self.product,
+            name="5L Can",
+            image=dummy_var_img,
+        )
+        self.assertTrue(v_with_img.has_image)
+        self.assertEqual(v_with_img.effective_image, v_with_img.image)
+
+        # Product without image
+        prod_no_img = ShopProduct.objects.create(shop=self.shop, name="Bulk Grain")
+        self.assertFalse(prod_no_img.has_image)
+        self.assertFalse(bool(prod_no_img.image))
+
+    def test_decimal_pricing_and_sku_behavior(self):
+        """
+        Pricing is shop-specific decimal values; variants support optional price falling back to product.
+        SKUs are merchant-managed and duplicate SKUs are allowed across variants.
+        """
+        v_custom_price = ProductVariant.objects.create(
+            product=self.product,
+            name="Single Serve",
+            price=Decimal("1.25"),
+            sku="SHARED-SKU-100",
+        )
+        v_inherited_price = ProductVariant.objects.create(
+            product=self.product,
+            name="Family Pack",
+            price=None,
+            sku="SHARED-SKU-100",
+        )
+
+        self.assertEqual(v_custom_price.effective_price, Decimal("1.25"))
+        self.assertEqual(v_inherited_price.effective_price, Decimal("3.75"))
+        self.assertEqual(v_custom_price.sku, v_inherited_price.sku)
+
+    def test_brand_description_and_category_relationships(self):
+        """
+        Verify brand, description, and category relationships:
+        - Product categories and is_uncategorized.
+        - Variant description and brand fallbacks to parent product.
+        """
+        self.assertEqual(self.product.categories.count(), 1)
+        self.assertFalse(self.product.is_uncategorized)
+        self.assertEqual(self.product.effective_brand, "PureFarm")
+
+        v_inherited = ProductVariant.objects.create(
+            product=self.product,
+            name="Standard Variant",
+        )
+        self.assertEqual(v_inherited.effective_description, self.product.description)
+        self.assertEqual(v_inherited.effective_brand, "PureFarm")
+
+        v_custom_desc = ProductVariant.objects.create(
+            product=self.product,
+            name="Custom Variant",
+            description="Special variant notes",
+        )
+        self.assertEqual(v_custom_desc.effective_description, "Special variant notes")
+
