@@ -119,6 +119,39 @@ class ShopCategory(models.Model):
         return f"{self.name} (Shop: {self.shop_id})"
 
 
+class ShopBrand(models.Model):
+    """
+    Shop-owned Brand representation fully controlled by the Merchant.
+
+    Merchants can create, edit, and delete brands within their Shop Catalog.
+    A Merchant may customize a Master Product's brand independently by
+    assigning any of their Shop Brands. No fixed global brand taxonomy exists.
+    """
+
+    shop = models.ForeignKey(
+        "shops.Shop",
+        on_delete=models.CASCADE,
+        related_name="brands",
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    description = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Shop Brand"
+        verbose_name_plural = "Shop Brands"
+        ordering = ["name", "id"]
+        indexes = [
+            models.Index(fields=["shop", "is_active"], name="catalog_sb_shop_act_idx"),
+            models.Index(fields=["shop", "name"], name="catalog_sb_shop_name_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} (Shop: {self.shop_id})"
+
+
 class ShopProduct(models.Model):
     """
     Shop-specific sellable product representation independently controlled by Merchant.
@@ -149,6 +182,14 @@ class ShopProduct(models.Model):
     name = models.CharField(max_length=255, db_index=True)
     description = models.TextField(blank=True, default="")
     brand = models.CharField(max_length=255, blank=True, default="")
+    shop_brand = models.ForeignKey(
+        ShopBrand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        verbose_name="Shop Brand",
+    )
     image = models.FileField(
         upload_to="catalog/shop_products/",
         blank=True,
@@ -301,6 +342,7 @@ class ProductVariant(models.Model):
 
 # Domain aliases
 Category = ShopCategory
+Brand = ShopBrand
 Product = ShopProduct
 Variant = ProductVariant
 ShopProductVariant = ProductVariant
