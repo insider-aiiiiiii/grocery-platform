@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import MasterProductViewSet
+from .views import MasterProductViewSet, SuperAdminPromoteShopProductView
 
 app_name = "catalog"
 
@@ -14,5 +14,6 @@ direct_router = DefaultRouter()
 direct_router.register(r"", MasterProductViewSet, basename="master-product-direct")
 
 urlpatterns = [
+    path("shop-products/<int:pk>/promote/", SuperAdminPromoteShopProductView.as_view(), name="shop-product-promote"),
     path("", include(router.urls)),
 ]
