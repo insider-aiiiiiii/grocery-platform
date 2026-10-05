@@ -2,27 +2,23 @@
 
 ## 1. Domain Purpose
 
-The Customers domain owns customer identity within a shop, customer contact information, customer ordering context, repeat-customer recognition, customer information needed for approved checkout behavior, shop-specific customer history, and delivery-related customer information where applicable.
+The Customers domain owns Shop-specific customer profiles and ordering context, customer contact information, repeat-customer recognition, customer information needed for approved checkout behavior, shop-specific history access context, and delivery-related customer information where applicable. Whether a minimal global CustomerIdentity should sit beneath multiple Shop profiles is an AUTH-018 recommendation pending Product Owner approval; see the single decision register in `.ai/project-context/customer-order-history-access.md`.
 
 It does not own merchant users or authentication, shop identity, products, inventory, carts, orders, payments, WhatsApp provider/integration, delivery-partner management, or analytics implementation. Those belong to their respective domains.
 
 ## 2. Customer Identity Model
 
-The current product does not require traditional customer accounts with usernames/passwords or customer login. A Customer is a lightweight profile that must belong to one Shop. Customer profiles remain separate from authenticated User accounts. A WhatsApp number is globally unique across the platform, including Customer, Merchant, and Super Admin identities.
+The current product does not require traditional customer accounts with usernames/passwords or customer login. A Customer profile belongs to one Shop and remains separate from authenticated User accounts. A WhatsApp identity is globally unique across the platform, including Customer, Merchant, and Super Admin identities. The AUTH-018 recommended representation separates a minimal global contact identity/claim from each Shop-specific Customer profile, but this cross-Shop linkage is **pending Product Owner and Privacy approval**; it is not an approved data-sharing rule.
 
 ```text
-Shop A
-   └── Customer X
-
-Shop B
-   └── Customer Y
+Contact identity X (proposed; no login or history access)
+   ├── Shop A Customer profile (name/address/history scoped to A)
+   └── Shop B Customer profile (separate name/address/history scoped to B)
 ```
 
-Customer profiles and Order history are Shop-scoped; the platform does not automatically link customer history across Shops. The repeat-customer/order-history experience must not require OTP, and a WhatsApp number alone is never authorization. The finalized mechanism is a one-use link grant with a 15-minute expiry, exchanged for a server-side Customer session scoped to the exact Customer and Shop. The session lasts no more than 30 days, and only one active session is allowed per Customer + Shop. See `.ai/project-context/customer-order-history-access.md` for the finalized security rules and remaining deployment decisions. This mechanism is not implemented.
+Customer profiles and Order history are Shop-scoped; the platform must not expose or combine history across Shops. The repeat-customer/order-history experience must not require OTP, and a WhatsApp number alone is never authorization. The finalized mechanism is a one-use link grant with a 15-minute expiry, exchanged for a server-side Customer session scoped to the exact Shop profile and Shop. The session lasts no more than 30 days, and only one active session is allowed per profile + Shop. See `.ai/project-context/customer-order-history-access.md` for the fixed security rules and the AUTH-018 identity/retention decision register. This mechanism is not implemented.
 
-See `.ai/project-context/customer-order-history-access.md` for the finalized AUTH-015 security design. Provider, deployment, phone-normalization, API, schema, and retention details remain open; this does not change the approved no-OTP and no-phone-number-only-access rules.
-
-See `.ai/project-context/customer-order-history-access.md` for the finalized AUTH-015 behavior and AUTH-017 proposed technical schema/API. The fixed security requirements are approved; exact persistence, routes, contact-identity enforcement, and deployment settings remain technical choices for review.
+The fixed AUTH-015 requirements are approved. Identity/profile representation, retention, API/schema contract, phone normalization and deployment choices remain under review as listed only in `.ai/project-context/customer-order-history-access.md` §12.
 
 ## 3. Shop-Specific Customer Isolation
 
@@ -48,13 +44,13 @@ Do not automatically add email, date of birth, gender, profile photo, loyalty in
 
 ## 5. WhatsApp Number
 
-The product uses a WhatsApp number as customer contact information and an order-communication destination. It is also the primary identifier for recognizing a returning Customer within the Customer's Shop. The number is globally unique across Customer and authenticated User identities.
+The product uses a WhatsApp number as customer contact information and an order-communication destination. It is also the primary identifier for recognizing a returning Customer within that Shop. The number is globally unique across Customer and authenticated User identities.
 
-A globally unique WhatsApp number does not make the Customer profile global: every Customer profile still belongs to one Shop. The number is used for contact and repeat-customer recognition, but is never authorization to access Order history. The approved no-OTP access flow uses a single-use link valid for 15 minutes and a resulting Customer session scoped to that Customer and Shop, with a maximum absolute lifetime of 30 days and one active session per Customer + Shop. See `.ai/project-context/customer-order-history-access.md` for security controls and unresolved deployment details. The same number cannot be registered as a Customer at a second Shop or as a Merchant/Super Admin identity. For example:
+A globally unique WhatsApp number does not make Customer profiles or history global: each profile belongs to one Shop. Whether one contact identity may be linked to separate profiles at multiple Shops is the pending AUTH-018 product decision. Under the recommended model this can support recognition without sharing profile fields or history; a number-only request still never authorizes access. The approved no-OTP access flow uses a single-use link valid for 15 minutes and a resulting Customer session scoped to that profile and Shop, with a maximum absolute lifetime of 30 days and one active session per profile + Shop. See `.ai/project-context/customer-order-history-access.md` for the security requirements and sole decision register. The same canonical number cannot be claimed by another Customer identity or a Merchant/Super Admin identity.
 
 ```text
-Shop A: Customer identity with name Rahul and WhatsApp number X
-Shop B: No second Customer profile can use WhatsApp number X
+Shop A: Profile A (name/contact context and history only for Shop A)
+Shop B: Profile B (separate context and history); link to the same minimal contact identity only if the pending product decision approves it
 ```
 
 Customer information and accessible Order history remain Shop/customer-context scoped. Expose only the customer information needed for the Order experience. Phone-number normalization and formatting rules are not finalized.
@@ -149,7 +145,7 @@ The Cart domain owns cart persistence and lifecycle. This specification does not
 
 ## 14. Customer Deletion / Deactivation
 
-Customer deletion, anonymization, deactivation, and restoration behavior are not finalized. Decisions must account for previous orders, active carts, customer history, and whether the customer can be recognized again later. A Shop deletion removes that Shop's Orders but does not globally delete the Customer entity. Do not assume Customer hard-delete or soft-delete mechanics.
+Customer deletion, anonymization, deactivation, and restoration behavior are not finalized. Decisions must account for previous orders, active carts, customer history, and whether the customer can be recognized again later. A Shop deletion removes its Orders and invalidates credentials; existing rules say Customer entities are not globally deleted solely because the Shop is deleted. AUTH-018 recommends nulling the deleted Shop relation and anonymizing the Shop profile to an inaccessible tombstone, deleting addresses and credentials, but the fields retained and contact-claim release/reuse require Product Owner and Privacy approval. Do not assume a retention period or implement hard-delete/soft-delete mechanics before that approval.
 
 ## 15. Customer Privacy
 
@@ -187,27 +183,32 @@ Permanent Shop-specific Customer record is created or recognized
 Super Admin may require platform-level operational visibility according to approved authorization. Platform-level status does not by itself define unrestricted access to all customer data. The final access and privacy decision is unresolved.
 
 ## 20. Business Invariants
-The permanent Shop-specific Customer record is created when the customer first provides their WhatsApp number for that Shop. Successful Order creation is not required; an abandoned Cart may therefore be associated with a Customer.
+
+The permanent Shop-specific Customer profile is created when the customer first provides their WhatsApp number for that Shop. Successful Order creation is not required; an abandoned Cart may therefore be associated with a Customer. A separate global identity record/linkage is only an AUTH-018 recommendation pending approval.
+
 The following requirements are approved by the product and business-rule sources:
 
-- Customer identity is shop-specific.
+- Customer profile, contact context, and history are Shop-specific. AUTH-018's proposed minimal cross-Shop contact identity does not make profile data/history global and remains pending approval.
 - Customer profiles and accessible Order history remain in their Shop/customer context; history is not automatically linked across Shops.
 - A WhatsApp number is associated with at most one identity across all Shops and authenticated User accounts.
 - The repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone never exposes Orders or customer details. A one-use access link expires after 15 minutes and exchanges for one active Customer + Shop-scoped session with a maximum absolute lifetime of 30 days. Shop deletion revokes grants and sessions for that Shop and removes its Orders, while Customer retention follows existing Customer rules; no retained Customer or access credential transfers to a replacement Shop. The finalized security design is in `.ai/project-context/customer-order-history-access.md`; delivery, deployment, and retention details remain open.
 - Merchant access to customer information is limited to authorized shops.
+
 A returning customer may be recognized within the same Shop using the customer's WhatsApp number as the primary identifier. The intended experience may prefill a customer name or reuse previously known delivery information where appropriate.
+
 - Customer identity is separate from merchant identity.
+
 The exact prefill, update, normalization, and privacy behavior remains unresolved.
 
 The customer's WhatsApp number is the approved primary identifier for recognizing a returning Customer within the same Shop. Phone-number normalization, formatting, verification, and any additional context remain unresolved.
+
+## 21. Cross-Domain Relationships
 
 These are conceptual domain relationships, not necessarily database foreign keys:
 
 ### Shops
 
-| Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
-| Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
-| Order-history technical implementation. | No-OTP one-use 15-minute link, digest-only secret, 30-day maximum scoped session, one active session per Customer + Shop, and pending cancellation authority are finalized. | AUTH-017 proposes schema/API and transaction contracts. Provider, deployment cookie/origin, contact registry, rate thresholds, physical Customer-retention behavior, and exact API/schema approval remain outstanding. |
+AUTH-018's proposed identity/profile relationship, contact-claim enforcement, retention/address policy, API/schema, and deployment design are recorded in `.ai/project-context/customer-order-history-access.md` §12. These recommendations remain unapproved; this domain document does not duplicate their options or decision owners.
 
 Determines who may access customer information, subject to approved authorization.
 
@@ -233,28 +234,7 @@ Customer metrics may be aggregated at shop or platform level only under approved
 
 ## 22. Unresolved Decisions
 
-No decision below is finalized by this specification.
-
-| Decision | Why unresolved | Impact |
-|---|---|---|
-| Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
-| Cross-domain WhatsApp uniqueness implementation. | WhatsApp numbers must be unique across Customers, Merchants, and Super Admins. | A shared database representation is required; independent per-table constraints cannot enforce this rule. |
-| Phone-number normalization and formatting. | No format or normalization rule is documented. | Comparisons and accepted input formats cannot be specified. |
-| Whether WhatsApp verification is required for purposes beyond Order-history access. | No verification requirement or mechanism is approved; OTP is not required for the MVP Order-history access decision. | Any broader identity verification requirement remains open. |
-| Whether customers can edit their information. | Product requirements do not define editing rules. | Customer-data correction behavior remains open. |
-| Returning-customer recognition details. | WhatsApp number is the approved primary identifier within a Shop. | Prefill, update, verification, and privacy behavior remain open. |
-| What customer information may be prefilled. | Prefill is a product possibility, not a finalized field-by-field rule. | Checkout presentation and data exposure remain open. |
-| Delivery address structure. | Only the need for an address on home delivery is approved. | Address collection and validation are unspecified. |
-| Multiple saved addresses and address labels. | No saved-address requirement is defined. | Address reuse behavior remains open. |
-| Address history. | Retention and historical behavior are not specified. | Prior delivery information handling cannot be finalized. |
-| Customer deletion and anonymization. | Deletion policy is unresolved. | Personal data and related records handling remain open. |
-| Customer deactivation and restoration. | No lifecycle states or transitions are approved. | Recognition and access after deactivation remain undefined. |
-| Historical customer information. | Order snapshot and retention details are unresolved. | Historical order interpretation cannot be fully specified. |
-| Merchant access to Customer profile fields beyond Shop Orders. | Merchant can view all Shop Orders; field-level profile access and privacy implementation are not defined. | Limit access to approved operational needs. |
-| Super Admin access to customer information. | Platform-level access does not establish unrestricted data access. | Admin visibility and privacy controls remain open. |
-| Customer data retention. | No retention period or policy is approved. | Long-term storage and deletion behavior remain undefined. |
-| Detailed customer privacy requirements. | Existing documents establish isolation/minimization principles but not a full policy. | Collection, exposure, and retention details need approval. |
-| Customer authentication, if ever introduced. | The current MVP does not require traditional customer accounts; future auth is not approved. | Do not implement login or verification flows by assumption. |
+The identity/profile recommendation, contact normalization and migration, Customer retention/address handling, and access API/deployment decisions are maintained only in `.ai/project-context/customer-order-history-access.md` §12. AUTH-018 recommendations remain unapproved until the named Product Owner, Privacy, technical, or deployment owner records a decision. Other Customer-domain questions (profile correction, field-level Merchant access, broader verification, and any future login) remain unresolved and must not be inferred from the access design.
 
 ## 23. Explicit Non-Goals
 

@@ -118,6 +118,8 @@ Shop
 
 Not every entity must have a direct Shop reference. The final design must nevertheless explain the tenant path and prevent cross-shop access through direct, related, aggregated, cached, exported, scheduled, or background operations.
 
+AUTH-018 recommendation (pending Product Owner/Privacy approval): a minimal `CustomerIdentity` may be related to multiple distinct `ShopCustomerProfile` rows, but profile name/contact context, addresses, carts, Orders, grants, and sessions remain scoped to exactly one profile and its Shop. The profile is the proposed single tenant-scope root for address, Order, access grant, and Customer session relationships; those children derive Shop through the profile rather than accepting independent Customer and Shop references. This does not authorize cross-Shop history or profile-field sharing. See the authoritative decision register in `.ai/project-context/customer-order-history-access.md` §12.
+
 **## 5. Application Ownership Map**
 
 \| Django app | Primary business concepts | Ownership status |
@@ -303,13 +305,11 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 \- Status: **\*\*APPROVED\*\*** as a business concept.
 
-Each Customer profile belongs to one Shop, and Order history remains Shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. The approved repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone never authorizes access. The finalized mechanism is a one-use link with a 15-minute expiry exchanged for a server-side Customer session scoped to the exact Customer and Shop. The session lasts no more than 30 days, and one active session is allowed per Customer + Shop. Shop deletion revokes all grants and sessions for that Shop; a retained Customer is not connected to a replacement Shop. See `.ai/project-context/customer-order-history-access.md` for unresolved deployment and physical-schema details.
+Each ShopCustomerProfile belongs to one Shop, and Order history remains Shop-scoped. WhatsApp identities are globally unique across Customers, Merchants, and Super Admins. Whether one minimal CustomerIdentity may link multiple Shop profiles is not determined by existing rules; AUTH-018 recommends it while keeping profile fields, addresses, carts, and history separate, pending Product Owner/Privacy approval. The approved repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone never authorizes access. The finalized mechanism is a one-use link with a 15-minute expiry exchanged for a server-side session scoped to the exact ShopCustomerProfile (therefore its Shop). The session lasts no more than 30 days, with one active session per profile. Shop deletion revokes credentials and does not attach a retained Customer entity to a replacement Shop. AUTH-018's technical recommendation and open approvals are centralized in `.ai/project-context/customer-order-history-access.md` §12.
 
-The finalized credential lifecycle and conceptual grant/session implications are documented in `.ai/project-context/customer-order-history-access.md`. Implementations must preserve those security constraints; physical schema and API details remain for later design.
+The finalized credential lifecycle and proposed grant/session implications are documented in `.ai/project-context/customer-order-history-access.md`. Fixed lifetimes, purpose, and exact Customer-profile + Shop scope are constraints; the concrete schema/API recommendations and approvals remain tracked there.
 
-The approved credential lifecycle and AUTH-017 proposed field/index/transaction design are documented in `.ai/project-context/customer-order-history-access.md`. Fixed lifetimes, purpose and Customer + Shop scope are constraints; the physical schema remains pending technical review.
-
-The physical identity key, matching behavior, and database representation remain later design decisions.
+The profile scope root and contact-claim technical proposal are described in `.ai/project-context/customer-order-history-access.md`; approval dependencies remain in its §12 register.
 
 **## 12. Shop → Cart**
 
@@ -739,7 +739,7 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Shop Product | Category, Brand, Attributes | Shop-specific product information managed by Merchant | Multiple categories supported; remaining physical cardinalities unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
 | Shop | Inventory | Shop owns stock context | `1 → many` | Tenant | Ownership | **APPROVED** |
 | Shop Product/Variant | Inventory | Product/Variant and aggregate stock as defined by Catalog and Inventory rules | Product without variants: Product stock; with variants: authoritative Variant stock plus derived Product aggregate | Tenant | Business association | **APPROVED business rule** |
-| Shop | Customer | Customer identity is scoped to Shop | `1 → many` | Tenant | Ownership | **APPROVED** |
+| Shop | ShopCustomerProfile | Customer profile/history context is scoped to Shop | `1 → many` | Tenant | Ownership | **APPROVED** |
 | Customer | Cart | Cart is current customer/shop state | `TBD` | Tenant | Ownership/scoping | **CONCEPTUAL** |
 | Shop | Cart | Cart cannot cross Shop | `1 → many` possible | Tenant | Scoping | **APPROVED** |
 | Cart | CartItem | Cart contains selected items | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
@@ -906,7 +906,7 @@ This is not approved. Identity, business/operator context, tenant context, and a
 
 **### Keep Customer profiles shop-scoped**
 
-Each Customer profile belongs to one Shop. The approved repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone is never authorization. A one-use 15-minute link exchanges for a Customer + Shop-scoped session with a 30-day maximum absolute lifetime and one active session per Customer + Shop. Pending Order cancellation is authorized only for that Customer's own `PENDING` Order using this session, with explicit confirmation and CSRF protection. Do not expose Orders across Shop/customer contexts, and minimize customer information. WhatsApp/mobile identity values are globally unique across Customer, Merchant, and Super Admin accounts. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient. See `.ai/project-context/customer-order-history-access.md` for deployment and schema details that remain open.
+Each Customer profile belongs to one Shop. The approved repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone is never authorization. A one-use 15-minute link exchanges for a session scoped to the exact ShopCustomerProfile and its Shop, with a 30-day maximum absolute lifetime and one active session per profile. Pending Order cancellation is authorized only for that profile's own `PENDING` Order using this session, with explicit confirmation and CSRF protection. Do not expose Orders across Shop/profile contexts, and minimize customer information. WhatsApp/mobile identity values are globally unique across Customer, Merchant, and Super Admin accounts. AUTH-018 recommends a shared ContactIdentityClaim owner registry plus separate Shop profiles; cross-Shop identity linkage and phone normalization remain approval decisions. Do not treat contact identity as access to any profile/history. See `.ai/project-context/customer-order-history-access.md` §12 for the authoritative decision register.
 
 **### Do not make Merchant the tenant**
 
