@@ -119,6 +119,92 @@ class ShopCategory(models.Model):
         return f"{self.name} (Shop: {self.shop_id})"
 
 
+class ShopBrand(models.Model):
+    """
+    Shop-owned Brand representation fully controlled by the Merchant.
+
+    Merchants can create, edit, deactivate, and delete brands for their Shop
+    Catalog. Deleting a brand preserves all assigned products, leaving their
+    brand reference cleared per domain rules.
+    """
+
+    shop = models.ForeignKey(
+        "shops.Shop",
+        on_delete=models.CASCADE,
+        related_name="brands",
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    slug = models.SlugField(max_length=255, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Shop Brand"
+        verbose_name_plural = "Shop Brands"
+        ordering = ["name", "id"]
+        indexes = [
+            models.Index(fields=["shop", "is_active"], name="catalog_sb_shop_act_idx"),
+            models.Index(fields=["shop", "name"], name="catalog_sb_shop_name_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} (Shop: {self.shop_id})"
+
+
+class ShopCustomAttribute(models.Model):
+    """
+    Shop-owned Custom Attribute representation controlled by the Merchant.
+
+    Merchants can create, edit, and delete custom attributes and manage
+    associated basic values/options for their Shop Catalog without any
+    fixed global attribute taxonomy.
+    """
+
+    shop = models.ForeignKey(
+        "shops.Shop",
+        on_delete=models.CASCADE,
+        related_name="custom_attributes",
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    description = models.TextField(blank=True, default="")
+    values = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Shop Custom Attribute"
+        verbose_name_plural = "Shop Custom Attributes"
+        ordering = ["name", "id"]
+        indexes = [
+            models.Index(fields=["shop", "is_active"], name="catalog_sca_shop_act_idx"),
+            models.Index(fields=["shop", "name"], name="catalog_sca_shop_name_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not isinstance(self.values, list):
+            raise ValidationError({"values": "Values must be a list of attribute values."})
+        for item in self.values:
+            if not isinstance(item, (str, int, float, bool)):
+                raise ValidationError({"values": "Attribute values must be primitive items."})
+
+    def add_value(self, value):
+        if not isinstance(self.values, list):
+            self.values = []
+        if value not in self.values:
+            self.values.append(value)
+
+    def remove_value(self, value):
+        if isinstance(self.values, list) and value in self.values:
+            self.values.remove(value)
+
+    def __str__(self):
+        return f"{self.name} (Shop: {self.shop_id})"
+
+
 class ShopProduct(models.Model):
     """
     Shop-specific sellable product representation independently controlled by Merchant.
@@ -145,6 +231,14 @@ class ShopProduct(models.Model):
         ShopCategory,
         blank=True,
         related_name="products",
+    )
+    brand_ref = models.ForeignKey(
+        ShopBrand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+        verbose_name="Shop Brand",
     )
     name = models.CharField(max_length=255, db_index=True)
     description = models.TextField(blank=True, default="")
@@ -186,9 +280,40 @@ class ShopProduct(models.Model):
         super().clean()
         if self.price is not None and self.price < Decimal("0.00"):
             raise ValidationError({"price": "Price cannot be negative."})
+        if self.brand_ref_id and self.brand_ref.shop_id != self.shop_id:
+            raise ValidationError({"brand_ref": "Brand must belong to the same Shop."})
+        if not isinstance(self.attributes, dict):
+            raise ValidationError({"attributes": "Attributes must be a key-value dictionary."})
+        for key, val in self.attributes.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValidationError({"attributes": "Attribute names must be non-empty strings."})
+            if not isinstance(val, (str, int, float, bool, list)):
+                raise ValidationError({"attributes": f"Attribute '{key}' value must be a primitive or list of values."})
+            if isinstance(val, list):
+                for item in val:
+                    if not isinstance(item, (str, int, float, bool)):
+                        raise ValidationError({"attributes": f"Attribute '{key}' list items must be primitive values."})
 
     def __str__(self):
         return f"{self.name} (Shop: {self.shop_id})"
+
+    @property
+    def shop_brand(self):
+        return self.brand_ref
+
+    @shop_brand.setter
+    def shop_brand(self, value):
+        self.brand_ref = value
+
+    @property
+    def effective_brand(self) -> str:
+        """
+        Returns the assigned ShopBrand name if present, falling back to
+        the free-form brand text or Master Product brand.
+        """
+        if self.brand_ref_id:
+            return self.brand_ref.name
+        return self.brand
 
     @property
     def has_variants(self) -> bool:
@@ -204,6 +329,39 @@ class ShopProduct(models.Model):
         """Returns variants that are both visible and manually available."""
         return self.variants.filter(is_visible=True, is_available=True)
 
+    def get_attribute(self, name: str, default=None):
+        """Returns the value(s) for a given attribute name."""
+        return self.attributes.get(name, default)
+
+    def set_attribute(self, name: str, value):
+        """Sets an attribute with a single value or list of values."""
+        if not isinstance(self.attributes, dict):
+            self.attributes = {}
+        self.attributes[name] = value
+
+    def add_attribute_value(self, name: str, value):
+        """
+        Adds a value to an attribute's list of values. If the attribute
+        has a single scalar value, converts it into a list containing both.
+        """
+        if not isinstance(self.attributes, dict):
+            self.attributes = {}
+        current = self.attributes.get(name)
+        if current is None:
+            self.attributes[name] = [value]
+        elif isinstance(current, list):
+            if value not in current:
+                current.append(value)
+        else:
+            if current != value:
+                self.attributes[name] = [current, value]
+            else:
+                self.attributes[name] = [current]
+
+    def remove_attribute(self, name: str):
+        """Removes an attribute from product attributes."""
+        if isinstance(self.attributes, dict) and name in self.attributes:
+            del self.attributes[name]
 
     @classmethod
     def from_master_product(cls, shop, master_product, **kwargs):
@@ -275,6 +433,17 @@ class ProductVariant(models.Model):
         super().clean()
         if self.price is not None and self.price < Decimal("0.00"):
             raise ValidationError({"price": "Variant price cannot be negative."})
+        if not isinstance(self.attributes, dict):
+            raise ValidationError({"attributes": "Attributes must be a key-value dictionary."})
+        for key, val in self.attributes.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValidationError({"attributes": "Attribute names must be non-empty strings."})
+            if not isinstance(val, (str, int, float, bool, list)):
+                raise ValidationError({"attributes": f"Attribute '{key}' value must be a primitive or list of values."})
+            if isinstance(val, list):
+                for item in val:
+                    if not isinstance(item, (str, int, float, bool)):
+                        raise ValidationError({"attributes": f"Attribute '{key}' list items must be primitive values."})
 
     def __str__(self):
         return f"{self.product.name} - {self.name}"
@@ -298,13 +467,45 @@ class ProductVariant(models.Model):
             return self.price
         return self.product.price if self.product_id else None
 
+    def get_attribute(self, name: str, default=None):
+        """Returns the value(s) for a given attribute name."""
+        return self.attributes.get(name, default)
+
+    def set_attribute(self, name: str, value):
+        """Sets a variant attribute with a single value or list of values."""
+        if not isinstance(self.attributes, dict):
+            self.attributes = {}
+        self.attributes[name] = value
+
+    def add_attribute_value(self, name: str, value):
+        """Adds a value to a variant attribute's list of values."""
+        if not isinstance(self.attributes, dict):
+            self.attributes = {}
+        current = self.attributes.get(name)
+        if current is None:
+            self.attributes[name] = [value]
+        elif isinstance(current, list):
+            if value not in current:
+                current.append(value)
+        else:
+            if current != value:
+                self.attributes[name] = [current, value]
+            else:
+                self.attributes[name] = [current]
+
+    def remove_attribute(self, name: str):
+        """Removes an attribute from variant attributes."""
+        if isinstance(self.attributes, dict) and name in self.attributes:
+            del self.attributes[name]
+
 
 # Domain aliases
 Category = ShopCategory
 Product = ShopProduct
 Variant = ProductVariant
 ShopProductVariant = ProductVariant
-
-
-
-
+Brand = ShopBrand
+ShopProductBrand = ShopBrand
+ShopAttribute = ShopCustomAttribute
+CustomAttribute = ShopCustomAttribute
+Attribute = ShopCustomAttribute
