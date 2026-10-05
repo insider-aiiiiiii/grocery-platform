@@ -1,13 +1,19 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import MasterProductViewSet, SuperAdminPromoteShopProductView
+from .views import (
+    MasterProductViewSet,
+    MerchantShopProductViewSet,
+    SuperAdminPromoteShopProductView,
+)
 
 app_name = "catalog"
 
 router = DefaultRouter()
 router.register(r"master-products", MasterProductViewSet, basename="master-product")
 router.register(r"master-catalog/products", MasterProductViewSet, basename="master-catalog-product")
+router.register(r"products", MerchantShopProductViewSet, basename="merchant-product")
+router.register(r"shop-products", MerchantShopProductViewSet, basename="merchant-shop-product")
 
 # Direct router for /api/v1/master-products/ alias
 direct_router = DefaultRouter()

@@ -1,14 +1,47 @@
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from shops.models import Shop
+from shops.permissions import IsActiveMerchant
 from users.permissions import IsSuperAdmin
 
 from .models import MasterProduct, ShopProduct
-from .serializers import MasterProductSerializer, PromoteShopProductSerializer
+from .serializers import (
+    MasterProductSerializer,
+    PromoteShopProductSerializer,
+    ShopProductSerializer,
+)
+
+
+def get_authenticated_merchant_shop(request):
+    """
+    Resolve and validate the Shop owned by the authenticated Merchant.
+    Returns (shop, error_response). If valid, error_response is None.
+    """
+    user = request.user
+    merchant = getattr(user, "merchant", None)
+    if merchant is None:
+        return None, Response(
+            {"detail": "Only active merchants can perform this action.", "code": "NOT_A_MERCHANT"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    shop = Shop.objects.filter(merchant_id=merchant.pk, merchant__user_id=user.pk).first()
+    if not shop:
+        return None, Response(
+            {"detail": "Merchant does not have a shop.", "code": "SHOP_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if shop.status in (Shop.Status.DEACTIVATED, Shop.Status.SUSPENDED):
+        return None, Response(
+            {"detail": "Shop is deactivated or suspended.", "code": "SHOP_INACTIVE"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return shop, None
 
 
 def promote_shop_product_to_master(shop_product, validated_data=None):
@@ -131,3 +164,96 @@ class SuperAdminPromoteShopProductView(APIView):
         master_product = promote_shop_product_to_master(shop_product, serializer.validated_data)
         response_serializer = MasterProductSerializer(master_product, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MerchantShopProductViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for Merchants managing their own Shop Products.
+
+    - Merchant may create directly or select from Master Catalog.
+    - No Super Admin approval workflow is required.
+    - Enforces Shop authorization on every protected operation.
+    - Isolates tenant data strictly: a merchant can only access their own Shop Products.
+    """
+
+    serializer_class = ShopProductSerializer
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        shop, error_res = get_authenticated_merchant_shop(request)
+        self._shop = shop
+        self._shop_error = error_res
+
+    def get_queryset(self):
+        if getattr(self, "_shop_error", None):
+            return ShopProduct.objects.none()
+        shop = getattr(self, "_shop", None)
+        if not shop:
+            return ShopProduct.objects.none()
+
+        queryset = (
+            ShopProduct.objects.filter(shop=shop)
+            .prefetch_related("categories")
+            .select_related("brand_ref", "master_product")
+            .order_by("name", "id")
+        )
+
+        is_visible = self.request.query_params.get("is_visible")
+        if is_visible is not None:
+            if is_visible.lower() in ("true", "1"):
+                queryset = queryset.filter(is_visible=True)
+            elif is_visible.lower() in ("false", "0"):
+                queryset = queryset.filter(is_visible=False)
+
+        is_available = self.request.query_params.get("is_available")
+        if is_available is not None:
+            if is_available.lower() in ("true", "1"):
+                queryset = queryset.filter(is_available=True)
+            elif is_available.lower() in ("false", "0"):
+                queryset = queryset.filter(is_available=False)
+
+        category_id = self.request.query_params.get("category")
+        if category_id:
+            queryset = queryset.filter(categories__id=category_id)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(sku__icontains=search) | Q(brand__icontains=search)
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["shop"] = getattr(self, "_shop", None)
+        return context
+
+    def list(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().create(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().retrieve(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(shop=self._shop)

@@ -2085,3 +2085,391 @@ class SuperAdminPromoteShopProductAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class MerchantShopProductAPITests(TestCase):
+    """
+    Unit and integration tests for Merchant CRUD APIs on their own Shop Products (CAT-010).
+
+    Validates:
+    - Direct creation by Merchant (no Super Admin approval needed; immediately active and usable).
+    - Creation by selecting from Master Catalog (reusing master metadata with optional overrides).
+    - Server-side shop authorization on every operation (unauthenticated 401, non-merchant 403,
+      no-shop 404, inactive-shop 403).
+    - Strict multi-tenant isolation: Merchant A cannot list, retrieve, update, or delete Merchant B's products.
+    - Cross-tenant validation: Cannot assign brand_ref or categories belonging to another shop.
+    - Full CRUD support (list, retrieve, create, update, delete).
+    - Client-provided shop_id is ignored and cannot override authenticated tenancy.
+    - Both /api/v1/catalog/products/ and /api/v1/shops/me/products/ routes work as expected.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+        cls.media_override = override_settings(MEDIA_ROOT=cls.temp_media)
+        cls.media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.media_override.disable()
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant A and Shop A
+        self.user_a = User.objects.create_user(
+            username="merchant_a",
+            mobile_number="+919876543310",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
+            name="Shop A Green Grocer",
+        )
+        self.brand_a = ShopBrand.objects.create(
+            shop=self.shop_a,
+            name="Organic A",
+            slug="organic-a",
+        )
+        self.category_a = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Fresh Veggies A",
+            slug="veggies-a",
+        )
+
+        # Merchant B and Shop B (Tenant isolation adversary)
+        self.user_b = User.objects.create_user(
+            username="merchant_b",
+            mobile_number="+919876543320",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Shop B Supermart",
+        )
+        self.brand_b = ShopBrand.objects.create(
+            shop=self.shop_b,
+            name="Organic B",
+            slug="organic-b",
+        )
+        self.category_b = ShopCategory.objects.create(
+            shop=self.shop_b,
+            name="Fresh Veggies B",
+            slug="veggies-b",
+        )
+
+        # Super Admin
+        self.super_admin = User.objects.create_user(
+            username="super_admin_cat10",
+            mobile_number="+919876543330",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        # Platform Master Product
+        self.master_cat = MasterCategory.objects.create(name="Dairy", slug="dairy")
+        self.master_product = MasterProduct.objects.create(
+            name="Pure Cow Ghee 500g",
+            description="Traditional aromatic cow ghee",
+            brand="Heritage Cow",
+            category=self.master_cat,
+            is_active=True,
+        )
+
+        self.base_url = "/api/v1/catalog/products/"
+
+    def _auth_merchant(self, user):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "password123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_direct_product_creation_by_merchant(self):
+        """
+        Merchant can directly create a product in their Shop Catalog.
+        No Super Admin approval is required.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Fresh Spinach Bunch",
+            "description": "Crisp local green spinach",
+            "brand": "Local Farm",
+            "brand_ref": self.brand_a.id,
+            "categories": [self.category_a.id],
+            "price": "1.50",
+            "sku": "SPIN-001",
+            "is_visible": True,
+            "is_available": True,
+            "attributes": {"weight": "250g", "organic": True},
+        }
+        response = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Fresh Spinach Bunch")
+        self.assertEqual(response.data["price"], "1.50")
+        self.assertEqual(response.data["sku"], "SPIN-001")
+        self.assertEqual(response.data["shop"], self.shop_a.id)
+        self.assertIsNone(response.data["master_product"])
+        self.assertTrue(response.data["is_visible"])
+        self.assertTrue(response.data["is_available"])
+
+        # Directly created product exists in DB and is active
+        prod = ShopProduct.objects.get(id=response.data["id"])
+        self.assertEqual(prod.shop, self.shop_a)
+        self.assertIsNone(prod.master_product)
+
+    def test_product_creation_selected_from_master_catalog(self):
+        """
+        Merchant selects a Master Product. Metadata is copied without automatic
+        synchronization or binding. Merchant can customize price, SKU, etc.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "master_product": self.master_product.id,
+            "price": "8.50",
+            "sku": "GHEE-A-01",
+        }
+        response = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], self.master_product.name)
+        self.assertEqual(response.data["description"], self.master_product.description)
+        self.assertEqual(response.data["brand"], self.master_product.brand)
+        self.assertEqual(response.data["master_product"], self.master_product.id)
+        self.assertEqual(response.data["price"], "8.50")
+        self.assertEqual(response.data["sku"], "GHEE-A-01")
+        self.assertEqual(response.data["shop"], self.shop_a.id)
+
+    def test_product_creation_selected_from_master_catalog_with_custom_overrides(self):
+        """
+        Merchant can override name, description, and brand when selecting from Master Catalog.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "master_product": self.master_product.id,
+            "name": "Shop A Premium Desi Ghee",
+            "description": "Store-curated ghee description",
+            "brand": "Custom Cow Brand",
+            "price": "9.99",
+        }
+        response = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Shop A Premium Desi Ghee")
+        self.assertEqual(response.data["description"], "Store-curated ghee description")
+        self.assertEqual(response.data["brand"], "Custom Cow Brand")
+        self.assertEqual(response.data["master_product"], self.master_product.id)
+
+    def test_multi_tenant_isolation_list_and_retrieve(self):
+        """
+        Merchant A cannot view, retrieve, or infer products belonging to Merchant B.
+        """
+        prod_a = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Product A",
+            price=Decimal("10.00"),
+        )
+        prod_b = ShopProduct.objects.create(
+            shop=self.shop_b,
+            name="Product B",
+            price=Decimal("20.00"),
+        )
+
+        # Merchant A list
+        self._auth_merchant(self.user_a)
+        list_res = self.client.get(self.base_url)
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+        ids = [item["id"] for item in list_res.data]
+        self.assertIn(prod_a.id, ids)
+        self.assertNotIn(prod_b.id, ids)
+
+        # Merchant A retrieves own product
+        get_a = self.client.get(f"{self.base_url}{prod_a.id}/")
+        self.assertEqual(get_a.status_code, status.HTTP_200_OK)
+
+        # Merchant A attempts to retrieve Merchant B's product -> 404
+        get_b = self.client.get(f"{self.base_url}{prod_b.id}/")
+        self.assertEqual(get_b.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_multi_tenant_isolation_update_and_delete(self):
+        """
+        Merchant A cannot update or delete Merchant B's product.
+        """
+        prod_b = ShopProduct.objects.create(
+            shop=self.shop_b,
+            name="Secret Product B",
+            price=Decimal("50.00"),
+        )
+
+        self._auth_merchant(self.user_a)
+
+        # Merchant A attempts to PATCH Product B -> 404
+        patch_res = self.client.patch(
+            f"{self.base_url}{prod_b.id}/",
+            {"name": "Hacked Name"},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_404_NOT_FOUND)
+        prod_b.refresh_from_db()
+        self.assertEqual(prod_b.name, "Secret Product B")
+
+        # Merchant A attempts to DELETE Product B -> 404
+        delete_res = self.client.delete(f"{self.base_url}{prod_b.id}/")
+        self.assertEqual(delete_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(ShopProduct.objects.filter(id=prod_b.id).exists())
+
+    def test_client_provided_shop_id_is_ignored(self):
+        """
+        Server ignores submitted shop_id and binds strictly to authenticated Merchant's Shop.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Tampered Shop Product",
+            "price": "5.00",
+            "shop": self.shop_b.id,
+            "shop_id": self.shop_b.id,
+        }
+        response = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["shop"], self.shop_a.id)
+
+        prod = ShopProduct.objects.get(id=response.data["id"])
+        self.assertEqual(prod.shop, self.shop_a)
+
+    def test_cross_tenant_brand_and_category_injection_rejected(self):
+        """
+        Merchant cannot associate brands or categories belonging to another Shop.
+        """
+        self._auth_merchant(self.user_a)
+
+        # Attempt to inject brand belonging to Shop B
+        res_brand = self.client.post(
+            self.base_url,
+            {"name": "Apples", "brand_ref": self.brand_b.id},
+            format="json",
+        )
+        self.assertEqual(res_brand.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("brand_ref", res_brand.data)
+
+        # Attempt to inject category belonging to Shop B
+        res_cat = self.client.post(
+            self.base_url,
+            {"name": "Apples", "categories": [self.category_b.id]},
+            format="json",
+        )
+        self.assertEqual(res_cat.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("categories", res_cat.data)
+
+    def test_merchant_update_and_delete_own_product(self):
+        """
+        Merchant can successfully update and delete their own product.
+        """
+        self._auth_merchant(self.user_a)
+        prod = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Original Tomatoes",
+            price=Decimal("2.00"),
+            sku="TOM-01",
+        )
+
+        # Update
+        patch_res = self.client.patch(
+            f"{self.base_url}{prod.id}/",
+            {"price": "2.50", "sku": "TOM-02", "is_available": False},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        prod.refresh_from_db()
+        self.assertEqual(prod.price, Decimal("2.50"))
+        self.assertEqual(prod.sku, "TOM-02")
+        self.assertFalse(prod.is_available)
+
+        # Delete
+        del_res = self.client.delete(f"{self.base_url}{prod.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ShopProduct.objects.filter(id=prod.id).exists())
+
+    def test_authorization_checks(self):
+        """
+        Validate unauthenticated (401), non-merchant (403), no-shop (404),
+        and inactive shop (403).
+        """
+        # 1. Unauthenticated -> 401
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(self.base_url, {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Super Admin -> 403 (IsActiveMerchant requires merchant role)
+        self._auth_super_admin()
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Merchant without Shop -> 404 SHOP_NOT_FOUND
+        user_no_shop = User.objects.create_user(
+            username="merchant_no_shop",
+            mobile_number="+919876543340",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=user_no_shop, status=Merchant.Status.ACTIVE, must_change_password=False)
+        self._auth_merchant(user_no_shop)
+
+        no_shop_res = self.client.get(self.base_url)
+        self.assertEqual(no_shop_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(no_shop_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # 4. Merchant with Inactive/Deactivated Shop -> 403 SHOP_INACTIVE
+        self.shop_a.status = Shop.Status.DEACTIVATED
+        self.shop_a.save()
+        self._auth_merchant(self.user_a)
+
+        inactive_res = self.client.get(self.base_url)
+        self.assertEqual(inactive_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(inactive_res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_shops_me_products_route_alias(self):
+        """
+        Verify that /api/v1/shops/me/products/ also resolves and performs CRUD identically.
+        """
+        self._auth_merchant(self.user_a)
+        url = "/api/v1/shops/me/products/"
+
+        response = self.client.post(
+            url,
+            {"name": "Fresh Cucumbers", "price": "1.20"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Fresh Cucumbers")
+        prod_id = response.data["id"]
+
+        get_res = self.client.get(f"{url}{prod_id}/")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["name"], "Fresh Cucumbers")
+
+
+
