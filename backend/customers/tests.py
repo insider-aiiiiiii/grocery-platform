@@ -297,3 +297,71 @@ class CustomerModelTests(TestCase):
         self.shop1.delete()
         self.assertFalse(Customer.objects.filter(pk=c1.pk).exists())
         self.assertFalse(Customer.objects.filter(pk=c2.pk).exists())
+
+    # 7. CUS-002 One-Shop Profile Scope & Migration Constraints
+    def test_cannot_reassign_customer_to_different_shop(self):
+        """A Customer profile is strictly scoped to one Shop and cannot be reassigned to another Shop."""
+        customer = Customer.objects.create(
+            shop=self.shop1,
+            name="Alice",
+            whatsapp_number="9876543210",
+        )
+
+        customer.shop = self.shop2
+        with self.assertRaises(ValidationError) as ctx:
+            customer.full_clean()
+        self.assertIn("shop", ctx.exception.message_dict)
+        self.assertIn("Cannot reassign a Customer profile to a different Shop.", ctx.exception.message_dict["shop"])
+
+        with self.assertRaises(ValidationError):
+            customer.save()
+
+    def test_database_check_constraint_rejects_empty_whatsapp_number(self):
+        """Database CheckConstraint prevents saving an empty WhatsApp number via bulk_create."""
+        with self.assertRaises(IntegrityError):
+            Customer.objects.bulk_create([
+                Customer(shop=self.shop1, name="Invalid Cust", whatsapp_number="")
+            ])
+
+    def test_customer_model_and_migrations_exclude_global_contact_identity(self):
+        """Customer profile schema excludes global identity FKs, global claims, or cross-Shop links."""
+        customer_fields = [f.name for f in Customer._meta.get_fields()]
+
+        # Assert only Shop-scoped fields exist
+        expected_fields = {"id", "shop", "name", "whatsapp_number", "created_at", "updated_at"}
+        # Filter for concrete model fields or direct relations
+        concrete_field_names = {f.name for f in Customer._meta.fields}
+        self.assertEqual(concrete_field_names, expected_fields)
+
+        # Assert no global identity or claim fields
+        for forbidden in ["identity", "global_identity", "contact_claim", "user", "account", "login"]:
+            self.assertNotIn(forbidden, customer_fields)
+
+    def test_cross_shop_identity_link_models_are_gated_and_absent(self):
+        """Any cross-Shop identity link or global claim migration is gated on approval and currently absent."""
+        from django.apps import apps
+        customer_models = list(apps.get_app_config("customers").get_models())
+        model_names = [m.__name__ for m in customer_models]
+
+        self.assertEqual(model_names, ["Customer"])
+        self.assertNotIn("CustomerIdentity", model_names)
+        self.assertNotIn("ContactIdentityClaim", model_names)
+        self.assertNotIn("ShopCustomerProfile", model_names)
+
+    def test_one_shop_profile_scope_isolation_under_queries(self):
+        """Profiles with the same phone in different shops remain strictly isolated in queries."""
+        c1 = Customer.objects.create(shop=self.shop1, name="Shop 1 Cust", whatsapp_number="9876543210")
+        c2 = Customer.objects.create(shop=self.shop2, name="Shop 2 Cust", whatsapp_number="9876543210")
+
+        # Shop 1 query cannot see Shop 2 customer
+        s1_customers = list(Customer.objects.filter(shop=self.shop1))
+        self.assertEqual(len(s1_customers), 1)
+        self.assertEqual(s1_customers[0].pk, c1.pk)
+        self.assertEqual(s1_customers[0].name, "Shop 1 Cust")
+
+        # Shop 2 query cannot see Shop 1 customer
+        s2_customers = list(Customer.objects.filter(shop=self.shop2))
+        self.assertEqual(len(s2_customers), 1)
+        self.assertEqual(s2_customers[0].pk, c2.pk)
+        self.assertEqual(s2_customers[0].name, "Shop 2 Cust")
+
