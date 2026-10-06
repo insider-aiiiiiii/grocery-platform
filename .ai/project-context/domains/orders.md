@@ -339,18 +339,14 @@ May affect product or order pricing only if a future approved rule defines that 
 
 ## 37. Unresolved Decisions
 
-No decision below is finalized by this specification.
+The technical design decisions for transaction boundaries, locking, idempotency, and expiry representation have been approved in `docs/decisions/0002-order-transaction-boundaries-and-concurrency.md`. The remaining unresolved decisions are:
 
 | Decision | Why unresolved | Impact |
 |---|---|---|
 | Exact order identifier, order number, and public reference. | No identifier or reference format is approved. | Order identification and customer access cannot be finalized. |
-| Order creation validation and transaction boundary. | Checkout dependencies exist, but exact validation and transaction behavior is not specified. | Order creation implementation remains open. |
 | Historical snapshot representation and Order item structure. | Historical meaning is required, but exact fields and snapshot approach are unresolved. | Data representation cannot be chosen. |
-| Configured pending timeout and expiry representation. | Pending Orders expire automatically to the existing `REJECTED` outcome/state, cannot be accepted or reopened, and release reserved stock. | Default duration and technical representation of expiry time/reason remain open. |
 | Delivery-charge change handling for an existing/pending Order. | Merchant controls the effect; no more specific mechanism is approved. | Do not assume automatic repricing or a particular workflow. |
 | Customer information and delivery-address snapshot fields/retention. | AUTH-018 recommends immutable checkout-time snapshots; exact fields and retention need Product Owner/Privacy review. | The recommendation and approval owner are in `.ai/project-context/customer-order-history-access.md` §12. |
-| Inventory concurrency and transaction behavior. | Business stock effects are finalized; locking/error semantics are not. | Inventory/Order technical integration remains open. |
-| Duplicate checkout and repeated state-transition behavior. | No idempotency/concurrency business behavior is approved. | Duplicate orders or operations cannot be handled by an assumed rule. |
 | Exact Customer/merchant authorization implementation and data minimization details. | Business access is defined; implementation and field-level privacy controls remain open. | Access-control and response design remain open. |
 | Physical Shop deletion mechanics and behavior while a Shop is deactivated. | Shop deletion removes Shop Products and Orders, preserves the Merchant account, and does not associate deleted Shop data with a replacement Shop. | Database deletion design and tenant-isolation mechanics remain open. |
 
@@ -360,7 +356,7 @@ This specification does not define Django models, database schema, migrations, s
 
 ## 39. Implementation Gate
 
-> Order business rules are finalized. Order implementation remains gated on technical/database design: state and timeout representation, Order snapshots/totals, inventory transaction/concurrency behavior, authorization, and API contracts. Do not reopen finalized business decisions or invent missing technical details.
+> Order business rules are finalized. Concurrency, locking, idempotency, transaction boundaries, and pending expiry technical decisions are approved in `docs/decisions/0002-order-transaction-boundaries-and-concurrency.md`. Order implementation remains gated on final schema/snapshot modeling, customer identity resolution, and API contracts. Do not reopen finalized business decisions or invent missing technical details.
 
 After approval, implementation must follow `AGENTS.md`, `.ai/project-context/product.md`, `.ai/project-context/architecture.md`, `.ai/project-context/business-rules.md`, `.ai/project-context/development-status.md`, `.ai/project-context/domains/users-and-merchant-accounts.md`, `.ai/project-context/domains/shops.md`, `.ai/project-context/domains/catalog.md`, `.ai/project-context/domains/inventory.md`, `.ai/project-context/domains/customers.md`, `.ai/project-context/domains/cart.md`, this domain specification, and relevant engineering skills. The implementation agent must not silently resolve unresolved business decisions.
 
