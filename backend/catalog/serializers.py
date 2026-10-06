@@ -1,8 +1,108 @@
 from decimal import Decimal
 
+from django.utils.text import slugify
 from rest_framework import serializers
 
 from .models import MasterCategory, MasterProduct, ShopBrand, ShopCategory, ShopProduct
+
+
+class ShopCategorySerializer(serializers.ModelSerializer):
+    """
+    Serializer for Merchant Shop Categories and subcategories.
+
+    Allows Merchants to:
+    - Create categories and subcategories.
+    - Full CRUD management within their own Shop.
+    - Enforces tenant isolation for parent categories.
+    """
+
+    is_subcategory = serializers.BooleanField(read_only=True)
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
+    subcategories_count = serializers.IntegerField(source="subcategories.count", read_only=True)
+    products_count = serializers.IntegerField(source="products.count", read_only=True)
+    slug = serializers.SlugField(max_length=255, required=False, allow_blank=True)
+
+    class Meta:
+        model = ShopCategory
+        fields = [
+            "id",
+            "shop",
+            "parent",
+            "parent_name",
+            "name",
+            "slug",
+            "description",
+            "is_active",
+            "is_subcategory",
+            "subcategories_count",
+            "products_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "shop",
+            "parent_name",
+            "is_subcategory",
+            "subcategories_count",
+            "products_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Name cannot be empty or whitespace only.")
+        return value.strip()
+
+    def validate(self, attrs):
+        shop = self.context.get("shop")
+        parent = attrs.get("parent")
+        name = attrs.get("name")
+
+        # Name requirement on creation
+        if not self.instance and not name:
+            raise serializers.ValidationError({"name": "Name is required."})
+
+        # Slug generation / validation
+        slug = attrs.get("slug")
+        if slug is not None:
+            slug = slug.strip()
+            if slug:
+                qs = ShopCategory.objects.filter(shop=shop, slug=slug)
+                if self.instance:
+                    qs = qs.exclude(id=self.instance.id)
+                if qs.exists():
+                    raise serializers.ValidationError({"slug": "A category with this slug already exists for this shop."})
+            attrs["slug"] = slug
+        elif not self.instance:
+            # Auto-generate slug from name if not provided on creation
+            target_name = attrs.get("name") or ""
+            base_slug = slugify(target_name)
+            if base_slug:
+                candidate = base_slug
+                counter = 1
+                while ShopCategory.objects.filter(shop=shop, slug=candidate).exists():
+                    candidate = f"{base_slug}-{counter}"
+                    counter += 1
+                attrs["slug"] = candidate
+
+        # Tenant isolation check: parent must belong to the same Shop
+        if parent:
+            if shop and parent.shop_id != shop.id:
+                raise serializers.ValidationError({"parent": "Parent category must belong to the same Shop."})
+
+            if self.instance:
+                if parent.id == self.instance.id:
+                    raise serializers.ValidationError({"parent": "A category cannot be its own parent."})
+                # Check for cyclic parent references
+                curr = parent
+                while curr is not None:
+                    if curr.id == self.instance.id:
+                        raise serializers.ValidationError({"parent": "Circular category hierarchy is not allowed."})
+                    curr = curr.parent
+
+        return attrs
 
 
 class MasterProductSerializer(serializers.ModelSerializer):

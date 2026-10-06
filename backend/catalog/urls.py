@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     MasterProductViewSet,
+    MerchantShopCategoryViewSet,
     MerchantShopProductViewSet,
     SuperAdminPromoteShopProductView,
 )
@@ -14,6 +15,8 @@ router.register(r"master-products", MasterProductViewSet, basename="master-produ
 router.register(r"master-catalog/products", MasterProductViewSet, basename="master-catalog-product")
 router.register(r"products", MerchantShopProductViewSet, basename="merchant-product")
 router.register(r"shop-products", MerchantShopProductViewSet, basename="merchant-shop-product")
+router.register(r"categories", MerchantShopCategoryViewSet, basename="merchant-category")
+router.register(r"shop-categories", MerchantShopCategoryViewSet, basename="merchant-shop-category")
 
 # Direct router for /api/v1/master-products/ alias
 direct_router = DefaultRouter()
