@@ -25,6 +25,10 @@ from .views import (
     SuperAdminShopReactivateView,
     SuperAdminShopRegenerateQRView,
 )
+from customers.views import (
+    PublicCustomerCreateOrRecognizeView,
+    PublicCustomerRecognizeView,
+)
 
 app_name = "shops"
 
@@ -56,6 +60,9 @@ urlpatterns = [
     path("public/<slug:public_slug>/brands/", PublicShopBrandListView.as_view(), name="shop-public-brands-list"),
     path("public/<slug:public_slug>/custom-attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-custom-attributes-list"),
     path("public/<slug:public_slug>/attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-attributes-list"),
+    path("public/<slug:public_slug>/customer/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customer"),
+    path("public/<slug:public_slug>/customer/recognize/", PublicCustomerRecognizeView.as_view(), name="shop-public-customer-recognize"),
+    path("public/<slug:public_slug>/customers/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customers"),
     path("<int:pk>/", SuperAdminShopDeleteView.as_view(), name="shop-admin-delete"),
     path("<int:pk>/deactivate/", SuperAdminShopDeactivateView.as_view(), name="shop-admin-deactivate"),
     path("<int:pk>/reactivate/", SuperAdminShopReactivateView.as_view(), name="shop-admin-reactivate"),
