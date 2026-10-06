@@ -11,6 +11,11 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env if present
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 from datetime import timedelta
 from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
