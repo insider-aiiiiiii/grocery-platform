@@ -4,6 +4,12 @@ from catalog.views import (
     MerchantShopCategoryViewSet,
     MerchantShopCustomAttributeViewSet,
     MerchantShopProductViewSet,
+    PublicShopBrandListView,
+    PublicShopCatalogSummaryView,
+    PublicShopCategoryListView,
+    PublicShopCustomAttributeListView,
+    PublicShopProductDetailView,
+    PublicShopProductListView,
 )
 
 from .views import (
@@ -43,6 +49,13 @@ urlpatterns = [
     path("me/regenerate-qr/", MerchantShopQRRegenerationForbiddenView.as_view(), name="shop-me-regenerate-qr"),
     path("regenerate-qr/", MerchantShopQRRegenerationForbiddenView.as_view(), name="shop-regenerate-qr"),
     path("public/<slug:public_slug>/", PublicShopDetailView.as_view(), name="shop-public-detail"),
+    path("public/<slug:public_slug>/catalog/", PublicShopCatalogSummaryView.as_view(), name="shop-public-catalog"),
+    path("public/<slug:public_slug>/products/", PublicShopProductListView.as_view(), name="shop-public-products-list"),
+    path("public/<slug:public_slug>/products/<int:pk>/", PublicShopProductDetailView.as_view(), name="shop-public-products-detail"),
+    path("public/<slug:public_slug>/categories/", PublicShopCategoryListView.as_view(), name="shop-public-categories-list"),
+    path("public/<slug:public_slug>/brands/", PublicShopBrandListView.as_view(), name="shop-public-brands-list"),
+    path("public/<slug:public_slug>/custom-attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-custom-attributes-list"),
+    path("public/<slug:public_slug>/attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-attributes-list"),
     path("<int:pk>/", SuperAdminShopDeleteView.as_view(), name="shop-admin-delete"),
     path("<int:pk>/deactivate/", SuperAdminShopDeactivateView.as_view(), name="shop-admin-deactivate"),
     path("<int:pk>/reactivate/", SuperAdminShopReactivateView.as_view(), name="shop-admin-reactivate"),

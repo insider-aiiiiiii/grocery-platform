@@ -6,6 +6,7 @@ from rest_framework import serializers
 from .models import (
     MasterCategory,
     MasterProduct,
+    ProductVariant,
     ShopBrand,
     ShopCategory,
     ShopCustomAttribute,
@@ -419,3 +420,209 @@ class ShopProductSerializer(serializers.ModelSerializer):
                             raise serializers.ValidationError({"attributes": f"Attribute '{key}' list items must be primitive values."})
 
         return attrs
+
+
+class PublicProductVariantSerializer(serializers.ModelSerializer):
+    """
+    Public customer-facing serializer for Product Variants.
+    Exposes only approved customer fields, effective images, effective prices,
+    inventory availability, and Out of Stock indicators.
+    """
+
+    price = serializers.DecimalField(source="effective_price", max_digits=10, decimal_places=2)
+    description = serializers.CharField(source="effective_description", read_only=True)
+    image = serializers.SerializerMethodField()
+    stock_quantity = serializers.SerializerMethodField()
+    is_orderable = serializers.SerializerMethodField()
+    display_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProductVariant
+        fields = [
+            "id",
+            "name",
+            "description",
+            "image",
+            "price",
+            "sku",
+            "attributes",
+            "is_available",
+            "stock_quantity",
+            "is_orderable",
+            "display_status",
+        ]
+
+    def get_image(self, obj):
+        effective_img = obj.effective_image
+        if bool(effective_img):
+            request = self.context.get("request")
+            if request is not None:
+                return request.build_absolute_uri(effective_img.url)
+            return effective_img.url
+        return None
+
+    def _get_stock(self, obj):
+        stock_map = self.context.get("stock_map")
+        if stock_map is not None:
+            return stock_map.get((obj.product_id, obj.id), Decimal("0.000"))
+        from inventory.models import InventoryItem
+        inv = InventoryItem.objects.filter(product_id=obj.product_id, variant_id=obj.id).first()
+        return inv.available_quantity if inv else Decimal("0.000")
+
+    def get_stock_quantity(self, obj):
+        return str(self._get_stock(obj))
+
+    def get_is_orderable(self, obj):
+        stock = self._get_stock(obj)
+        parent_avail = obj.product.is_available if obj.product_id else True
+        return obj.is_customer_visible and obj.is_available and parent_avail and stock > Decimal("0.000")
+
+    def get_display_status(self, obj):
+        if not obj.is_customer_visible:
+            return "HIDDEN"
+        parent_avail = obj.product.is_available if obj.product_id else True
+        if not obj.is_available or not parent_avail:
+            return "UNAVAILABLE"
+        stock = self._get_stock(obj)
+        if stock <= Decimal("0.000"):
+            return "OUT_OF_STOCK"
+        return "AVAILABLE"
+
+
+class PublicShopCategorySummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopCategory
+        fields = ["id", "name", "slug"]
+
+
+class PublicShopProductSerializer(serializers.ModelSerializer):
+    """
+    Public customer-facing serializer for Shop Products.
+    Exposes customer-approved fields: name, description, brand, attributes, SKU,
+    images, available variants, applicable prices, visibility, and Out of Stock state.
+    """
+
+    brand = serializers.CharField(source="effective_brand", read_only=True)
+    image = serializers.SerializerMethodField()
+    categories = PublicShopCategorySummarySerializer(many=True, read_only=True)
+    variants = serializers.SerializerMethodField()
+    has_variants = serializers.BooleanField(read_only=True)
+    stock_quantity = serializers.SerializerMethodField()
+    is_orderable = serializers.SerializerMethodField()
+    display_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ShopProduct
+        fields = [
+            "id",
+            "name",
+            "description",
+            "brand",
+            "image",
+            "price",
+            "sku",
+            "attributes",
+            "categories",
+            "is_available",
+            "has_variants",
+            "variants",
+            "stock_quantity",
+            "is_orderable",
+            "display_status",
+        ]
+
+    def get_image(self, obj):
+        if bool(obj.image):
+            request = self.context.get("request")
+            if request is not None:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+    def _get_product_stock_info(self, obj):
+        stock_map = self.context.get("stock_map")
+        visible_variants = [v for v in obj.variants.all() if v.is_visible]
+
+        if visible_variants:
+            var_stocks = {}
+            for v in visible_variants:
+                if stock_map is not None:
+                    var_stocks[v.id] = stock_map.get((obj.id, v.id), Decimal("0.000"))
+                else:
+                    from inventory.models import InventoryItem
+                    inv = InventoryItem.objects.filter(product_id=obj.id, variant_id=v.id).first()
+                    var_stocks[v.id] = inv.available_quantity if inv else Decimal("0.000")
+            total_stock = sum(var_stocks.values(), Decimal("0.000"))
+            return total_stock, var_stocks, visible_variants
+        else:
+            if stock_map is not None:
+                stock = stock_map.get((obj.id, None), Decimal("0.000"))
+            else:
+                from inventory.models import InventoryItem
+                inv = InventoryItem.objects.filter(product_id=obj.id, variant__isnull=True).first()
+                stock = inv.available_quantity if inv else Decimal("0.000")
+            return stock, {}, []
+
+    def get_variants(self, obj):
+        visible_variants = [v for v in obj.variants.all() if v.is_visible]
+        if not visible_variants:
+            return []
+        serializer = PublicProductVariantSerializer(visible_variants, many=True, context=self.context)
+        return serializer.data
+
+    def get_stock_quantity(self, obj):
+        stock, _, _ = self._get_product_stock_info(obj)
+        return str(stock)
+
+    def get_is_orderable(self, obj):
+        if not obj.is_visible or not obj.is_available:
+            return False
+        stock, var_stocks, visible_variants = self._get_product_stock_info(obj)
+        if visible_variants:
+            return any(
+                v.is_available and var_stocks.get(v.id, Decimal("0.000")) > Decimal("0.000")
+                for v in visible_variants
+            )
+        return stock > Decimal("0.000")
+
+    def get_display_status(self, obj):
+        if not obj.is_visible:
+            return "HIDDEN"
+        if not obj.is_available:
+            return "UNAVAILABLE"
+        stock, var_stocks, visible_variants = self._get_product_stock_info(obj)
+        if visible_variants:
+            orderable = any(
+                v.is_available and var_stocks.get(v.id, Decimal("0.000")) > Decimal("0.000")
+                for v in visible_variants
+            )
+            if orderable:
+                return "AVAILABLE"
+            all_manually_unavail = all(not v.is_available for v in visible_variants)
+            if all_manually_unavail:
+                return "UNAVAILABLE"
+            return "OUT_OF_STOCK"
+        if stock <= Decimal("0.000"):
+            return "OUT_OF_STOCK"
+        return "AVAILABLE"
+
+
+class PublicCategorySerializer(serializers.ModelSerializer):
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default=None)
+
+    class Meta:
+        model = ShopCategory
+        fields = ["id", "name", "slug", "description", "parent", "parent_name", "is_subcategory"]
+
+
+class PublicBrandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopBrand
+        fields = ["id", "name", "slug", "description"]
+
+
+class PublicCustomAttributeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopCustomAttribute
+        fields = ["id", "name", "description", "values"]
+

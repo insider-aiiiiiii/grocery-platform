@@ -3656,6 +3656,526 @@ class MerchantShopCustomAttributeAPITests(TestCase):
         self.assertEqual(get2.data["name"], "Alias Attr 2")
 
 
+class PublicShopCatalogAPITests(TestCase):
+    """
+    Integration tests for customer-facing public Shop catalog APIs (CAT-014).
+    Validates tenant isolation, product and variant visibility, manual availability,
+    inventory stock controls, and out-of-stock behaviors.
+    """
+
+    def setUp(self):
+        from inventory.models import InventoryItem
+
+        self.client = APIClient()
+
+        # Active Shop A
+        self.shop_a = Shop.objects.create(
+            name="Green Grocers",
+            public_slug="green-grocers",
+            status=Shop.Status.ACTIVE,
+            is_accepting_orders=True,
+        )
+
+        # Active Shop B
+        self.shop_b = Shop.objects.create(
+            name="Blue Organics",
+            public_slug="blue-organics",
+            status=Shop.Status.ACTIVE,
+            is_accepting_orders=True,
+        )
+
+        # Inactive / Deactivated Shop
+        self.shop_inactive = Shop.objects.create(
+            name="Closed Mart",
+            public_slug="closed-mart",
+            status=Shop.Status.DEACTIVATED,
+            is_accepting_orders=False,
+        )
+
+        # Categories for Shop A
+        self.cat_parent = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Dairy",
+            slug="dairy",
+            is_active=True,
+        )
+        self.cat_child = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Milk",
+            slug="milk",
+            parent=self.cat_parent,
+            is_active=True,
+        )
+        self.cat_inactive = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Archived Dairy",
+            slug="archived-dairy",
+            is_active=False,
+        )
+
+        # Category for Shop B
+        self.cat_b = ShopCategory.objects.create(
+            shop=self.shop_b,
+            name="Bakery",
+            slug="bakery",
+            is_active=True,
+        )
+
+        # Brands for Shop A
+        self.brand_a = ShopBrand.objects.create(
+            shop=self.shop_a,
+            name="DairyBest",
+            slug="dairybest",
+            is_active=True,
+        )
+        self.brand_inactive = ShopBrand.objects.create(
+            shop=self.shop_a,
+            name="OldBrand",
+            slug="oldbrand",
+            is_active=False,
+        )
+
+        # Brand for Shop B
+        self.brand_b = ShopBrand.objects.create(
+            shop=self.shop_b,
+            name="BakeBest",
+            slug="bakebest",
+            is_active=True,
+        )
+
+        # Custom Attributes for Shop A
+        self.attr_a = ShopCustomAttribute.objects.create(
+            shop=self.shop_a,
+            name="Fat Content",
+            values=["Whole", "Low Fat", "Skimmed"],
+            is_active=True,
+        )
+        self.attr_inactive = ShopCustomAttribute.objects.create(
+            shop=self.shop_a,
+            name="Internal Grade",
+            values=["Secret"],
+            is_active=False,
+        )
+
+        # Products for Shop A
+        # 1. Normal available and in-stock product
+        self.prod_normal = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Whole Milk 1L",
+            description="Fresh organic cow milk",
+            brand_ref=self.brand_a,
+            price=Decimal("3.50"),
+            sku="MILK-1L",
+            is_visible=True,
+            is_available=True,
+        )
+        self.prod_normal.categories.add(self.cat_parent, self.cat_child)
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_normal,
+            quantity=Decimal("20.000"),
+            reserved_quantity=Decimal("2.000"),
+        )  # Available: 18.000
+
+        # 2. Out of Stock product (is_available=True, stock=0)
+        self.prod_oos = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Oat Milk 1L",
+            description="Creamy plant-based milk",
+            brand="OatLovers",
+            price=Decimal("4.00"),
+            sku="OAT-1L",
+            is_visible=True,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_oos,
+            quantity=Decimal("0.000"),
+            reserved_quantity=Decimal("0.000"),
+        )
+
+        # 3. Manually unavailable product (is_available=False, stock=10)
+        self.prod_unavail = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Almond Milk 1L",
+            description="Nut milk",
+            price=Decimal("4.50"),
+            sku="ALM-1L",
+            is_visible=True,
+            is_available=False,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_unavail,
+            quantity=Decimal("10.000"),
+            reserved_quantity=Decimal("0.000"),
+        )
+
+        # 4. Hidden product (is_visible=False)
+        self.prod_hidden = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Secret Milk",
+            description="Staff only",
+            price=Decimal("9.99"),
+            sku="SECRET-1L",
+            is_visible=False,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_hidden,
+            quantity=Decimal("100.000"),
+        )
+
+        # 5. Product with Variants
+        self.prod_variant = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Cheddar Cheese",
+            description="Aged English cheddar",
+            brand_ref=self.brand_a,
+            price=Decimal("5.00"),
+            sku="CHEDDAR-PARENT",
+            is_visible=True,
+            is_available=True,
+        )
+        # Variant 1: Available & in stock
+        self.v1 = ProductVariant.objects.create(
+            product=self.prod_variant,
+            name="200g Block",
+            price=Decimal("5.00"),
+            sku="CHEDDAR-200G",
+            is_visible=True,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_variant,
+            variant=self.v1,
+            quantity=Decimal("15.000"),
+            reserved_quantity=Decimal("0.000"),
+        )
+        # Variant 2: Out of stock
+        self.v2 = ProductVariant.objects.create(
+            product=self.prod_variant,
+            name="500g Block",
+            price=Decimal("11.00"),
+            sku="CHEDDAR-500G",
+            is_visible=True,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_variant,
+            variant=self.v2,
+            quantity=Decimal("0.000"),
+            reserved_quantity=Decimal("0.000"),
+        )
+        # Variant 3: Hidden variant (should not appear to customers)
+        self.v_hidden = ProductVariant.objects.create(
+            product=self.prod_variant,
+            name="10kg Wheel (Wholesale)",
+            price=Decimal("150.00"),
+            sku="CHEDDAR-10KG",
+            is_visible=False,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_a,
+            product=self.prod_variant,
+            variant=self.v_hidden,
+            quantity=Decimal("5.000"),
+        )
+
+        # Product for Shop B
+        self.prod_b = ShopProduct.objects.create(
+            shop=self.shop_b,
+            name="Sourdough Bread",
+            brand_ref=self.brand_b,
+            price=Decimal("4.20"),
+            sku="BREAD-01",
+            is_visible=True,
+            is_available=True,
+        )
+        InventoryItem.objects.create(
+            shop=self.shop_b,
+            product=self.prod_b,
+            quantity=Decimal("8.000"),
+        )
+
+    def test_public_shop_products_list(self):
+        """
+        Public customers see only visible products of the addressed active shop.
+        Stock quantities, orderability, and display statuses are accurately reported.
+        """
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        products = res.data
+        prod_ids = [p["id"] for p in products]
+
+        # Visible products for Shop A are present
+        self.assertIn(self.prod_normal.id, prod_ids)
+        self.assertIn(self.prod_oos.id, prod_ids)
+        self.assertIn(self.prod_unavail.id, prod_ids)
+        self.assertIn(self.prod_variant.id, prod_ids)
+
+        # Hidden products and Shop B products must NOT be present
+        self.assertNotIn(self.prod_hidden.id, prod_ids)
+        self.assertNotIn(self.prod_b.id, prod_ids)
+
+        # Validate normal product details
+        normal_data = next(p for p in products if p["id"] == self.prod_normal.id)
+        self.assertEqual(normal_data["name"], "Whole Milk 1L")
+        self.assertEqual(normal_data["brand"], "DairyBest")
+        self.assertEqual(normal_data["stock_quantity"], "18.000")
+        self.assertTrue(normal_data["is_orderable"])
+        self.assertEqual(normal_data["display_status"], "AVAILABLE")
+        self.assertEqual(len(normal_data["categories"]), 2)
+
+        # Validate Out of Stock product details
+        oos_data = next(p for p in products if p["id"] == self.prod_oos.id)
+        self.assertEqual(oos_data["name"], "Oat Milk 1L")
+        self.assertEqual(oos_data["stock_quantity"], "0.000")
+        self.assertFalse(oos_data["is_orderable"])
+        self.assertEqual(oos_data["display_status"], "OUT_OF_STOCK")
+
+        # Validate Manually Unavailable product details
+        unavail_data = next(p for p in products if p["id"] == self.prod_unavail.id)
+        self.assertEqual(unavail_data["name"], "Almond Milk 1L")
+        self.assertFalse(unavail_data["is_orderable"])
+        self.assertEqual(unavail_data["display_status"], "UNAVAILABLE")
+
+        # Validate Variant product details
+        variant_data = next(p for p in products if p["id"] == self.prod_variant.id)
+        self.assertTrue(variant_data["has_variants"])
+        self.assertTrue(variant_data["is_orderable"])
+        self.assertEqual(variant_data["display_status"], "AVAILABLE")
+        self.assertEqual(variant_data["stock_quantity"], "15.000")
+
+        # Visible variants only (v1 and v2, but NOT v_hidden)
+        variants = variant_data["variants"]
+        var_names = [v["name"] for v in variants]
+        self.assertIn("200g Block", var_names)
+        self.assertIn("500g Block", var_names)
+        self.assertNotIn("10kg Wheel (Wholesale)", var_names)
+
+        # Variant status check
+        v1_data = next(v for v in variants if v["id"] == self.v1.id)
+        self.assertTrue(v1_data["is_orderable"])
+        self.assertEqual(v1_data["display_status"], "AVAILABLE")
+        self.assertEqual(v1_data["stock_quantity"], "15.000")
+
+        v2_data = next(v for v in variants if v["id"] == self.v2.id)
+        self.assertFalse(v2_data["is_orderable"])
+        self.assertEqual(v2_data["display_status"], "OUT_OF_STOCK")
+        self.assertEqual(v2_data["stock_quantity"], "0.000")
+
+    def test_public_shop_product_detail(self):
+        """
+        Public customer can retrieve details of a visible product belonging to the active shop.
+        Accessing hidden products or another shop's products returns 404.
+        """
+        # Success retrieve
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/{self.prod_normal.id}/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["id"], self.prod_normal.id)
+        self.assertEqual(res.data["name"], "Whole Milk 1L")
+        self.assertEqual(res.data["display_status"], "AVAILABLE")
+
+        # Hidden product returns 404
+        hidden_url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/{self.prod_hidden.id}/"
+        res_hidden = self.client.get(hidden_url)
+        self.assertEqual(res_hidden.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_hidden.data.get("code"), "PRODUCT_NOT_FOUND")
+
+        # Cross-shop tenant isolation: Shop B's product accessed via Shop A slug -> 404
+        cross_url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/{self.prod_b.id}/"
+        res_cross = self.client.get(cross_url)
+        self.assertEqual(res_cross.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_cross.data.get("code"), "PRODUCT_NOT_FOUND")
+
+    def test_public_shop_product_filters_and_search(self):
+        """
+        Public customers can filter products by category, brand, and text search.
+        """
+        base_url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/"
+
+        # Filter by category slug
+        res_cat = self.client.get(f"{base_url}?category=milk")
+        self.assertEqual(res_cat.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_cat.data), 1)
+        self.assertEqual(res_cat.data[0]["id"], self.prod_normal.id)
+
+        # Filter by category id
+        res_cat_id = self.client.get(f"{base_url}?category={self.cat_parent.id}")
+        self.assertEqual(res_cat_id.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_cat_id.data), 1)
+        self.assertEqual(res_cat_id.data[0]["id"], self.prod_normal.id)
+
+        # Filter by brand slug
+        res_brand = self.client.get(f"{base_url}?brand=dairybest")
+        self.assertEqual(res_brand.status_code, status.HTTP_200_OK)
+        brand_prod_ids = [p["id"] for p in res_brand.data]
+        self.assertIn(self.prod_normal.id, brand_prod_ids)
+        self.assertIn(self.prod_variant.id, brand_prod_ids)
+
+        # Filter by free-form brand
+        res_brand_free = self.client.get(f"{base_url}?brand=OatLovers")
+        self.assertEqual(res_brand_free.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_brand_free.data), 1)
+        self.assertEqual(res_brand_free.data[0]["id"], self.prod_oos.id)
+
+        # Search query by product name
+        res_search_name = self.client.get(f"{base_url}?search=Cheddar")
+        self.assertEqual(res_search_name.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_search_name.data), 1)
+        self.assertEqual(res_search_name.data[0]["id"], self.prod_variant.id)
+
+        # Search query by SKU
+        res_search_sku = self.client.get(f"{base_url}?search=ALM-1L")
+        self.assertEqual(res_search_sku.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_search_sku.data), 1)
+        self.assertEqual(res_search_sku.data[0]["id"], self.prod_unavail.id)
+
+    def test_public_categories_list(self):
+        """
+        Public customers see active categories for the shop.
+        Inactive categories and categories belonging to other shops are omitted.
+        """
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/categories/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        names = [c["name"] for c in res.data]
+        self.assertIn("Dairy", names)
+        self.assertIn("Milk", names)
+        self.assertNotIn("Archived Dairy", names)
+        self.assertNotIn("Bakery", names)
+
+        # Filter ?parent=root
+        res_root = self.client.get(f"{url}?parent=root")
+        self.assertEqual(res_root.status_code, status.HTTP_200_OK)
+        root_names = [c["name"] for c in res_root.data]
+        self.assertIn("Dairy", root_names)
+        self.assertNotIn("Milk", root_names)
+
+        # Filter ?parent=<id>
+        res_child = self.client.get(f"{url}?parent={self.cat_parent.id}")
+        self.assertEqual(res_child.status_code, status.HTTP_200_OK)
+        child_names = [c["name"] for c in res_child.data]
+        self.assertIn("Milk", child_names)
+        self.assertNotIn("Dairy", child_names)
+
+    def test_public_brands_and_custom_attributes_list(self):
+        """
+        Public customers see active brands and active custom attributes for the shop.
+        """
+        # Brands
+        brand_url = f"/api/v1/shops/public/{self.shop_a.public_slug}/brands/"
+        res_brand = self.client.get(brand_url)
+        self.assertEqual(res_brand.status_code, status.HTTP_200_OK)
+        brand_names = [b["name"] for b in res_brand.data]
+        self.assertIn("DairyBest", brand_names)
+        self.assertNotIn("OldBrand", brand_names)
+        self.assertNotIn("BakeBest", brand_names)
+
+        # Custom Attributes
+        attr_url = f"/api/v1/shops/public/{self.shop_a.public_slug}/custom-attributes/"
+        res_attr = self.client.get(attr_url)
+        self.assertEqual(res_attr.status_code, status.HTTP_200_OK)
+        attr_names = [a["name"] for a in res_attr.data]
+        self.assertIn("Fat Content", attr_names)
+        self.assertNotIn("Internal Grade", attr_names)
+
+    def test_public_shop_catalog_summary(self):
+        """
+        Customer can retrieve complete active shop catalog in one integrated summary.
+        """
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/catalog/"
+        res = self.client.get(url)
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("shop", res.data)
+        self.assertIn("categories", res.data)
+        self.assertIn("brands", res.data)
+        self.assertIn("products", res.data)
+
+        self.assertEqual(res.data["shop"]["public_slug"], self.shop_a.public_slug)
+        self.assertEqual(res.data["shop"]["name"], self.shop_a.name)
+        self.assertTrue(res.data["shop"]["is_accepting_orders"])
+
+        prod_ids = [p["id"] for p in res.data["products"]]
+        self.assertIn(self.prod_normal.id, prod_ids)
+        self.assertNotIn(self.prod_hidden.id, prod_ids)
+        self.assertNotIn(self.prod_b.id, prod_ids)
+
+    def test_inactive_and_nonexistent_shop_handling(self):
+        """
+        Accessing an inactive/deactivated shop returns 404 SHOP_UNAVAILABLE.
+        Accessing a non-existent shop slug returns 404 SHOP_NOT_FOUND.
+        """
+        # Inactive Shop
+        inactive_url = f"/api/v1/shops/public/{self.shop_inactive.public_slug}/products/"
+        res_inactive = self.client.get(inactive_url)
+        self.assertEqual(res_inactive.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_inactive.data.get("code"), "SHOP_UNAVAILABLE")
+
+        # Non-existent Shop
+        non_existent_url = "/api/v1/shops/public/non-existent-shop-slug/products/"
+        res_non_existent = self.client.get(non_existent_url)
+        self.assertEqual(res_non_existent.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_non_existent.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_variant_product_all_out_of_stock_behavior(self):
+        """
+        When all visible variants of a product are Out of Stock, the main product
+        is reported with display_status="OUT_OF_STOCK" and is_orderable=False.
+        When all visible variants are is_available=False, display_status="UNAVAILABLE".
+        """
+        from inventory.models import InventoryItem
+
+        # Set v1 quantity to 0
+        inv1 = InventoryItem.objects.get(product=self.prod_variant, variant=self.v1)
+        inv1.quantity = Decimal("0.000")
+        inv1.save()
+
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/{self.prod_variant.id}/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(res.data["is_orderable"])
+        self.assertEqual(res.data["display_status"], "OUT_OF_STOCK")
+
+        # Set both visible variants to is_available=False
+        self.v1.is_available = False
+        self.v1.save()
+        self.v2.is_available = False
+        self.v2.save()
+
+        res_unavail = self.client.get(url)
+        self.assertEqual(res_unavail.status_code, status.HTTP_200_OK)
+        self.assertFalse(res_unavail.data["is_orderable"])
+        self.assertEqual(res_unavail.data["display_status"], "UNAVAILABLE")
+
+    def test_catalog_url_aliases(self):
+        """
+        Verifies both /api/v1/shops/public/<slug>/products/ and
+        /api/v1/catalog/public/<slug>/products/ work consistently.
+        """
+        url1 = f"/api/v1/shops/public/{self.shop_a.public_slug}/products/"
+        url2 = f"/api/v1/catalog/public/{self.shop_a.public_slug}/products/"
+
+        res1 = self.client.get(url1)
+        res2 = self.client.get(url2)
+
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res1.data), len(res2.data))
+
+
+
 
 
 
