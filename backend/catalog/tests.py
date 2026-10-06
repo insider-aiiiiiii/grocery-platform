@@ -2087,7 +2087,7 @@ class SuperAdminPromoteShopProductAPITests(TestCase):
 
 class MerchantShopProductAPITests(TestCase):
     """
-    Unit and integration tests for Merchant CRUD APIs on their own Shop Products (CAT-010).
+    Unit and integration tests for Merchant CRUD APIs on their own Shop Products (CAT-010, CAT-011).
 
     Validates:
     - Direct creation by Merchant (no Super Admin approval needed; immediately active and usable).
@@ -2470,6 +2470,174 @@ class MerchantShopProductAPITests(TestCase):
         get_res = self.client.get(f"{url}{prod_id}/")
         self.assertEqual(get_res.status_code, status.HTTP_200_OK)
         self.assertEqual(get_res.data["name"], "Fresh Cucumbers")
+
+    def test_put_full_update_own_product(self):
+        """
+        Merchant can perform a full update (PUT) on their own product.
+        """
+        self._auth_merchant(self.user_a)
+        prod = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Initial Name",
+            price=Decimal("10.00"),
+            sku="SKU-INIT",
+        )
+        put_payload = {
+            "name": "Updated Full Name",
+            "description": "Full updated description",
+            "price": "12.50",
+            "sku": "SKU-UPD",
+            "is_visible": False,
+            "is_available": False,
+        }
+        res = self.client.put(f"{self.base_url}{prod.id}/", put_payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["name"], "Updated Full Name")
+        self.assertEqual(res.data["price"], "12.50")
+        self.assertEqual(res.data["sku"], "SKU-UPD")
+        self.assertFalse(res.data["is_visible"])
+        self.assertFalse(res.data["is_available"])
+
+    def test_filter_products_by_visibility_availability_category_and_search(self):
+        """
+        Merchant product listing supports filtering by visibility, manual availability,
+        category, and search term (name, sku, brand).
+        """
+        self._auth_merchant(self.user_a)
+        p1 = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Alpha Apple",
+            sku="FRUIT-01",
+            brand="NatureBrand",
+            is_visible=True,
+            is_available=True,
+        )
+        p1.categories.add(self.category_a)
+
+        p2 = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Beta Banana",
+            sku="FRUIT-02",
+            brand="NatureBrand",
+            is_visible=False,
+            is_available=True,
+        )
+
+        p3 = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Gamma Garlic",
+            sku="VEG-01",
+            brand="SpiceCo",
+            is_visible=True,
+            is_available=False,
+        )
+
+        # Filter by visibility
+        res_vis = self.client.get(f"{self.base_url}?is_visible=true")
+        self.assertEqual(res_vis.status_code, status.HTTP_200_OK)
+        ids_vis = [item["id"] for item in res_vis.data]
+        self.assertIn(p1.id, ids_vis)
+        self.assertIn(p3.id, ids_vis)
+        self.assertNotIn(p2.id, ids_vis)
+
+        # Filter by availability
+        res_avail = self.client.get(f"{self.base_url}?is_available=false")
+        self.assertEqual(res_avail.status_code, status.HTTP_200_OK)
+        ids_avail = [item["id"] for item in res_avail.data]
+        self.assertIn(p3.id, ids_avail)
+        self.assertNotIn(p1.id, ids_avail)
+
+        # Filter by category
+        res_cat = self.client.get(f"{self.base_url}?category={self.category_a.id}")
+        self.assertEqual(res_cat.status_code, status.HTTP_200_OK)
+        ids_cat = [item["id"] for item in res_cat.data]
+        self.assertIn(p1.id, ids_cat)
+        self.assertNotIn(p2.id, ids_cat)
+        self.assertNotIn(p3.id, ids_cat)
+
+        # Search by term
+        res_search = self.client.get(f"{self.base_url}?search=FRUIT-02")
+        self.assertEqual(res_search.status_code, status.HTTP_200_OK)
+        ids_search = [item["id"] for item in res_search.data]
+        self.assertIn(p2.id, ids_search)
+        self.assertNotIn(p1.id, ids_search)
+
+    def test_direct_creation_validation_errors(self):
+        """
+        Direct creation rejects blank names, negative prices, and invalid attributes.
+        """
+        self._auth_merchant(self.user_a)
+
+        # 1. Blank name
+        res_blank = self.client.post(self.base_url, {"name": "   ", "price": "1.00"}, format="json")
+        self.assertEqual(res_blank.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", res_blank.data)
+
+        # 2. Missing name without master_product
+        res_noname = self.client.post(self.base_url, {"price": "1.00"}, format="json")
+        self.assertEqual(res_noname.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", res_noname.data)
+
+        # 3. Negative price
+        res_neg = self.client.post(self.base_url, {"name": "Item", "price": "-5.00"}, format="json")
+        self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("price", res_neg.data)
+
+        # 4. Non-dict attributes
+        res_attr = self.client.post(self.base_url, {"name": "Item", "attributes": "invalid"}, format="json")
+        self.assertEqual(res_attr.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("attributes", res_attr.data)
+
+        # 5. Non-existent master product
+        res_mp = self.client.post(self.base_url, {"master_product": 999999}, format="json")
+        self.assertEqual(res_mp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("master_product", res_mp.data)
+
+    def test_cross_tenant_update_brand_and_category_rejected(self):
+        """
+        Merchant cannot update existing product with brands or categories belonging to another shop.
+        """
+        self._auth_merchant(self.user_a)
+        prod = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Valid Product",
+            price=Decimal("3.00"),
+        )
+
+        # Cross-tenant brand on update
+        res_b = self.client.patch(
+            f"{self.base_url}{prod.id}/",
+            {"brand_ref": self.brand_b.id},
+            format="json",
+        )
+        self.assertEqual(res_b.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("brand_ref", res_b.data)
+
+        # Cross-tenant category on update
+        res_c = self.client.patch(
+            f"{self.base_url}{prod.id}/",
+            {"categories": [self.category_b.id]},
+            format="json",
+        )
+        self.assertEqual(res_c.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("categories", res_c.data)
+
+    def test_catalog_shop_products_alias_route(self):
+        """
+        Verify that /api/v1/catalog/shop-products/ acts as a direct alias for the merchant product API.
+        """
+        self._auth_merchant(self.user_a)
+        alias_url = "/api/v1/catalog/shop-products/"
+
+        res = self.client.post(alias_url, {"name": "Alias Test Item", "price": "4.20"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["name"], "Alias Test Item")
+        prod_id = res.data["id"]
+
+        get_res = self.client.get(f"{alias_url}{prod_id}/")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["name"], "Alias Test Item")
+
 
 
 
