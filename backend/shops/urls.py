@@ -1,5 +1,10 @@
 from django.urls import include, path
-from catalog.views import MerchantShopCategoryViewSet, MerchantShopProductViewSet
+from catalog.views import (
+    MerchantShopBrandViewSet,
+    MerchantShopCategoryViewSet,
+    MerchantShopCustomAttributeViewSet,
+    MerchantShopProductViewSet,
+)
 
 from .views import (
     MerchantShopDeactivationForbiddenView,
@@ -25,6 +30,10 @@ urlpatterns = [
     path("me/products/<int:pk>/", MerchantShopProductViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-products-detail"),
     path("me/categories/", MerchantShopCategoryViewSet.as_view({"get": "list", "post": "create"}), name="shop-me-categories-list"),
     path("me/categories/<int:pk>/", MerchantShopCategoryViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-categories-detail"),
+    path("me/brands/", MerchantShopBrandViewSet.as_view({"get": "list", "post": "create"}), name="shop-me-brands-list"),
+    path("me/brands/<int:pk>/", MerchantShopBrandViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-brands-detail"),
+    path("me/custom-attributes/", MerchantShopCustomAttributeViewSet.as_view({"get": "list", "post": "create"}), name="shop-me-custom-attributes-list"),
+    path("me/custom-attributes/<int:pk>/", MerchantShopCustomAttributeViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-custom-attributes-detail"),
     path("me/inventory/", include("inventory.urls")),
 
     path("me/deactivate/", MerchantShopDeactivationForbiddenView.as_view(), name="shop-me-deactivate"),

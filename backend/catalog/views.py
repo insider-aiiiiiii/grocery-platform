@@ -10,11 +10,19 @@ from shops.models import Shop
 from shops.permissions import IsActiveMerchant
 from users.permissions import IsSuperAdmin
 
-from .models import MasterProduct, ShopCategory, ShopProduct
+from .models import (
+    MasterProduct,
+    ShopBrand,
+    ShopCategory,
+    ShopCustomAttribute,
+    ShopProduct,
+)
 from .serializers import (
     MasterProductSerializer,
     PromoteShopProductSerializer,
+    ShopBrandSerializer,
     ShopCategorySerializer,
+    ShopCustomAttributeSerializer,
     ShopProductSerializer,
 )
 
@@ -347,3 +355,163 @@ class MerchantShopCategoryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(shop=self._shop)
+
+
+class MerchantShopBrandViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for Merchants managing their own Shop Brands.
+
+    - Preserves Shop ownership: all operations are strictly scoped to the authenticated merchant's shop.
+    - Tenant isolation: merchants cannot view, update, or delete other shops' brands.
+    - Deleting a brand preserves assigned products, setting brand_ref to NULL per domain rules.
+    """
+
+    serializer_class = ShopBrandSerializer
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        shop, error_res = get_authenticated_merchant_shop(request)
+        self._shop = shop
+        self._shop_error = error_res
+
+    def get_queryset(self):
+        if getattr(self, "_shop_error", None):
+            return ShopBrand.objects.none()
+        shop = getattr(self, "_shop", None)
+        if not shop:
+            return ShopBrand.objects.none()
+
+        queryset = (
+            ShopBrand.objects.filter(shop=shop)
+            .prefetch_related("products")
+            .order_by("name", "id")
+        )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                queryset = queryset.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                queryset = queryset.filter(is_active=False)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(slug__icontains=search) | Q(description__icontains=search)
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["shop"] = getattr(self, "_shop", None)
+        return context
+
+    def list(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().create(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().retrieve(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(shop=self._shop)
+
+
+class MerchantShopCustomAttributeViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for Merchants managing their own Shop Custom Attributes and basic values.
+
+    - Preserves Shop ownership: all operations are strictly scoped to the authenticated merchant's shop.
+    - Tenant isolation: merchants cannot view, update, or delete other shops' custom attributes.
+    - Manages attribute definitions and allowed basic values without a rigid global taxonomy.
+    """
+
+    serializer_class = ShopCustomAttributeSerializer
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        shop, error_res = get_authenticated_merchant_shop(request)
+        self._shop = shop
+        self._shop_error = error_res
+
+    def get_queryset(self):
+        if getattr(self, "_shop_error", None):
+            return ShopCustomAttribute.objects.none()
+        shop = getattr(self, "_shop", None)
+        if not shop:
+            return ShopCustomAttribute.objects.none()
+
+        queryset = (
+            ShopCustomAttribute.objects.filter(shop=shop)
+            .order_by("name", "id")
+        )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                queryset = queryset.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                queryset = queryset.filter(is_active=False)
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(description__icontains=search)
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["shop"] = getattr(self, "_shop", None)
+        return context
+
+    def list(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().create(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().retrieve(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(shop=self._shop)
+

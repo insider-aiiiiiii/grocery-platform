@@ -3,7 +3,14 @@ from decimal import Decimal
 from django.utils.text import slugify
 from rest_framework import serializers
 
-from .models import MasterCategory, MasterProduct, ShopBrand, ShopCategory, ShopProduct
+from .models import (
+    MasterCategory,
+    MasterProduct,
+    ShopBrand,
+    ShopCategory,
+    ShopCustomAttribute,
+    ShopProduct,
+)
 
 
 class ShopCategorySerializer(serializers.ModelSerializer):
@@ -101,6 +108,140 @@ class ShopCategorySerializer(serializers.ModelSerializer):
                     if curr.id == self.instance.id:
                         raise serializers.ValidationError({"parent": "Circular category hierarchy is not allowed."})
                     curr = curr.parent
+
+        return attrs
+
+
+class ShopBrandSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Merchant Shop Brands.
+
+    Allows Merchants to:
+    - Create, edit, and delete Brands in their Shop Catalog.
+    - Full CRUD management within their own Shop.
+    - Enforces tenant isolation and slug uniqueness per Shop.
+    """
+
+    products_count = serializers.IntegerField(source="products.count", read_only=True)
+    slug = serializers.SlugField(max_length=255, required=False, allow_blank=True)
+
+    class Meta:
+        model = ShopBrand
+        fields = [
+            "id",
+            "shop",
+            "name",
+            "slug",
+            "description",
+            "is_active",
+            "products_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "shop",
+            "products_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Name cannot be empty or whitespace only.")
+        return value.strip()
+
+    def validate(self, attrs):
+        shop = self.context.get("shop")
+        name = attrs.get("name")
+
+        # Name requirement on creation
+        if not self.instance and not name:
+            raise serializers.ValidationError({"name": "Name is required."})
+
+        # Slug generation / validation
+        slug = attrs.get("slug")
+        if slug is not None:
+            slug = slug.strip()
+            if slug:
+                qs = ShopBrand.objects.filter(shop=shop, slug=slug)
+                if self.instance:
+                    qs = qs.exclude(id=self.instance.id)
+                if qs.exists():
+                    raise serializers.ValidationError({"slug": "A brand with this slug already exists for this shop."})
+            attrs["slug"] = slug
+        elif not self.instance:
+            target_name = attrs.get("name") or ""
+            base_slug = slugify(target_name)
+            if base_slug:
+                candidate = base_slug
+                counter = 1
+                while ShopBrand.objects.filter(shop=shop, slug=candidate).exists():
+                    candidate = f"{base_slug}-{counter}"
+                    counter += 1
+                attrs["slug"] = candidate
+
+        return attrs
+
+
+class ShopCustomAttributeSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Merchant Shop Custom Attributes and basic values.
+
+    Allows Merchants to:
+    - Create, edit, and delete custom attributes and manage values for their Shop Catalog.
+    - Enforces unique attribute names per Shop.
+    - Validates values as a list of primitive items (str, int, float, bool).
+    """
+
+    values = serializers.JSONField(required=False, default=list)
+
+    class Meta:
+        model = ShopCustomAttribute
+        fields = [
+            "id",
+            "shop",
+            "name",
+            "description",
+            "values",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "shop",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Name cannot be empty or whitespace only.")
+        return value.strip()
+
+    def validate_values(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Values must be a list of attribute values.")
+        for item in value:
+            if not isinstance(item, (str, int, float, bool)):
+                raise serializers.ValidationError("Attribute values must be primitive items.")
+        return value
+
+    def validate(self, attrs):
+        shop = self.context.get("shop")
+        name = attrs.get("name")
+
+        if not self.instance and not name:
+            raise serializers.ValidationError({"name": "Name is required."})
+
+        # Name uniqueness within shop
+        if name:
+            qs = ShopCustomAttribute.objects.filter(shop=shop, name__iexact=name)
+            if self.instance:
+                qs = qs.exclude(id=self.instance.id)
+            if qs.exists():
+                raise serializers.ValidationError({"name": "An attribute with this name already exists for this shop."})
 
         return attrs
 
