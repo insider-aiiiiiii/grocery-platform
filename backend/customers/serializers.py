@@ -52,3 +52,33 @@ class PublicCustomerProfileSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class MerchantCustomerSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Merchant ERP retrieval of Shop-specific Customer profiles.
+
+    Exposes customer profile fields scoped strictly to the merchant's Shop:
+    - id
+    - shop (ID of the Shop tenant)
+    - name (customer name for this Shop)
+    - whatsapp_number (normalized E.164 contact identifier)
+    - created_at
+    - updated_at
+
+    A global contact identity does not make another Shop profile or history accessible.
+    Never exposes internal authentication credentials, passwords, or cross-tenant data.
+    """
+
+    class Meta:
+        model = Customer
+        fields = [
+            "id",
+            "shop",
+            "name",
+            "whatsapp_number",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+

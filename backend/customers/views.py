@@ -1,13 +1,46 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework import status
-from rest_framework.permissions import AllowAny
+from django.db.models import Q
+from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cart.models import Cart
 from shops.models import Shop
-from .serializers import PublicCustomerInputSerializer, PublicCustomerProfileSerializer
+from shops.permissions import IsActiveMerchant
+from .models import Customer
+from .serializers import (
+    MerchantCustomerSerializer,
+    PublicCustomerInputSerializer,
+    PublicCustomerProfileSerializer,
+)
 from .services import create_or_recognize_customer, recognize_customer
+
+
+def get_authenticated_merchant_shop(request):
+    """
+    Resolve and validate the Shop owned by the authenticated Merchant.
+    Returns (shop, error_response). If valid, error_response is None.
+    """
+    user = request.user
+    merchant = getattr(user, "merchant", None)
+    if merchant is None:
+        return None, Response(
+            {"detail": "Only active merchants can perform this action.", "code": "NOT_A_MERCHANT"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    shop = Shop.objects.filter(merchant_id=merchant.pk, merchant__user_id=user.pk).first()
+    if not shop:
+        return None, Response(
+            {"detail": "Merchant does not have a shop.", "code": "SHOP_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if shop.status in (Shop.Status.DEACTIVATED, Shop.Status.SUSPENDED):
+        return None, Response(
+            {"detail": "Shop is deactivated or suspended.", "code": "SHOP_INACTIVE"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return shop, None
 
 
 def get_public_active_shop(public_slug: str):
@@ -134,3 +167,74 @@ class PublicCustomerRecognizeView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class MerchantCustomerViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ReadOnly ViewSet for Merchant retrieval of Shop-specific Customer profiles for ERP use.
+
+    - Authorization: Derived strictly on the server from the authenticated user's active merchant shop.
+    - Tenant Isolation: Merchant can only retrieve profiles belonging to their own Shop.
+    - Global Identity Boundary: A global contact identity does not make another Shop's profile or history accessible.
+    - ERP Search & Filtering: Supports filtering by search keyword, customer name, and WhatsApp number.
+    """
+
+    serializer_class = MerchantCustomerSerializer
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        shop, error_res = get_authenticated_merchant_shop(request)
+        self._shop = shop
+        self._shop_error = error_res
+
+    def get_queryset(self):
+        if getattr(self, "_shop_error", None):
+            return Customer.objects.none()
+        shop = getattr(self, "_shop", None)
+        if not shop:
+            return Customer.objects.none()
+
+        # Reject or return none if client attempts to pass an unmatching shop parameter
+        client_shop_id = self.request.query_params.get("shop_id") or self.request.query_params.get("shop")
+        if client_shop_id and str(client_shop_id) != str(shop.pk):
+            return Customer.objects.none()
+
+        queryset = Customer.objects.filter(shop=shop).order_by("-created_at", "id")
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(whatsapp_number__icontains=search)
+            )
+
+        name = self.request.query_params.get("name")
+        if name:
+            queryset = queryset.filter(name__icontains=name)
+
+        whatsapp_number = self.request.query_params.get("whatsapp_number")
+        if whatsapp_number:
+            cleaned = str(whatsapp_number).strip().replace(" ", "").replace("-", "")
+            queryset = queryset.filter(
+                Q(whatsapp_number=whatsapp_number)
+                | Q(whatsapp_number=f"+91{cleaned}")
+                | Q(whatsapp_number__endswith=cleaned)
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["shop"] = getattr(self, "_shop", None)
+        return context
+
+    def list(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().retrieve(request, *args, **kwargs)
+

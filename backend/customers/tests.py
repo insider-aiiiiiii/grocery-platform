@@ -715,3 +715,291 @@ class PublicCustomerAPITests(TestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(res.data["customer"]["name"], "Alias Shopper")
 
+
+class MerchantCustomerAPITests(TestCase):
+    """
+    Tests for CUS-005: Merchant retrieval of Shop-specific Customer profiles for ERP use.
+    Enforces shared API conventions, server-derived Shop authorization, and strict tenant isolation.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant 1 & Shop 1
+        self.user1 = User.objects.create_user(
+            username="merchant_1",
+            email="merchant1@example.com",
+            mobile_number="+919876543210",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Alpha Fresh",
+            address_line="100 First St",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.user1.mobile_number,
+        )
+
+        # Merchant 2 & Shop 2
+        self.user2 = User.objects.create_user(
+            username="merchant_2",
+            email="merchant2@example.com",
+            mobile_number="+919876543211",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Beta Mart",
+            address_line="200 Second St",
+            area="Bandra",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400050",
+            contact_number=self.user2.mobile_number,
+        )
+
+        # Super Admin
+        self.admin_user = User.objects.create_user(
+            username="admin_user",
+            email="admin@example.com",
+            mobile_number="+919876543299",
+            role=User.Role.SUPER_ADMIN,
+            password="testpassword123",
+        )
+
+    def authenticate(self, user):
+        if user.role == User.Role.SUPER_ADMIN:
+            res = self.client.post(
+                "/api/v1/auth/super-admin/login/",
+                {"identifier": user.email, "password": "testpassword123"},
+                format="json",
+            )
+
+        else:
+            res = self.client.post(
+                "/api/v1/auth/login/",
+                {"mobile_number": user.mobile_number, "password": "testpassword123"},
+                format="json",
+            )
+        self.assertEqual(res.status_code, 200, f"Login failed: {res.data}")
+        token = res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+
+    def test_merchant_can_list_shop_customers(self):
+        """Merchant can list Customer profiles scoped strictly to their own Shop."""
+        c1 = Customer.objects.create(shop=self.shop1, name="Alice Brown", whatsapp_number="9111111111")
+        c2 = Customer.objects.create(shop=self.shop1, name="Bob Green", whatsapp_number="9222222222")
+
+        self.authenticate(self.user1)
+
+        # Test both endpoint conventions: /api/v1/customers/ and /api/v1/shops/me/customers/
+        for url in ["/api/v1/customers/", "/api/v1/shops/me/customers/"]:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(res.data), 2)
+            ids = [item["id"] for item in res.data]
+            self.assertIn(c1.id, ids)
+            self.assertIn(c2.id, ids)
+
+            # Check ERP field schema
+            sample = res.data[0]
+            self.assertIn("id", sample)
+            self.assertEqual(sample["shop"], self.shop1.id)
+            self.assertIn("name", sample)
+            self.assertIn("whatsapp_number", sample)
+            self.assertIn("created_at", sample)
+            self.assertIn("updated_at", sample)
+
+    def test_merchant_can_retrieve_single_customer_detail(self):
+        """Merchant can retrieve a single Customer profile detail by ID within their Shop."""
+        c = Customer.objects.create(shop=self.shop1, name="Alice Brown", whatsapp_number="9111111111")
+
+        self.authenticate(self.user1)
+
+        for url in [f"/api/v1/customers/{c.id}/", f"/api/v1/shops/me/customers/{c.id}/"]:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+            self.assertEqual(res.data["id"], c.id)
+            self.assertEqual(res.data["shop"], self.shop1.id)
+            self.assertEqual(res.data["name"], "Alice Brown")
+            self.assertEqual(res.data["whatsapp_number"], "+919111111111")
+
+    def test_tenant_isolation_global_contact_cannot_access_other_shop_profile(self):
+        """
+        Global contact identity boundary: Even when a customer uses the same WhatsApp number
+        across different shops, Merchant 1 cannot access Merchant 2's Customer profile.
+        """
+        shared_number = "9111111111"
+        cust_shop1 = Customer.objects.create(shop=self.shop1, name="Alice at Shop 1", whatsapp_number=shared_number)
+        cust_shop2 = Customer.objects.create(shop=self.shop2, name="Alice at Shop 2", whatsapp_number=shared_number)
+
+        self.authenticate(self.user1)
+
+        # Merchant 1 listing only returns cust_shop1
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["id"], cust_shop1.id)
+        self.assertEqual(res.data[0]["name"], "Alice at Shop 1")
+        self.assertEqual(res.data[0]["shop"], self.shop1.id)
+
+        # Merchant 1 cannot retrieve cust_shop2 by ID (must return 404)
+        res_other = self.client.get(f"/api/v1/customers/{cust_shop2.id}/")
+        self.assertEqual(res_other.status_code, status.HTTP_404_NOT_FOUND)
+
+        res_other_me = self.client.get(f"/api/v1/shops/me/customers/{cust_shop2.id}/")
+        self.assertEqual(res_other_me.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Merchant 2 authenticating sees only cust_shop2
+        self.authenticate(self.user2)
+        res2 = self.client.get("/api/v1/customers/")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res2.data), 1)
+        self.assertEqual(res2.data[0]["id"], cust_shop2.id)
+        self.assertEqual(res2.data[0]["name"], "Alice at Shop 2")
+        self.assertEqual(res2.data[0]["shop"], self.shop2.id)
+
+        # Merchant 2 cannot retrieve cust_shop1 by ID
+        res_other_m2 = self.client.get(f"/api/v1/customers/{cust_shop1.id}/")
+        self.assertEqual(res_other_m2.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_client_provided_shop_id_never_trusted_or_leaks(self):
+        """
+        Never trust client-provided shop_id as proof of authorization.
+        If client specifies another shop_id in query params, it does not reveal that shop's data.
+        """
+        Customer.objects.create(shop=self.shop1, name="Cust 1", whatsapp_number="9111111111")
+        Customer.objects.create(shop=self.shop2, name="Cust 2", whatsapp_number="9222222222")
+
+        self.authenticate(self.user1)
+
+        # Attempt to request shop 2's customers via query parameter
+        res = self.client.get(f"/api/v1/customers/?shop_id={self.shop2.id}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Should be empty or only shop1; never returns shop2's customers
+        self.assertEqual(len(res.data), 0)
+
+    def test_erp_search_and_filtering(self):
+        """Supports filtering by search keyword, customer name, and WhatsApp number."""
+        c1 = Customer.objects.create(shop=self.shop1, name="Ramesh Kumar", whatsapp_number="9811111111")
+        c2 = Customer.objects.create(shop=self.shop1, name="Suresh Gupta", whatsapp_number="9822222222")
+        c3 = Customer.objects.create(shop=self.shop1, name="Pooja Sharma", whatsapp_number="9833333333")
+
+        self.authenticate(self.user1)
+
+        # Search by name keyword
+        res_search_name = self.client.get("/api/v1/customers/?search=Ramesh")
+        self.assertEqual(res_search_name.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_search_name.data), 1)
+        self.assertEqual(res_search_name.data[0]["id"], c1.id)
+
+        # Search by number keyword
+        res_search_num = self.client.get("/api/v1/customers/?search=9822222222")
+        self.assertEqual(res_search_num.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_search_num.data), 1)
+        self.assertEqual(res_search_num.data[0]["id"], c2.id)
+
+        # Filter by name parameter
+        res_name = self.client.get("/api/v1/customers/?name=Pooja")
+        self.assertEqual(res_name.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_name.data), 1)
+        self.assertEqual(res_name.data[0]["id"], c3.id)
+
+        # Filter by whatsapp_number parameter
+        res_wa = self.client.get("/api/v1/customers/?whatsapp_number=9811111111")
+        self.assertEqual(res_wa.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_wa.data), 1)
+        self.assertEqual(res_wa.data[0]["id"], c1.id)
+
+    def test_unauthenticated_request_rejected(self):
+        """Unauthenticated requests are rejected with 401."""
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_detail = self.client.get("/api/v1/customers/1/")
+        self.assertEqual(res_detail.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_super_admin_cannot_access_merchant_erp_endpoint(self):
+        """Super Admin is rejected from merchant-scoped ERP endpoints."""
+        self.authenticate(self.admin_user)
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_merchant_without_shop_returns_404(self):
+        """Merchant without an associated Shop receives 404 SHOP_NOT_FOUND."""
+        user_no_shop = User.objects.create_user(
+            username="merchant_no_shop",
+            email="noshop@example.com",
+            mobile_number="+919876543277",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        Merchant.objects.create(
+            user=user_no_shop,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.authenticate(user_no_shop)
+
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["code"], "SHOP_NOT_FOUND")
+
+    def test_deactivated_shop_returns_403_shop_inactive(self):
+        """Deactivated or suspended shop receives 403 SHOP_INACTIVE."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        self.authenticate(self.user1)
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["code"], "SHOP_INACTIVE")
+
+    def test_suspended_shop_returns_403_shop_inactive(self):
+        """Suspended shop receives 403 SHOP_INACTIVE."""
+        self.shop1.status = Shop.Status.SUSPENDED
+        self.shop1.save()
+
+        self.authenticate(self.user1)
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["code"], "SHOP_INACTIVE")
+
+    def test_modification_methods_disallowed(self):
+        """ReadOnly ViewSet disallows POST, PUT, PATCH, DELETE operations."""
+        c = Customer.objects.create(shop=self.shop1, name="Read Only Cust", whatsapp_number="9111111111")
+        self.authenticate(self.user1)
+
+        # POST /api/v1/customers/ -> 405
+        res_post = self.client.post("/api/v1/customers/", {"name": "New Cust", "whatsapp_number": "9222222222"}, format="json")
+        self.assertEqual(res_post.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # PUT /api/v1/customers/<id>/ -> 405
+        res_put = self.client.put(f"/api/v1/customers/{c.id}/", {"name": "Updated Cust"}, format="json")
+        self.assertEqual(res_put.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # PATCH /api/v1/customers/<id>/ -> 405
+        res_patch = self.client.patch(f"/api/v1/customers/{c.id}/", {"name": "Patched Cust"}, format="json")
+        self.assertEqual(res_patch.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # DELETE /api/v1/customers/<id>/ -> 405
+        res_delete = self.client.delete(f"/api/v1/customers/{c.id}/")
+        self.assertEqual(res_delete.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
