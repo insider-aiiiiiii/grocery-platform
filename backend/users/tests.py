@@ -46,6 +46,120 @@ class JWTTechnicalDecisionTests(TestCase):
         self.assertEqual(stored_fields, {"id", "session_id", "user", "refresh_token"})
 
 
+class SuperAdminMerchantCreationAPITests(TestCase):
+    url = "/api/v1/super-admin/merchants/"
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username="merchant-creator-admin",
+            email="merchant-creator-admin@example.com",
+            mobile_number="+919100000001",
+            password="Strong-admin-password-2026!",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def merchant_payload(self, **overrides):
+        payload = {
+            "username": "new-merchant",
+            "mobile_number": "+919100000002",
+            "email": "new-merchant@example.com",
+            "initial_password": "Strong-merchant-password-2026!",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_super_admin_creates_merchant_with_forced_password_change(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(self.url, self.merchant_payload(), format="json")
+
+        self.assertEqual(response.status_code, 201)
+        user = User.objects.get(username="new-merchant")
+        merchant = Merchant.objects.get(user=user)
+        self.assertEqual(user.role, User.Role.MERCHANT)
+        self.assertTrue(user.check_password("Strong-merchant-password-2026!"))
+        self.assertEqual(merchant.status, Merchant.Status.ACTIVE)
+        self.assertTrue(merchant.must_change_password)
+        self.assertEqual(response.data["user_id"], user.pk)
+        self.assertEqual(response.data["role"], User.Role.MERCHANT)
+        self.assertTrue(response.data["must_change_password"])
+        self.assertNotIn("initial_password", response.data)
+
+        login_response = self.client.post("/api/v1/auth/login/", {
+            "mobile_number": user.mobile_number,
+            "password": "Strong-merchant-password-2026!",
+        }, format="json")
+        self.assertEqual(login_response.status_code, 200)
+        self.assertTrue(login_response.data["must_change_password"])
+
+        merchant_client = APIClient()
+        merchant_client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {login_response.data['access']}"
+        )
+        restricted_response = merchant_client.get("/api/v1/shops/me/")
+        self.assertEqual(restricted_response.status_code, 403)
+        change_response = merchant_client.post("/api/v1/auth/change-password/", {
+            "current_password": "Strong-merchant-password-2026!",
+            "new_password": "Changed-merchant-password-2026!",
+        }, format="json")
+        self.assertEqual(change_response.status_code, 204)
+
+    def test_only_super_admin_can_create_merchants(self):
+        self.client.force_authenticate(user=self.admin)
+        self.assertEqual(
+            self.client.post(self.url, self.merchant_payload(), format="json").status_code,
+            201,
+        )
+
+        merchant_user = User.objects.create_user(
+            username="existing-merchant",
+            mobile_number="+919100000003",
+            password="Strong-merchant-password-2026!",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=merchant_user)
+        self.client.force_authenticate(user=merchant_user)
+        response = self.client.post(
+            self.url,
+            self.merchant_payload(username="another-merchant", mobile_number="+919100000004"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(username="another-merchant").exists())
+
+    def test_unauthenticated_request_is_rejected(self):
+        response = self.client.post(self.url, self.merchant_payload(), format="json")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_duplicate_login_identifiers_and_weak_password_are_rejected(self):
+        self.client.force_authenticate(user=self.admin)
+        first = self.client.post(self.url, self.merchant_payload(), format="json")
+        self.assertEqual(first.status_code, 201)
+
+        duplicate_mobile = self.client.post(
+            self.url,
+            self.merchant_payload(username="merchant-two", email="merchant-two@example.com"),
+            format="json",
+        )
+        weak_password = self.client.post(
+            self.url,
+            self.merchant_payload(
+                username="merchant-three",
+                mobile_number="+919100000005",
+                email="merchant-three@example.com",
+                initial_password="short",
+            ),
+            format="json",
+        )
+
+        self.assertEqual(duplicate_mobile.status_code, 400)
+        self.assertEqual(weak_password.status_code, 400)
+        self.assertFalse(User.objects.filter(username="merchant-three").exists())
+
+
 class MerchantAuthenticationAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
