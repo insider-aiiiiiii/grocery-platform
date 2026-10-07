@@ -104,12 +104,20 @@ Tax and discount calculation, currency architecture, price history, and promotio
 
 ## 11. Inventory and Availability Rules
 
-- Product availability and inventory are merchant/shop-specific.
-- One merchant's stock must not affect another merchant's stock.
-- Customer-facing availability reflects the shop's configured availability.
-- Inventory-related updates preserve tenant isolation.
+- Inventory is Shop-scoped and isolated; a Merchant may modify it only in the Merchant's authorized Shop. Client-provided Shop, Product, or Variant IDs cannot bypass tenant authorization. Super Admin does not modify Merchant inventory in MVP.
+- A Shop Product without variants has Product-level stock. A product with variants has independently tracked Variant stock and an overall/aggregate Product-level quantity. The Merchant may modify both levels. Aggregate recalculation behavior remains undefined.
+- Decimal quantities are allowed and respect the Catalog Product/Variant sellable unit. No separate Unit-of-Measure system or fixed global unit list is introduced.
+- New Shop Products and Variants start with stock `0`. Stock cannot become negative; minimum quantity is `0`.
+- The Merchant may add stock, subtract stock, or set the exact quantity. No reason is required for a manual adjustment.
+- MVP stores current stock only; it does not maintain a persistent inventory movement/history ledger.
+- Creating an Order reserves the required quantity, visible to the Merchant. Accepting the Order deducts the reserved stock. Rejecting the Order releases the reservation. Cancelling an accepted Order restores the deducted quantity, which is immediately available again.
+- When requested quantity exceeds available stock, partial quantity is allowed. Detailed customer confirmation, quantity adjustment, and Order behavior remain an Inventory/Orders dependency and must be finalized with the Orders domain.
+- Customers can see the exact available quantity. At `0`, they see **Out of Stock**; the product remains visible but cannot be ordered.
+- The MVP has no low-stock threshold. Do not add configurable thresholds, alerts, or low-stock notification events.
+- Removing a Catalog Product or Variant from a Shop Catalog removes its Inventory record. This does not prescribe hard-delete or soft-delete mechanics.
+- Inventory quantity and Catalog manual availability/visibility remain separate concepts.
 
-Reservation logic, stock-deduction timing, low-stock thresholds, overselling behavior, warehouse concepts, and reconciliation algorithms are **Not Finalized / Require Decision**. Inventory quantity and manual product availability remain separate concepts.
+Exact database representation, Product aggregate recalculation, transaction/concurrency implementation, partial-quantity Order behavior, additional cancellation scenarios, and the complete Order state machine remain unresolved where applicable.
 
 ## 12. Customer Identity Rules
 
@@ -213,7 +221,7 @@ Advertising pricing, targeting algorithms, campaign bidding, monetization, and a
 
 ## 23. Analytics Rules
 
-Merchant analytics must be shop-scoped. Conceptual merchant metrics may include orders, sales/revenue-related metrics, top products, low stock, rejected/completed orders, average order value, and customers.
+Merchant analytics must be shop-scoped. Conceptual merchant metrics may include orders, sales/revenue-related metrics, top products, rejected/completed orders, average order value, and customers. MVP does not define a low-stock threshold or low-stock metric/alert.
 
 Platform analytics may include shops, orders, sales, shop performance, product performance, customers, and campaigns. Do not define exact metric formulas unless they have been finalized.
 
@@ -276,9 +284,9 @@ The following require product/business approval and must not be answered by assu
 - Physical representation of Shop Products and any Master Product selection/link reference.
 - Product/variant schema, attribute representation, image storage, and inventory mapping.
 - Historical Order product snapshot/reference strategy.
-- Inventory deduction behavior.
-- Overselling behavior.
-- Low-stock rules.
+- Detailed partial-quantity behavior with Orders.
+- Complete Order state machine and cancellation scenarios beyond accepted-order cancellation stock restoration.
+- Inventory technical/database representation, aggregate Product stock recalculation, and transaction/concurrency implementation.
 - Complete order state machine.
 - Cancellation behavior.
 - Refund behavior.
