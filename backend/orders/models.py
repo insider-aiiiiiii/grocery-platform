@@ -165,6 +165,23 @@ class Order(models.Model):
                 check=Q(total_amount__gte=0),
                 name="orders_order_total_amount_non_negative",
             ),
+            models.CheckConstraint(
+                check=~Q(customer_name_snapshot=""),
+                name="orders_order_customer_name_required",
+            ),
+            models.CheckConstraint(
+                check=~Q(customer_phone_snapshot=""),
+                name="orders_order_customer_phone_required",
+            ),
+            models.CheckConstraint(
+                check=Q(delivery_fee_type_snapshot__in=["FIXED", "CONFIRMED_ON_WHATSAPP"]),
+                name="orders_order_valid_delivery_fee_type",
+            ),
+            models.CheckConstraint(
+                check=~Q(delivery_fee_type_snapshot="CONFIRMED_ON_WHATSAPP")
+                | Q(delivery_charge_snapshot=Decimal("0.00")),
+                name="orders_order_whatsapp_fee_is_zero",
+            ),
             models.UniqueConstraint(
                 fields=["shop", "idempotency_key"],
                 condition=Q(idempotency_key__isnull=False),
@@ -361,6 +378,10 @@ class OrderItem(models.Model):
                 check=Q(line_total__gte=0),
                 name="orders_orderitem_line_total_gte_zero",
             ),
+            models.CheckConstraint(
+                check=~Q(product_name_snapshot=""),
+                name="orders_orderitem_product_name_required",
+            ),
         ]
         indexes = [
             models.Index(fields=["order", "product"], name="orders_oi_order_prod_idx"),
@@ -436,6 +457,15 @@ class OrderDeliveryAddress(models.Model):
     class Meta:
         verbose_name = "Order Delivery Address"
         verbose_name_plural = "Order Delivery Addresses"
+        constraints = [
+            models.CheckConstraint(check=~Q(recipient_name=""), name="orders_address_recipient_required"),
+            models.CheckConstraint(check=~Q(recipient_phone=""), name="orders_address_phone_required"),
+            models.CheckConstraint(check=~Q(address_line=""), name="orders_address_line_required"),
+            models.CheckConstraint(check=~Q(area=""), name="orders_address_area_required"),
+            models.CheckConstraint(check=~Q(city=""), name="orders_address_city_required"),
+            models.CheckConstraint(check=~Q(state=""), name="orders_address_state_required"),
+            models.CheckConstraint(check=~Q(pincode=""), name="orders_address_pincode_required"),
+        ]
 
     def __str__(self) -> str:
         return f"Delivery Address for Order #{self.order_id}: {self.address_line}, {self.city} - {self.pincode}"
