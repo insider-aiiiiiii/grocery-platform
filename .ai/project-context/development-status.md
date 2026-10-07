@@ -66,7 +66,8 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
 | `users` | Scaffolded / No Business Logic | App files exist; no product user model or authentication flow. |
-| `shops` | Scaffolded / No Business Logic | App files exist; no shop model or onboarding behavior. |
+| `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
+| Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
 | `catalog` | Scaffolded / No Business Logic | App files exist; no catalog models or review behavior. |
 | `inventory` | Scaffolded / No Business Logic | App files exist; no inventory behavior. |
 | `customers` | Scaffolded / No Business Logic | App files exist; no customer identity implementation. |
@@ -216,10 +217,10 @@ See `.ai/project-context/business-rules.md` for the canonical unresolved-decisio
 - Product/variant structure.
 - Inventory deduction, overselling, and low-stock behavior.
 - Complete order state machine, cancellation, and refunds.
-- Delivery rules, pricing, and zones.
+- Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.
 - Payment verification.
 - Campaign rules and analytics formulas.
-- Deletion, retention, and historical-data behavior.
+- Physical deletion mechanics for Shop-related records; deletion/retention rules for other entities and historical-data requirements beyond the approved Shop rules.
 
 Do not resolve these by assumption in implementation.
 
