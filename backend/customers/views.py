@@ -15,6 +15,9 @@ from .serializers import (
     PublicCustomerProfileSerializer,
 )
 from .services import create_or_recognize_customer, recognize_customer
+from .authentication import CustomerSessionAuthentication, HasCustomerSession
+from .customer_serializers import CustomerCancellationSerializer
+from orders.transitions import cancel_pending_order_as_customer
 
 
 def get_authenticated_merchant_shop(request):
@@ -167,6 +170,28 @@ class PublicCustomerRecognizeView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class CustomerOrderCancellationView(APIView):
+    """Cancel only the authenticated profile's own pending Order."""
+
+    authentication_classes = [CustomerSessionAuthentication]
+    permission_classes = [HasCustomerSession]
+
+    def post(self, request, order_id):
+        serializer = CustomerCancellationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order, expired = cancel_pending_order_as_customer(
+            customer_id=request.user.pk,
+            session_id=request.auth.pk,
+            order_id=order_id,
+        )
+        if expired:
+            return Response(
+                {"detail": "The pending Order expired and was rejected; reserved stock was released."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"id": order.pk, "status": order.status}, status=status.HTTP_200_OK)
 
 
 class MerchantCustomerViewSet(viewsets.ReadOnlyModelViewSet):

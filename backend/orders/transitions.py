@@ -1,7 +1,9 @@
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
 
 from inventory.services import (
     reduce_and_accept_order_stock,
@@ -249,3 +251,52 @@ def expire_pending_order_if_due(shop_id, order_id):
             return False
         _expire_pending_order(order, now)
         return True
+
+
+def cancel_pending_order_as_customer(customer_id, session_id, order_id):
+    """Atomically reject this profile's pending Order and release its reservation."""
+    from customers.models import CustomerSession
+
+    with transaction.atomic():
+        session = (
+            CustomerSession.objects.select_for_update()
+            .select_related("customer")
+            .filter(
+                pk=session_id,
+                customer_id=customer_id,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+                created_at__gt=timezone.now() - timedelta(days=30),
+            )
+            .first()
+        )
+        if session is None:
+            raise NotAuthenticated("Customer session is no longer active.")
+
+        try:
+            order = (
+                Order.objects.select_for_update()
+                .select_related("shop")
+                .get(pk=order_id, customer_id=customer_id, shop_id=session.customer.shop_id)
+            )
+        except Order.DoesNotExist:
+            raise NotFound("Order was not found for this Customer profile.")
+
+        now = timezone.now()
+        if order.status == Order.Status.PENDING and order.expires_at and now >= order.expires_at:
+            _expire_pending_order(order, now)
+            return order, True
+        if order.status != Order.Status.PENDING:
+            raise OrderTransitionConflict("Only PENDING Orders can be cancelled by a Customer.")
+
+        _release_pending_stock(order)
+        order.status = Order.Status.REJECTED
+        order.rejection_actor = Order.RejectionActor.CUSTOMER
+        order.rejection_reason_code = "CUSTOMER_CANCELLED"
+        order.rejection_note = ""
+        order.rejected_at = now
+        order.save(update_fields=[
+            "status", "rejection_actor", "rejection_reason_code", "rejection_note", "rejected_at", "updated_at",
+        ])
+        request_order_notification(order, "CUSTOMER_CANCELLED", order.rejection_reason_code)
+        return order, False

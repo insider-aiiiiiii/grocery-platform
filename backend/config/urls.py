@@ -30,6 +30,7 @@ from users.views import (
     SuperAdminSelfRecoveryConfirmView,
     SuperAdminSelfRecoveryRequestView,
 )
+from customers.views import CustomerOrderCancellationView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -48,6 +49,7 @@ urlpatterns = [
     path('api/v1/catalog/', include('catalog.urls')),
     path('api/v1/inventory/', include('inventory.urls')),
     path('api/v1/customers/', include('customers.urls')),
+    path('api/v1/customer/orders/<int:order_id>/cancellation/', CustomerOrderCancellationView.as_view(), name='customer-order-cancellation'),
     path('api/v1/cart/', include('cart.urls')),
     path('api/v1/', include('orders.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
