@@ -183,6 +183,55 @@ def install_postgresql_triggers(apps, schema_editor):
         BEFORE UPDATE ON orders_orderdeliveryaddress
         FOR EACH ROW EXECUTE FUNCTION orders_prevent_address_snapshot_change();
         """,
+        """
+        CREATE FUNCTION orders_check_delivery_address_requirement() RETURNS trigger AS $$
+        DECLARE order_ids bigint[];
+                candidate_order_id bigint;
+                fulfillment varchar(16);
+        BEGIN
+            IF TG_TABLE_NAME = 'orders_order' THEN
+                order_ids := ARRAY[NEW.id];
+            ELSIF TG_OP = 'DELETE' THEN
+                order_ids := ARRAY[OLD.order_id];
+            ELSIF TG_OP = 'UPDATE' AND OLD.order_id IS DISTINCT FROM NEW.order_id THEN
+                order_ids := ARRAY[OLD.order_id, NEW.order_id];
+            ELSE
+                order_ids := ARRAY[NEW.order_id];
+            END IF;
+
+            FOREACH candidate_order_id IN ARRAY order_ids LOOP
+                SELECT fulfillment_type INTO fulfillment
+                FROM orders_order WHERE id = candidate_order_id;
+                IF NOT FOUND THEN
+                    CONTINUE;
+                END IF;
+
+                IF fulfillment = 'HOME_DELIVERY' AND NOT EXISTS (
+                    SELECT 1 FROM orders_orderdeliveryaddress
+                    WHERE order_id = candidate_order_id
+                ) THEN
+                    RAISE EXCEPTION 'Home Delivery Orders require a delivery address snapshot'
+                        USING ERRCODE = 'check_violation';
+                ELSIF fulfillment = 'PICKUP' AND EXISTS (
+                    SELECT 1 FROM orders_orderdeliveryaddress
+                    WHERE order_id = candidate_order_id
+                ) THEN
+                    RAISE EXCEPTION 'Pickup Orders cannot have a delivery address snapshot'
+                        USING ERRCODE = 'check_violation';
+                END IF;
+            END LOOP;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE CONSTRAINT TRIGGER orders_order_delivery_address_required
+        AFTER INSERT OR UPDATE ON orders_order
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION orders_check_delivery_address_requirement();
+        CREATE CONSTRAINT TRIGGER orders_address_fulfillment_guard
+        AFTER INSERT OR UPDATE OR DELETE ON orders_orderdeliveryaddress
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION orders_check_delivery_address_requirement();
+        """,
     ]
     with schema_editor.connection.cursor() as cursor:
         for statement in statements:
@@ -199,6 +248,8 @@ def remove_postgresql_triggers(apps, schema_editor):
         ("orders_order", "orders_order_snapshot_immutable", "orders_prevent_order_snapshot_change"),
         ("orders_orderitem", "orders_orderitem_snapshot_immutable", "orders_prevent_item_snapshot_change"),
         ("orders_orderdeliveryaddress", "orders_address_snapshot_immutable", "orders_prevent_address_snapshot_change"),
+        ("orders_order", "orders_order_delivery_address_required", "orders_check_delivery_address_requirement"),
+        ("orders_orderdeliveryaddress", "orders_address_fulfillment_guard", "orders_check_delivery_address_requirement"),
         ("orders_order", "orders_order_shop_customer_guard", "orders_check_order_shop_customer"),
         ("orders_orderitem", "orders_orderitem_shop_catalog_guard", "orders_check_item_shop_catalog"),
         ("customers_customer", "orders_customer_shop_guard", "orders_prevent_customer_shop_change"),
@@ -206,8 +257,9 @@ def remove_postgresql_triggers(apps, schema_editor):
         ("catalog_productvariant", "orders_variant_product_guard", "orders_prevent_variant_product_change"),
     ]
     with schema_editor.connection.cursor() as cursor:
-        for table, trigger, function in statements:
+        for table, trigger, _ in statements:
             cursor.execute(f'DROP TRIGGER IF EXISTS {trigger} ON {table}')
+        for function in dict.fromkeys(function for _, _, function in statements):
             cursor.execute(f'DROP FUNCTION IF EXISTS {function}()')
 
 
