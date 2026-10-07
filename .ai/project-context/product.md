@@ -22,27 +22,11 @@ The Super Admin can onboard shops, review merchant applications, approve or reje
 
 ### Master Catalog
 
-The Super Admin maintains the platform's master catalog of standardized categories, products, and product variants. Merchants can use products from this master catalog in their own shop catalogs.
+The Super Admin manages the platform Master Catalog, a reusable product library. Merchants may select Master Products for their independent Shop Catalogs. Master Catalog data does not control or automatically synchronize with existing Shop Products.
 
 ### Merchant-Created Products
 
-A merchant may create a product that is not in the master catalog. It initially belongs to that merchant's catalog and should enter a Super Admin review queue. Conceptually:
-
-```text
-Merchant creates product
-        ↓
-Merchant catalog
-        ↓
-Pending review
-        ↓
-Super Admin review
-      /     \\
-   Approve   Reject
-      ↓
-Master catalog
-```
-
-The exact review, approval, rejection, and catalog-merging behavior belongs in the Catalog domain specification.
+A Merchant may create and sell a product directly in their Shop Catalog without Super Admin approval. Super Admin may view its information on the dashboard and may promote it to the Master Catalog. Promotion makes it available to other Merchants but does not automatically link or change the originating Shop Product. See the Catalog domain specification for the finalized independence rules.
 
 ### Campaigns and Advertisements
 
@@ -80,13 +64,13 @@ Products may have multiple variants, for example milk in 500 ml, 1 L, or 2 L siz
 
 ## 6. Merchant Catalog
 
-Each merchant controls their own shop catalog and can use products from the platform master catalog. Merchant-specific information may include selling price, stock, availability, product status, and merchant-specific configuration. Each merchant controls their own pricing and inventory. The same master product may have different selling prices in different shops; the master product does not dictate a merchant's selling price.
+Each Merchant fully controls their independent Shop Catalog and can use products from the platform Master Catalog or create products directly. Shop-specific information includes product details, variants, pricing, categories, brands, custom attributes, images, visibility, and manual availability. Each Merchant controls their own pricing and inventory. The same Master Product may have different selling prices in different Shops; Master Catalog values do not dictate or automatically synchronize into Shop Products.
 
 For example, a master product such as Amul Milk 1 L may be sold at ₹65 by Shop A, ₹68 by Shop B, and ₹63 by Shop C.
 
 ## 7. Merchant-Created Products
 
-A merchant may use a product that does not currently exist in the master catalog, such as a local homemade product. It can remain in that merchant's shop catalog and may be submitted for Super Admin review. The detailed review, approval, rejection, and master-catalog creation behavior will be specified later.
+A Merchant may use a product that does not currently exist in the Master Catalog, such as a local homemade product. It remains in that Merchant's Shop Catalog without review or approval. Super Admin may later promote it into the Master Catalog without changing the original Shop Product.
 
 ## 8. Customer Checkout
 
