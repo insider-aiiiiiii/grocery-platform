@@ -3,12 +3,11 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from inventory.services import (
-    reduce_and_accept_order_stock,
-    release_order_items_stock,
-    restore_order_items_stock,
+    deduct_order_acceptance_stock,
+    synchronize_order_transition_stock,
 )
 from orders.events import request_order_notification
 from orders.models import Order
@@ -20,47 +19,31 @@ class OrderTransitionConflict(APIException):
     default_code = "invalid_order_transition"
 
 
-def _inventory_entries(order):
-    entries = []
-    for item in order.items.select_related("product", "variant").all():
-        if item.variant_name_snapshot and not item.variant_id:
-            # The variant's InventoryItem was cascade-deleted with the Catalog row.
-            continue
-        target = item.variant if item.variant_id else item.product
-        if target is not None and item.quantity > 0:
-            entries.append((target, item.quantity, item))
-    return sorted(
-        entries,
-        key=lambda entry: (1 if entry[0]._meta.model_name == "productvariant" else 0, entry[0].pk),
-    )
-
-
-def _release_pending_stock(order):
-    entries = _inventory_entries(order)
-    if not entries:
-        return
+def _synchronize_rejected_order_stock(order, *, actor=None, reason=""):
     try:
-        release_order_items_stock(order.shop, [(target, quantity) for target, quantity, _ in entries])
+        synchronize_order_transition_stock(
+            order.shop,
+            order,
+            to_status=Order.Status.REJECTED,
+            actor=actor,
+            reason=reason,
+        )
     except DjangoValidationError as exc:
         raise OrderTransitionConflict(
-            "Reserved inventory could not be released; contact support before retrying."
+            "Inventory could not be synchronized; contact support before retrying."
         ) from exc
 
 
-def _restore_accepted_stock(order):
-    entries = _inventory_entries(order)
-    if not entries:
-        return
-    try:
-        restore_order_items_stock(order.shop, [(target, quantity) for target, quantity, _ in entries])
-    except DjangoValidationError as exc:
-        raise OrderTransitionConflict(
-            "Inventory could not be restored; contact support before retrying."
-        ) from exc
+def _release_pending_stock(order, *, actor=None, reason=""):
+    return _synchronize_rejected_order_stock(order, actor=actor, reason=reason)
+
+
+def _restore_accepted_stock(order, *, actor=None, reason=""):
+    return _synchronize_rejected_order_stock(order, actor=actor, reason=reason)
 
 
 def _expire_pending_order(order, now):
-    _release_pending_stock(order)
+    _release_pending_stock(order, reason="TIMEOUT_EXPIRED")
     order.status = Order.Status.REJECTED
     order.rejection_actor = Order.RejectionActor.SYSTEM
     order.rejection_reason_code = "TIMEOUT_EXPIRED"
@@ -83,8 +66,10 @@ def _locked_order(shop_id, order_id):
         raise NotFound("Order was not found for this Shop.")
 
 
-def _transition(shop_id, order_id, action, *, payload=None):
+def _transition(shop_id, order_id, action, *, payload=None, actor=None):
     payload = payload or {}
+    if action in {"accept", "reject", "cancel"} and actor is None:
+        raise PermissionDenied("An authenticated Merchant is required for this Order transition.")
     with transaction.atomic():
         order = _locked_order(shop_id, order_id)
         now = timezone.now()
@@ -98,7 +83,7 @@ def _transition(shop_id, order_id, action, *, payload=None):
                 return order, False
             if order.status != Order.Status.PENDING:
                 raise OrderTransitionConflict("Only PENDING Orders can be accepted.")
-            _accept_order(order, payload.get("items", []), now)
+            _accept_order(order, payload.get("items", []), now, actor)
         elif action == "reject":
             if (
                 order.status == Order.Status.REJECTED
@@ -108,7 +93,7 @@ def _transition(shop_id, order_id, action, *, payload=None):
                 return order, False
             if order.status != Order.Status.PENDING:
                 raise OrderTransitionConflict("Only PENDING Orders can be rejected by a Merchant.")
-            _release_pending_stock(order)
+            _release_pending_stock(order, actor=actor, reason="MERCHANT_REJECTED")
             order.status = Order.Status.REJECTED
             order.rejection_actor = Order.RejectionActor.MERCHANT
             order.rejection_reason_code = "MERCHANT_REJECTED"
@@ -127,7 +112,7 @@ def _transition(shop_id, order_id, action, *, payload=None):
                 return order, False
             if order.status != Order.Status.ACCEPTED:
                 raise OrderTransitionConflict("Only ACCEPTED Orders may be cancelled by a Merchant.")
-            _restore_accepted_stock(order)
+            _restore_accepted_stock(order, actor=actor, reason="MERCHANT_CANCELLED")
             order.status = Order.Status.REJECTED
             order.rejection_actor = Order.RejectionActor.MERCHANT
             order.rejection_reason_code = "MERCHANT_CANCELLED"
@@ -165,7 +150,7 @@ def _transition(shop_id, order_id, action, *, payload=None):
         return order, False
 
 
-def _accept_order(order, adjustments, now):
+def _accept_order(order, adjustments, now, actor):
     order_items = {item.pk: item for item in order.items.select_for_update().select_related("product", "variant")}
     requested = {entry["item_id"]: entry["quantity"] for entry in adjustments}
     unknown_ids = set(requested) - set(order_items)
@@ -191,13 +176,12 @@ def _accept_order(order, adjustments, now):
 
     entries.sort(key=lambda entry: (1 if entry[0]._meta.model_name == "productvariant" else 0, entry[0].pk))
     try:
-        for target, item, original, accepted in entries:
-            reduce_and_accept_order_stock(
-                order.shop,
-                target,
-                original_reserved=original,
-                accepted_quantity=accepted,
-            )
+        deduct_order_acceptance_stock(
+            order.shop,
+            [(target, original, accepted) for target, _, original, accepted in entries],
+            actor=actor,
+        )
+        for _, item, original, accepted in entries:
             if accepted != original:
                 item.quantity = accepted
                 item.save(update_fields=["quantity", "line_total", "updated_at"])
@@ -235,8 +219,8 @@ def _set_payment_status(shop_id, order_id, payment_status):
         return order, False
 
 
-def transition_order(shop_id, order_id, action, payload=None):
-    return _transition(shop_id, order_id, action, payload=payload)
+def transition_order(shop_id, order_id, action, payload=None, *, actor=None):
+    return _transition(shop_id, order_id, action, payload=payload, actor=actor)
 
 
 def set_order_payment_status(shop_id, order_id, payment_status):

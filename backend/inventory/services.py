@@ -693,8 +693,12 @@ def deduct_order_acceptance_stock(
             if not target:
                 raise ValidationError("Order item must reference a product or variant.")
 
-            orig = getattr(oi, "ordered_quantity", None) or getattr(oi, "reserved_quantity", None)
-            acc = getattr(oi, "accepted_quantity", None) or getattr(oi, "quantity", None)
+            orig = getattr(oi, "ordered_quantity", None)
+            if orig is None:
+                orig = getattr(oi, "reserved_quantity", None)
+            acc = getattr(oi, "accepted_quantity", None)
+            if acc is None:
+                acc = getattr(oi, "quantity", None)
 
             if orig is not None and acc is not None and orig != acc:
                 has_partial = True
@@ -776,16 +780,27 @@ def release_pending_order_stock(
 
         items_with_quantities = []
         for oi in order_items:
-            target = getattr(oi, "variant", None) or getattr(oi, "product", None)
+            # A removed variant must not fall back to its parent product: stock
+            # for variant-based products is authoritative only on the variant.
+            if getattr(oi, "variant_name_snapshot", "") and not getattr(oi, "variant_id", None):
+                continue
+            target = oi.variant if getattr(oi, "variant_id", None) else getattr(oi, "product", None)
             if not target:
-                raise ValidationError("Order item must reference a product or variant.")
+                # Catalog deletion cascades the associated InventoryItem too.
+                # The historical order line remains, but there is no live stock row to release.
+                continue
             if getattr(target, "shop_id", None) and target.shop_id != shop.id:
                 raise ValidationError("Order item does not belong to the specified shop.")
             elif hasattr(target, "product") and target.product.shop_id != shop.id:
                 raise ValidationError("Order item variant does not belong to the specified shop.")
 
-            qty = getattr(oi, "reserved_quantity", None) or getattr(oi, "quantity", None) or getattr(oi, "ordered_quantity", None)
-            items_with_quantities.append((target, qty))
+            qty = getattr(oi, "reserved_quantity", None)
+            if qty is None:
+                qty = getattr(oi, "quantity", None)
+            if qty is None:
+                qty = getattr(oi, "ordered_quantity", None)
+            if qty is not None and quantize_quantity(qty) > Decimal("0.000"):
+                items_with_quantities.append((target, qty))
 
         updated = release_order_items_stock(shop, items_with_quantities)
         try:
@@ -851,16 +866,22 @@ def restore_accepted_order_stock(
 
         items_with_quantities = []
         for oi in order_items:
-            target = getattr(oi, "variant", None) or getattr(oi, "product", None)
+            if getattr(oi, "variant_name_snapshot", "") and not getattr(oi, "variant_id", None):
+                continue
+            target = oi.variant if getattr(oi, "variant_id", None) else getattr(oi, "product", None)
             if not target:
-                raise ValidationError("Order item must reference a product or variant.")
+                # Catalog deletion cascades the associated InventoryItem too.
+                continue
             if getattr(target, "shop_id", None) and target.shop_id != shop.id:
                 raise ValidationError("Order item does not belong to the specified shop.")
             elif hasattr(target, "product") and target.product.shop_id != shop.id:
                 raise ValidationError("Order item variant does not belong to the specified shop.")
 
-            qty = getattr(oi, "accepted_quantity", None) or getattr(oi, "quantity", None)
-            items_with_quantities.append((target, qty))
+            qty = getattr(oi, "accepted_quantity", None)
+            if qty is None:
+                qty = getattr(oi, "quantity", None)
+            if qty is not None and quantize_quantity(qty) > Decimal("0.000"):
+                items_with_quantities.append((target, qty))
 
         updated = restore_order_items_stock(shop, items_with_quantities)
         try:
