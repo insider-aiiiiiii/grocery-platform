@@ -2,249 +2,138 @@
 
 ## 1. Domain Purpose
 
-The Users & Merchant Accounts domain defines the business concepts around platform user identity, merchant account identity, merchant-to-shop access, account lifecycle, and access boundaries needed for future authorization. It describes required concepts and behavior without selecting implementation details.
+This domain defines the business concepts for platform identity, Merchant accounts, Merchant access to a Shop, and account lifecycle. It documents approved behavior without selecting implementation details.
 
-This domain does not own shop profiles, catalog or products, inventory, customer identity, carts, orders, campaigns, notifications, or analytics. Those belong to their respective domains.
+It does not own Shop profiles or the business data owned by Catalog, Inventory, Customers, Cart, Orders, Campaigns, Notifications, or Analytics.
 
 ## 2. Actors
 
 ### Super Admin
 
-A platform-level actor who can perform approved administrative operations across the platform according to the eventual authorization design. This specification does not define the Super Admin permission set.
+A platform-level actor. In the MVP, only a Super Admin creates Merchant accounts. After creation, a Super Admin cannot update Merchant information or Shop information.
 
 ### Merchant
 
-A business/shop operator who accesses merchant functionality for one or more shops only as allowed by approved membership and access rules. The number of shops and the account structure are not yet decided.
+Merchant means the Shop Owner / business owner. Merchant is a business entity separate from User and Shop. The MVP has one Merchant login/account for each business owner. The Merchant may share its credentials with employees or staff; individual employee accounts, roles, and permissions are not required in MVP. Future individual accounts and roles may be introduced later.
 
 ### Customer
 
-Customers are not part of the merchant-account identity model. Customer identity is shop-specific and belongs to the Customers domain. Existing product requirements do not establish a customer authentication/account mechanism; none is defined here.
+Customer identity is Shop-specific and belongs to the Customers domain. Customer authentication is outside this specification.
 
-## 3. User vs Merchant vs Shop
-
-These are distinct business concepts:
+## 3. User, Merchant, and Shop Concepts
 
 ```text
-User
-    =
-platform identity / person accessing the system
-
-Merchant
-    =
-business/operator identity
-
-Shop
-    =
-tenant/store being operated
+User = platform identity / person accessing the system
+Merchant = Shop Owner / business entity
+Shop = store and primary tenant boundary
 ```
 
-Do not assume `1 User = 1 Merchant = 1 Shop`. The architecture must remain capable of supporting multiple people accessing the same merchant/shop in the future, as required by the product context. The exact cardinalities and relationships remain unresolved.
+These are separate business concepts. MVP Merchant access uses Merchant login credentials for the Merchant's Shop. Employees or staff may share those credentials; they are not modeled as separate Merchant memberships in MVP.
 
-## 4. Merchant Account Model
-
-The merchant account is the conceptual business/operator identity through which merchant activity is associated with shop access. The Shop domain owns shop identity, profile, and lifecycle context; this domain describes who may access a shop, subject to approved rules.
-
-The exact merchant entity, ownership/administration model, and cardinality between users, merchants, and shops are not finalized. Do not assume that a merchant can operate multiple shops or that a shop can belong to only one merchant. These decisions require approval; see [Unresolved Decisions](#18-unresolved-decisions).
-
-Merchant and shop remain distinct domain concepts unless an approved domain decision changes that understanding.
-
-## 5. Merchant Membership / Access
-
-Distinguish **user identity** (who is accessing the platform) from **access to a merchant or shop** (which merchant functionality and shop context that identity may use).
-
-The current MVP concept allows merchant-side access to potentially be shared by a small number of people, approximately two or three. The architecture must not prevent future individual user identities and shop-level roles. This is an extensibility requirement, not approval of a shared-credential design or a specific membership model.
-
-A future access relationship may conceptually involve a user, merchant, shop, role, or status. These are concepts only; this specification does not finalize fields, schema, or relationships. Membership lifecycle and access-granting rules require decisions.
-
-## 6. Roles
-
-The approved actor concepts relevant here are **Super Admin** and **Merchant / Shopkeeper**. This names actor categories; it does not decide whether or how they map to implementation roles.
-
-No detailed merchant sub-roles, such as Manager, Cashier, Inventory Manager, or Staff, are approved. Additional role-based permissions may be considered later, but role names, definitions, and assignment rules are unresolved.
-
-## 7. Account Lifecycle
-
-The product context supports onboarding concepts that distinguish pending/review, approved, and rejected outcomes for a merchant/shop application. These are conceptual onboarding outcomes; exact status names and their relationship to user or merchant-account states are not finalized.
-
-Do not treat additional account states, such as suspended or deactivated, as approved lifecycle states. Who activates or deactivates an account, how lifecycle status affects access, whether reactivation is possible, and how historical data is handled are unresolved.
-
-## 8. Merchant Onboarding Relationship
-
-The product requirements describe two conceptual paths:
-
-### Path A: Super Admin creates/onboards a merchant and shop
+## 4. Merchant–Shop Relationship
 
 ```text
-Super Admin
-     ↓
-Create Shop
-     ↓
-Create Merchant
-     ↓
-Merchant access
+Merchant 1 ─── 1 Shop
 ```
 
-### Path B: Merchant applies for onboarding
+- Meaning: the Merchant owns and operates their Shop.
+- Each Merchant may create and own exactly one Shop in MVP; a Merchant with no Shop may log in and create one.
+- Each Shop belongs to exactly one Merchant.
+- A Merchant cannot create or own multiple Shops. If another Shop is required, a separate Merchant account is created.
+- Ownership transfer between Merchants is not supported in MVP.
+- Merchant and Shop remain separate business concepts. Shop remains the primary tenant boundary for merchant-owned business data; Merchant is not the tenant boundary.
+
+## 5. Merchant Account Creation and Shop Setup
+
+There is no Merchant application flow in MVP. The approved flow is:
 
 ```text
-Merchant
-     ↓
-Application
-     ↓
-Super Admin review
-     ↓
-Approve / Reject
-     ↓
-Merchant access
+Super Admin creates Merchant
+        ↓
+System generates initial / temporary password
+        ↓
+Merchant logs in using mobile number
+        ↓
+Merchant changes temporary password
+        ↓
+Merchant creates their Shop
+        ↓
+Shop becomes ACTIVE immediately
 ```
 
-These are business-level concepts, not finalized state machines or implementation flows. Do not define invitation tokens, email verification, OTP, forms, APIs, notifications, or activation mechanics here. Detailed onboarding behavior belongs in the Shop domain specification and remains subject to approval.
+Merchant exists before Shop creation and can log in without a Shop. When no Shop exists, the Merchant is shown the Create Shop flow. The Merchant creates their own Shop; the Super Admin does not create it in this flow. Shop activation is immediate after Merchant creates it.
 
-## 9. Relationship With the Shops Domain
+Merchant application, review, approval, rejection, re-application, and application statuses are not MVP functionality.
 
-Users & Merchant Accounts describes **who has access**. The Shops domain describes **what the shop is**, including its shop profile and tenant/business context.
+## 6. Login and Credentials
 
-Keep shop profile and other shop business data in the Shops domain. Access and identity concepts must not duplicate that data. This conceptual boundary does not prescribe database relationships.
+- Merchant logs in using a mobile number that is unique across Merchant accounts.
+- Email is also unique across Merchant accounts and is used for contact and recovery; it is not the login identifier.
+- The system generates the initial temporary password when the Super Admin creates the Merchant account. The Merchant must change it on first login.
+- Both the Merchant and Super Admin can change or reset the Merchant password.
+- Standard platform password rules apply.
+- Merchant credentials may be shared with employees/staff in MVP. Separate employee accounts, roles, and individual staff permissions are not required.
+- Merchant may log in from multiple devices. Logging out invalidates the current session/token according to the eventual authentication implementation.
+- Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
+- Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 
-## 10. Multi-Tenancy Implications
+Mobile number and email uniqueness are business rules. Their exact fields, normalization, and database enforcement remain technical decisions.
 
-Follow `.ai/skills/multi-tenancy/SKILL.md` as the governing engineering standard.
+## 7. Merchant Profile and Shop Profile
 
-- Merchant access must never permit unauthorized cross-shop access.
-- Tenant context must come from trusted server-side context.
-- A client must not choose arbitrary tenant scope as proof of access.
-- IDs alone do not establish authorization.
-- Every merchant operation involving shop-owned data must be evaluated against the actor's authorized shop access.
+- Merchant can manage their Merchant personal information and their Shop profile.
+- Super Admin can create Merchant accounts but cannot update Merchant information after creation.
+- Super Admin cannot update Shop information after creation.
 
-This specification does not define the technical tenant-context or authorization implementation.
+Exact profile fields and update behavior beyond these rules are not specified here.
 
-## 11. Authentication and Authorization Boundary
+## 8. Merchant Status and Deactivation
 
-Keep these concerns separate:
+Merchant status is `ACTIVE` or `DEACTIVATED`.
 
-```text
-Authentication: Who is this user?
-Authorization: What is this user allowed to access?
-Tenant access: Which shop(s) may this user operate?
-```
+- A deactivated Merchant cannot log in or access the platform through that account, effective immediately.
+- Merchant data is not permanently deleted in MVP when the account is deactivated.
+- A deactivated Merchant cannot be reactivated in MVP. No reactivation workflow is defined.
+- If the same business owner needs access again, a new Merchant account or application process would be required under future approved onboarding rules; this does not establish a current reactivation flow.
+- If the Merchant's Shop is deactivated, Merchant login immediately stops working.
 
-This domain defines business concepts only; it does not select an authentication technology or final authorization mechanism. Do not assume JWT, sessions, OAuth, social login, password authentication, or OTP without separate approval.
+## 9. Roles and Access
 
-## 12. Security Requirements
+The business actor categories are Super Admin and Merchant. The exact role and permission implementation is not defined. Individual employee roles and permissions are not required in MVP; they may be introduced in the future.
 
-- Users must not access a merchant's shop without authorization.
-- Merchant users may operate only within shops they are authorized to access.
-- Super Admin access is platform-level only according to approved permissions.
-- Account/shop lifecycle decisions must be respected when access rules are finalized; the exact behavior is unresolved.
-- Authorization must be enforced server-side.
-- Client-provided shop identifiers are never proof of access.
-- Credentials and secrets must not be stored in source code.
+Merchant access is limited to the Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization.
 
-See `.ai/skills/security/SKILL.md` and `.ai/skills/multi-tenancy/SKILL.md` for engineering standards. This section does not define a permission matrix or implementation.
+## 10. Authentication and Technical Boundaries
 
-## 13. Business Invariants
+Merchant login uses a mobile number, but the authentication technology remains intentionally undecided. This document does not select JWT, sessions, OAuth, OTP, password hashing, or an identity provider. It also does not define Django User model choice, API contracts, database fields, or database constraints.
 
-The following approved requirements must remain true:
+## 11. Approved Business Invariants
 
-- Merchant access is limited to the shop context(s) the merchant is authorized to operate.
-- A merchant must not access another merchant's shop-owned data.
-- Super Admin may operate across the platform only according to approved authorization.
-- Customer identity is separate from merchant-account identity and is shop-specific.
-- A customer identity or WhatsApp number must not expose customer history from another shop.
-- The user/merchant/shop concepts must not be collapsed into an assumed one-to-one relationship.
+- Merchant is the Shop Owner / business entity, separate from User and Shop.
+- One Merchant owns exactly one Shop in MVP; one Shop belongs to exactly one Merchant.
+- Shop is the primary tenant boundary.
+- Only Super Admin creates a Merchant account; the Merchant creates their own Shop.
+- Merchant may log in before creating a Shop.
+- The system generates a temporary password and the Merchant changes it on first login.
+- Merchant may share credentials with staff in MVP; individual staff accounts, roles, and permissions are not required.
+- A deactivated Merchant cannot log in and cannot be reactivated in MVP.
+- Shop deactivation immediately stops Merchant login.
+- Merchant may manage Merchant personal information and Shop profile; Super Admin cannot edit either after creation.
+- Merchant application flow and ownership transfer are not supported in MVP.
 
-Lifecycle behavior is not yet an approved invariant. If states such as inactive or suspended are later approved, whether they prevent active access must be explicitly decided and documented.
+## 12. Unresolved Technical Decisions
 
-## 14. Cross-Domain Relationships
+The following remain unresolved because they concern technical representation or implementation, not approved business behavior:
 
-The following diagram represents conceptual authorization/access relationships, not database foreign keys:
+| Decision | Current boundary |
+|---|---|
+| Authentication technology and provider | Not selected. |
+| Django User model choice | Not selected. |
+| Password hashing implementation | Not specified. |
+| Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
+| API contracts and database fields/constraints | Not specified. |
+| Profile field definitions and phone/email normalization | Not specified. |
 
-```text
-Users & Merchant Accounts
-        |
-        ├── controls access to → Shops
-        |
-        ├── authorizes access to → Catalog
-        ├── authorizes access to → Inventory
-        ├── authorizes access to → Orders
-        ├── authorizes access to → Campaigns
-        └── authorizes access to → Analytics
-```
+## 13. Explicit Non-Goals
 
-Customer identity and customer-owned information belong to the Customers domain and remain shop-specific. Catalog, Inventory, Orders, Campaigns, and Analytics retain ownership of their respective business behavior and data. Exact access policies remain subject to approved domain and authorization decisions.
-
-## 15. Historical Data and Deactivation
-
-The effect of user, merchant, or shop deactivation on existing shop access is unresolved. Historical orders and other records may need to remain available according to future domain rules, but this specification does not establish retention or access behavior.
-
-The following require decisions: what happens to existing orders when a merchant user is deactivated, what happens to shop access, whether historical records remain and who may access them, whether a user can be reactivated, whether merchant/shop access can be transferred, and what happens if the only merchant-side user loses access.
-
-## 16. Audit Requirements
-
-The following actions may require auditability, subject to approved security and domain requirements:
-
-- Merchant creation.
-- Merchant application approval or rejection.
-- User/account activation or deactivation.
-- Shop access being granted or revoked.
-- Role or permission changes, if introduced.
-- Merchant ownership or access changes, if allowed.
-
-These are audit requirements to evaluate, not a design for an audit log or schema. Exact events, retention, and access to audit information are unresolved.
-
-## 17. Unresolved Decisions
-
-No decision below is finalized by this specification.
-
-| Decision | Reason | Impact |
-|---|---|---|
-| **Unresolved:** Authentication mechanism and provider. | Project and architecture documents explicitly leave authentication open. | Sign-in and trusted actor identification cannot be finalized. |
-| **Unresolved:** Custom User model versus Django's default User model. | No user schema or model choice is approved. | Identity storage and future migration approach remain open. |
-| **Unresolved:** Account recovery and credential management. | Authentication and credential lifecycle are not specified. | Recovery, credential issuance, and related user support behavior cannot be designed. |
-| **Unresolved:** Exact merchant entity and its ownership/administration semantics. | Product documentation names merchants and shops but does not define their final structures. | Merchant identity and its relationship to shop operations remain conceptual. |
-| **Unresolved:** Whether one merchant may operate multiple shops and whether one shop may be associated with multiple merchants. | Existing sources do not establish these cardinalities. | Access scope and ownership behavior cannot be finalized. |
-| **Unresolved:** Membership/access model between users, merchants, and shops. | Shared merchant-side access is only an MVP concept; future individual users are anticipated, but no membership design is approved. | Access grants, revocation, and multi-person access behavior remain undefined. |
-| **Unresolved:** Merchant roles and role-assignment rules. | Only Super Admin and Merchant are approved actor concepts; detailed roles and permission matrix are not finalized. | No role-specific access behavior can be assumed. |
-| **Unresolved:** Account and onboarding lifecycle states, activation/deactivation authority, and access effects. | Pending/review, approved, and rejected are conceptual onboarding outcomes; account states and exact status names are not approved. | Eligibility for merchant functionality and state transitions require product/security decisions. |
-| **Unresolved:** Exact onboarding and approval/rejection behavior. | Two onboarding paths are described conceptually, while fields, status names, account activation, and workflow details are deferred. | Onboarding cannot be implemented beyond documented concepts. |
-| **Unresolved:** Merchant/shop ownership transfer and behavior if the only merchant-side user loses access. | Transfer and recovery behavior are not documented. | Continuity of shop operations and historical access cannot be determined. |
-| **Unresolved:** Customer identity mechanism and any customer authentication behavior. | Customer identity is shop-specific and may use WhatsApp for repeat-order context, but the exact identity key and mechanism are deferred. | Customer identity must not be implemented as a global merchant-account identity or treated as authorization. |
-| **Unresolved:** Account deactivation, reactivation, historical access, and related retention behavior. | Product/business documentation does not define these lifecycle effects. | Access to existing shop data and records after deactivation remains undefined. |
-| **Unresolved:** Audit events, retention, and access requirements. | Candidate administrative/access changes may require auditability, but no complete audit requirement is approved. | Audit scope and handling cannot be finalized. |
-
-## 18. Explicit Non-Goals
-
-This document does not define Django models, database schema or columns, migrations, serializers, API endpoints or URL structure, authentication technology, JWT/session implementation, permission classes, frontend screens, password/OTP implementation, notification implementation, shop profile structure, catalog structure, order state machine, or inventory behavior.
-
-These topics require their appropriate domain, architecture, API, security, or implementation documentation after the relevant business decisions are approved.
-
-## 19. Implementation Gate
-
-> The Users & Merchant Accounts domain must not be implemented until the unresolved decisions required for implementation are reviewed and approved.
-
-After approval, implementation must follow `AGENTS.md`, relevant engineering skills, this domain specification, and `.ai/project-context/development-status.md`. An implementation agent must not silently resolve unresolved business decisions.
-
-## 20. Git Workflow
-
-Follow the mandatory repository workflow:
-
-```text
-git status
-git checkout main
-git pull origin main
-git checkout -b <task-id>/<short-description>
-```
-
-- Never work directly on `main`.
-- Inspect existing changes first; do not discard them automatically.
-- Destructive Git commands require explicit approval.
-- Ask for a task ID if one is not provided before creating a branch.
-- Keep commits small and task-related; never commit secrets.
-- Push the task branch and create a PR against `main`.
-- Do not force-push or rewrite history without authorization.
-
-Follow `AGENTS.md` for the complete workflow.
-
-## Final Requirement
-
-Create only `.ai/project-context/domains/users-and-merchant-accounts.md`. Do not modify application code, create models, migrations, APIs, authentication, authorization, or any other file. Do not resolve unresolved business decisions.
+This specification does not define Django models, schema, migrations, APIs, serializers, views, authentication or authorization implementation, frontend screens, password hashing, OTP, or other technical mechanisms.

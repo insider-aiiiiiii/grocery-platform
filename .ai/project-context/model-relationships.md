@@ -122,7 +122,7 @@ Not every entity must have a direct Shop reference. The final design must nevert
 
 \|---|---|---|
 
-\| \`users\` | User, Merchant, authentication/access and membership concepts | User/Merchant/access architecture unresolved |
+\| \`users\` | User, Merchant, authentication/access and membership concepts | Merchant business relationship approved; technical User representation unresolved |
 
 \| \`shops\` | Shop and shop business context | Owns Shop concept and tenant context |
 
@@ -146,79 +146,38 @@ No additional application is introduced by this relationship specification.
 
 **## 6. Core Conceptual Map**
 
-\`\`\`text
-
-User
-
-   ↓ authorization / membership, unresolved
-
-Merchant / access context
-
-   ↓ authorized access, unresolved
-
-Shop
-
-   ├── Shop catalog
-
-   │    ├── Shop product/listing
-
-   │    ├── Product variant
-
-   │    └── Category relationship
-
-   │
-
-   ├── Inventory
-
-   │
-
-   ├── Shop-specific Customer
-
-   │    └── Cart
-
-   │         └── CartItem
-
-   │              └── Catalog product/variant reference
-
-   │
-
-   ├── Order
-
-   │    └── OrderItem
-
-   │         └── Historical product/variant meaning
-
-   │
-
-   ├── Campaign, if shop targeting/ownership is approved
-
-   │
-
-   ├── Notification delivery context
-
-   │
-
-   └── Analytics reporting context
+```text
+Merchant
+   ↓ owns exactly one Shop in MVP
+Merchant login credentials
+   ↓ provide access to Merchant's Shop; credentials may be shared with staff
+Shop (primary tenant boundary)
+   ├── Shop catalog
+       ├── Shop product/listing
+       ├── Product variant
+       └── Category relationship
+   ├── Inventory
+   ├── Shop-specific Customer
+       └── Cart -> CartItem -> Catalog product/variant reference
+   ├── Order
+       └── OrderItem -> historical product/variant meaning
+   ├── Campaign, if shop targeting/ownership is approved
+   ├── Notification delivery context
+   └── Analytics reporting context
 
 Platform Master Catalog
-
-   ├── Master Product
-
-   ├── Master Product Variant
-
-   └── Master Category concepts
+   ├── Master Product
+   ├── Master Product Variant
+   └── Master Category concepts
 
 Platform Campaign
-
-   └── may target shops or catalog concepts, subject to unresolved rules
+   └── may target shops or catalog concepts, subject to approved rules
 
 Super Admin
+   └── platform-level authorization and management, subject to final access design
+```
 
-   └── platform-level authorization and management, subject to final access design
-
-\`\`\`
-
-This is a conceptual map, not a schema diagram.
+The Merchant-to-Shop relationship and Shop tenant boundary are approved business relationships. User-to-Merchant technical identity representation remains unresolved. This is a conceptual map, not a schema diagram.
 
 **## 7. Users, Merchant, and Shop**
 
@@ -235,42 +194,40 @@ Shop
     = store/tenant operated by a Merchant
 ```
 
-These concepts must not be collapsed into one entity. A Merchant is a separate business entity, and one Merchant may operate multiple Shops. MVP merchant access is intentionally Shop-scoped and uses shared Shop-level credentials; individual employee accounts, roles, and permissions are a future capability rather than an MVP requirement.
+These concepts must not be collapsed into one entity. Merchant means the Shop Owner / business owner and is separate from User and Shop. In MVP, one Merchant owns exactly one Shop and each Shop belongs to exactly one Merchant. Merchant login credentials provide access to that Shop and may be shared with employees/staff. Individual employee accounts, Merchant memberships, roles, and staff permissions are not required in MVP; individual users and roles may be introduced later.
 
-### User → Merchant
+### User / Merchant login representation
 
-- Meaning: A User may represent or access a Merchant business identity.
-- Classification: Authorization/business relationship.
-- Cardinality: `TBD`.
-- Ownership: Merchant is a separate business entity and is not the same thing as User.
-- Status: **CONCEPTUAL**.
-- Reason: The business distinction is approved, but the exact User-to-Merchant identity/authentication representation remains unresolved.
+- Meaning: The Merchant has one login/account in MVP; the technical representation of that account in relation to User remains unresolved.
+- Classification: Identity relationship.
+- Cardinality: One Merchant login/account per Merchant in MVP; physical User relationship is `TBD`.
+- Ownership: Merchant remains a separate business entity, not the same thing as User.
+- Status: **UNRESOLVED** for technical identity representation.
 
 ### Merchant → Shop
 
-- Meaning: A Merchant operates Shops.
+- Meaning: Merchant owns and operates their Shop.
 - Classification: Business ownership/association.
-- Cardinality: `1 → many` Merchant to Shops; `many → 1` Shop to Merchant.
-- Ownership: Each Shop belongs to exactly one Merchant; Merchant may operate multiple Shops.
+- Cardinality: `1 → 1`.
+- Ownership: Every Merchant has at most one Shop in MVP; every Shop belongs to exactly one Merchant. A Merchant without a Shop may log in and create one. A Merchant cannot own multiple Shops; another Shop requires a separate Merchant account. Ownership transfer is not supported in MVP.
 - Status: **APPROVED**.
 
-### User → Shop
+### Merchant credentials → Shop
 
-- Meaning: Merchant-side access is granted for a specific Shop.
+- Meaning: Merchant login credentials grant access to the Merchant's Shop.
 - Classification: Authorization/access relationship.
-- Cardinality: `TBD` as an identity relationship because MVP uses shared Shop credentials rather than individual employee accounts.
-- Ownership: Access is Shop-scoped and does not make User the Shop owner.
-- Status: **CONCEPTUAL**.
-- MVP rule: People using a Shop's shared credentials have the same Shop-level access. They cannot use those credentials to access another Shop.
+- Cardinality: One Merchant login/account per Merchant in MVP; exact User-to-Merchant technical representation is unresolved.
+- Ownership: Credentials may be shared with employees/staff. No separate employee User or Merchant membership is required in MVP. Access is limited to the Merchant's Shop and does not make User the Shop owner.
+- Status: **APPROVED** for the business access rule; technical identity representation remains unresolved.
 
 The required business principle remains:
 
 ```text
 Merchant
-   ↓ operates
+   ↓ owns and operates (1 → 1)
 Shop
-   ↑ accessed through Shop-level merchant credentials in MVP
-User / authorized people
+   ↑ accessed through Merchant login credentials
+Merchant; credentials may be shared with staff
 ```
 
 This must not be collapsed into:
@@ -766,9 +723,9 @@ No separate analytics database or duplicated fact tables is required for MVP.
 
 | From | To | Relationship meaning | Cardinality | Tenant scope | Classification | Status |
 |---|---|---|---|---|---|---|
-| User | Merchant | User may represent/access Merchant | `TBD` | Platform/access | Authorization | **CONCEPTUAL** |
-| Merchant | Shop | Merchant operates Shops | `1 → many` | Shop | Business ownership | **APPROVED** |
-| User | Shop | Shop-level merchant access | `TBD` | Shop access | Authorization | **CONCEPTUAL** |
+| Merchant | Shop | Merchant owns and operates one Shop in MVP | `1 → 1` | Shop | Business ownership | **APPROVED** |
+| Merchant credentials | Merchant's Shop | Merchant login grants access; credentials may be shared with staff | `1 → 1` | Shop access | Authorization | **APPROVED** |
+| User | Merchant | Technical identity representation for Merchant login | `TBD` | Platform/access | Identity | **UNRESOLVED** |
 | Shop | Shop Catalog | Shop owns catalog context | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
 | Master Product | Shop Product | Shop product may reuse/reference Master Product | `1 → many` possible | Global → tenant | Reference | **CONCEPTUAL** |
 | Master Product | Master Variant | Product may have variants | `1 → many` possible | Platform-global | Ownership | **CONCEPTUAL** |
@@ -830,12 +787,11 @@ The table intentionally includes conceptual interactions as well as likely datab
 
 \| Notification | Order → Shop → Notification → Shop's one configured merchant WhatsApp number; or Order → Shop → Shop-specific Customer → Customer WhatsApp number | \`TBD\` | **\*\*APPROVED\*\*** | Delivery must not cross Shop context; recipient resolution must not be global by WhatsApp number. |
 
-\| Analytics report | Authorized Shop or platform scope | \`TBD\` | **\*\*CONCEPTUAL\*\*** | Merchant analytics only for authorized Shop(s). |
+\| Analytics report | Merchant's Shop or authorized platform scope | \`TBD\` | **\*\*CONCEPTUAL\*\*** | Merchant analytics remain within the Merchant's single Shop. |
 
 \| Analytics aggregate | Source facts → approved scope | No fixed path approved | **\*\*UNRESOLVED\*\*** | Platform aggregation requires platform authorization. |
 
-\| User/merchant access | User → membership/access → Shop | \`TBD\` | **\*\*UNRESOLVED\*\*** | Client-provided Shop IDs are not authorization. |
-
+\| Merchant Shop access | Merchant login credentials → Merchant's Shop; credentials may be shared with staff | \`1 → 1\` in MVP | **\*\*APPROVED\*\*** | Client-provided Shop IDs are not authorization. |
 This table is a required input to the later multi-tenancy and database design work.
 
 **## 38. Platform-Global vs Tenant-Owned Classification**
@@ -921,7 +877,7 @@ Master Product
 
 User / authorized people
   access through
-Shop-level merchant credentials (MVP)
+Merchant login credentials (MVP; may be shared with staff)
 ```
 
 A future database may store references from Customer to Shop or Order to Shop, but those physical references do not change business ownership. Likewise, a Shop Product may reference a Master Product without the Master Product owning the Shop Product's price, inventory, or visibility.
@@ -946,7 +902,7 @@ A global customer identity keyed by WhatsApp number is not approved. Customer id
 
 **### Do not make Merchant the tenant**
 
-Shop is the primary tenant boundary. Merchant access may span one or more Shops only if the authorization design approves it.
+Shop is the primary tenant boundary. In MVP, Merchant access is limited to the Merchant's single Shop. Credentials may be shared with staff, but this does not create additional Merchant memberships or expand access to another Shop.
 
 **### Do not make Analytics the source of truth**
 
@@ -1027,8 +983,8 @@ Avoid adding abstractions merely to remove a theoretical circular dependency. Id
 
 The following business decisions have been explicitly resolved during relationship review and supersede earlier unresolved wording in this document:
 
-1. **Merchant is a separate business entity.** One Merchant may operate multiple Shops; each Shop belongs to one Merchant.
-2. **MVP merchant access is Shop-scoped and shared.** Individual employee accounts/roles are not required in MVP; future user/role support must remain possible.
+1. **Merchant is the Shop Owner / business entity, separate from User and Shop.** One Merchant owns exactly one Shop in MVP; each Shop belongs to exactly one Merchant. A Merchant cannot own multiple Shops, and ownership transfer is not supported in MVP.
+2. **MVP Merchant access uses Merchant login credentials for the Merchant's Shop.** Credentials may be shared with staff; individual employee accounts, memberships, roles, and permissions are not required. Individual users and roles may be introduced later.
 3. **Products may have multiple variants.** Variant-level price and inventory are supported; non-variant Products may themselves be sellable.
 4. **Merchant-created catalog items can be submitted for Super Admin review.** On approval, the item is copied into the Master Catalog while the Shop Product remains independent.
 5. **Inventory is Shop-specific and tracked at sellable-item level.** Variant stock is used when variants exist; otherwise Product stock may be used.
@@ -1107,8 +1063,8 @@ No Django model implementation should begin before this relationship map and the
 
 | Decision | Current understanding | Why still unresolved | Domains affected | Implementation decision blocked |
 |---|---|---|---|---|
-| User ↔ Merchant representation | Merchant is a separate business entity | Exact identity/authentication representation is not finalized | Users, Shops | User/Merchant physical relationship |
-| User ↔ Shop identity model | MVP uses shared Shop credentials | Individual User accounts/roles are future capability | Users, Shops | Authentication/access schema |
+| User ↔ Merchant representation | Merchant is a separate business entity and has a Merchant login/account in MVP | Exact identity/authentication representation is not finalized | Users, Shops | User/Merchant physical relationship |
+| Merchant credentials ↔ Shop access | Credentials access the Merchant's single Shop and may be shared with staff | Authentication/access schema is not finalized | Users, Shops | Credential and access representation |
 | Shop ↔ Customer identity matching | One current Customer record per Shop, recognized primarily by the Shop-scoped WhatsApp number | Phone normalization, formatting, verification, and physical uniqueness representation remain open | Customers, Orders | Customer uniqueness/matching implementation |
 | Shop ↔ Cart cardinality | Cart is Shop-scoped | Active-cart persistence/cardinality remains to be finalized | Cart, Shops | Cart identity/schema |
 | Product/Variant physical model | Product may have many variants; non-variant product may be sellable | Exact mandatory/optional fields and identity remain DB decisions | Catalog, Inventory | Catalog schema |
