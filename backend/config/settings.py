@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'users',
@@ -65,6 +66,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -206,4 +208,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # WhatsApp Integration Settings
 # Primary customer/merchant communication utilizes direct WhatsApp Click-to-Chat (wa.me) draft links.
 DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', '91')
+
+# CORS Configuration
+_cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if _cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip()
+        for origin in _cors_origins_env.split(',')
+        if origin.strip()
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+    ]
+
+CORS_ALLOW_CREDENTIALS = True
+
 
