@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -78,3 +80,19 @@ class Merchant(models.Model):
                 raise ValidationError({"user": "Merchant profiles require a MERCHANT user."})
             if not self.user.mobile_number:
                 raise ValidationError({"user": "Merchant users require a mobile number."})
+
+
+class MerchantAuthSession(models.Model):
+    """Revocable server-side session metadata; access JWTs are never persisted."""
+
+    session_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="merchant_auth_sessions",
+    )
+    refresh_token = models.OneToOneField(
+        "token_blacklist.OutstandingToken",
+        on_delete=models.CASCADE,
+        related_name="merchant_auth_session",
+    )
