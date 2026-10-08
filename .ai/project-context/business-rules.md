@@ -213,6 +213,8 @@ Merchant credentials may be shared with employees/staff in MVP. Individual emplo
 
 Merchant status is `ACTIVE` or `DEACTIVATED`. Deactivation immediately prevents Merchant login and platform access; Merchant data is not permanently deleted. A deactivated Merchant cannot be reactivated in MVP. Deactivating the Merchant account automatically deactivates their Shop. Both Merchant and Super Admin can change or reset the Merchant password. Standard platform password rules apply. The authentication technology and exact session/token implementation remain unresolved technical decisions.
 
+Super Admin login accepts email or mobile number with a password. Email and mobile number are each globally unique across all User accounts. Multiple Super Admin accounts are allowed, and a Super Admin may create another Super Admin account. A Super Admin does not automatically own a Shop.
+
 ## 22. Campaign / Advertising Rules
 
 Super Admin can manage platform campaigns/advertisements according to the approved product concept. Campaigns may be platform-level or shop-related, subject to the finalized domain design.

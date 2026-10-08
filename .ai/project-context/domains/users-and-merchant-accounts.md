@@ -10,7 +10,7 @@ It does not own Shop profiles or the business data owned by Catalog, Inventory, 
 
 ### Super Admin
 
-A platform-level actor. In the MVP, only a Super Admin creates Merchant accounts. After creation, a Super Admin cannot update Merchant information or Shop information.
+A platform-level actor. A Super Admin can create additional Super Admin accounts and Merchant accounts. Super Admin login accepts email or mobile number with a password. Email and mobile number are each globally unique across all User accounts. Super Admin identity does not imply Shop ownership. After creating a Merchant, a Super Admin cannot update Merchant information or Shop information.
 
 ### Merchant
 
@@ -69,6 +69,8 @@ Merchant application, review, approval, rejection, re-application, and applicati
 
 - Merchant logs in using a mobile number that is unique across Merchant accounts.
 - Email is also unique across Merchant accounts and is used for contact and recovery; it is not the login identifier.
+- Super Admin logs in using either email or mobile number with a password. Each identifier is globally unique across all User accounts.
+- Multiple Super Admin accounts are allowed; a Super Admin may create another Super Admin account.
 - The system generates the initial temporary password when the Super Admin creates the Merchant account. The Merchant must change it on first login.
 - Both the Merchant and Super Admin can change or reset the Merchant password.
 - Standard platform password rules apply.
@@ -77,7 +79,7 @@ Merchant application, review, approval, rejection, re-application, and applicati
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 
-Mobile number and email uniqueness are business rules. Their exact fields, normalization, and database enforcement remain technical decisions.
+Merchant mobile number and email uniqueness are business rules. Their fields, normalization, and database enforcement remain technical decisions. Super Admin email and mobile uniqueness apply globally across all User accounts.
 
 ## 7. Merchant Profile and Shop Profile
 
@@ -99,13 +101,13 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 
 ## 9. Roles and Access
 
-The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. Each Merchant has a separate Merchant profile linked one-to-one to its `MERCHANT` User. The profile stores the mobile number, optional contact email, account status, and whether the initial password must be changed. It contains no Shop fields. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
+The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. The User stores globally unique email and mobile identifiers. Each Merchant has a separate Merchant profile linked one-to-one to its `MERCHANT` User. The profile stores account status and whether the initial password must be changed; it contains no Shop fields. A User with the `SUPER_ADMIN` role has no automatic Shop ownership. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
 
 Merchant access is limited to the Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization.
 
 ## 10. Authentication and Technical Boundaries
 
-The application uses a custom Django `User` model derived from `AbstractUser`, with the two roles above. A separate Merchant profile stores a unique mobile number and a unique optional email. The profile status is `ACTIVE` or `DEACTIVATED`; it defaults to `ACTIVE`. Its first-login flag defaults to requiring a password change. The User's Django password field holds the password hash. Phone/email normalization and the mechanism that authenticates a mobile number against the User remain unspecified. This document does not select JWT, sessions, OAuth, OTP, or an identity provider. APIs and other profile fields remain unspecified.
+The application uses a custom Django `User` model derived from `AbstractUser`. Its email and mobile fields have global uniqueness constraints across all User accounts, and a Super Admin must have at least one of those login identifiers. The configured Django authentication backend accepts Merchant mobile/password and Super Admin email/password or mobile/password. A separate Merchant profile stores status (`ACTIVE` or `DEACTIVATED`, default `ACTIVE`) and a first-login password-change flag (default true). Django stores password hashes on User. Phone/email normalization, session/token behavior, APIs, and other profile fields remain unspecified.
 
 ## 11. Approved Business Invariants
 
@@ -127,12 +129,12 @@ The following remain unresolved because they concern technical representation or
 
 | Decision | Current boundary |
 |---|---|
-| Authentication technology and provider | Not selected. |
-| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles plus a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-002. |
-| Password hashing implementation | Not specified. |
+| Authentication mechanism | Django authentication backend supports the approved email/mobile and password identifiers; session/token behavior remains unselected. |
+| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. |
+| Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
 | Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
 | API contracts and database fields/constraints | Not specified. |
-| Profile field definitions and phone/email normalization | Not specified. |
+| Phone/email normalization | Not specified. |
 
 ## 13. Explicit Non-Goals
 
