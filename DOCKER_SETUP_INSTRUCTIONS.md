@@ -78,6 +78,12 @@ Follow only PostgreSQL logs:
 docker compose logs -f db
 ```
 
+Follow only Frontend logs:
+
+```bash
+docker compose logs -f frontend
+```
+
 The Django development server is available at the host port configured by `DJANGO_PORT`:
 
 ```text
@@ -85,6 +91,14 @@ http://localhost:<DJANGO_PORT>
 ```
 
 With the example value, this is `http://localhost:8000`. The Django process still listens on container port `8000`.
+
+The Next.js frontend development server is available at the host port configured by `FRONTEND_PORT`:
+
+```text
+http://localhost:<FRONTEND_PORT>
+```
+
+With the example value, this is `http://localhost:3000`. The Next.js process listens on container port `3000`.
 
 The current scaffold routes Django Admin only. No application API endpoints are implemented yet. The documented future API base is:
 
