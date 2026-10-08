@@ -99,13 +99,13 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 
 ## 9. Roles and Access
 
-The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
+The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. Each Merchant has a separate Merchant profile linked one-to-one to its `MERCHANT` User. The profile stores the mobile number, optional contact email, account status, and whether the initial password must be changed. It contains no Shop fields. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
 
 Merchant access is limited to the Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization.
 
 ## 10. Authentication and Technical Boundaries
 
-The application uses a custom Django `User` model derived from `AbstractUser`, with the two roles above. Merchant login is intended to use a mobile number, but this model does not yet represent or implement that login lookup. The authentication flow and technology remain intentionally undecided. This document does not select JWT, sessions, OAuth, OTP, or an identity provider. Merchant contact field representation, profile fields, API contracts, and other database constraints remain unspecified.
+The application uses a custom Django `User` model derived from `AbstractUser`, with the two roles above. A separate Merchant profile stores a unique mobile number and a unique optional email. The profile status is `ACTIVE` or `DEACTIVATED`; it defaults to `ACTIVE`. Its first-login flag defaults to requiring a password change. The User's Django password field holds the password hash. Phone/email normalization and the mechanism that authenticates a mobile number against the User remain unspecified. This document does not select JWT, sessions, OAuth, OTP, or an identity provider. APIs and other profile fields remain unspecified.
 
 ## 11. Approved Business Invariants
 
@@ -128,7 +128,7 @@ The following remain unresolved because they concern technical representation or
 | Decision | Current boundary |
 |---|---|
 | Authentication technology and provider | Not selected. |
-| Django User identity | A custom `AbstractUser` model with `SUPER_ADMIN` and `MERCHANT` roles is implemented under AUTH-001. |
+| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles plus a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-002. |
 | Password hashing implementation | Not specified. |
 | Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
 | API contracts and database fields/constraints | Not specified. |

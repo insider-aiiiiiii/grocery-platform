@@ -65,7 +65,7 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | Django configuration | Implemented | Standard settings; DRF and all domain apps registered. Last recorded `manage.py check` passed. |
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
-| `users` | Partially Implemented | Custom Django User model with `SUPER_ADMIN` and `MERCHANT` roles; authentication flow and Merchant profile/Shop relationship are not implemented. |
+| `users` | Partially Implemented | Custom Django User model and one-to-one Merchant profile with contact, status, and first-login password-change fields; login flow and Merchant/Shop relationship are not implemented. |
 | `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
 | Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
 | Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
@@ -115,7 +115,7 @@ These are scaffolded applications, not implemented domain features.
 
 ## 7. Authentication Status
 
-The custom Django User identity model is implemented with only `SUPER_ADMIN` and `MERCHANT` roles. Customers are not authenticated Users. Login flows, merchant contact fields, authorization rules, and the authentication mechanism remain unresolved. Django's standard auth app and middleware remain framework configuration; no product authentication endpoints or flows are implemented.
+The custom Django User identity model is implemented with only `SUPER_ADMIN` and `MERCHANT` roles. A separate Merchant profile stores contact details, account status, and first-login password-change state. Customers are not authenticated Users. Mobile/password login enforcement, login flows, authorization rules, and the authentication mechanism remain unresolved. No product authentication endpoints or flows are implemented.
 
 ## 8. Authorization Status
 
@@ -213,7 +213,7 @@ Hardening / Testing
 See `.ai/project-context/business-rules.md` for the canonical unresolved-decision list. Current decisions that block or constrain implementation include:
 
 - Authentication mechanism and authorization model.
-- Merchant account profile/lifecycle and Shop relationship implementation.
+- Merchant account lifecycle enforcement and Shop relationship implementation.
 - Customer identity mechanism.
 - Physical representation of independent Shop Products and optional Master Product selection.
 - Catalog schema details, attribute representation, image storage, inventory mapping, and historical Order product snapshot/reference strategy.
