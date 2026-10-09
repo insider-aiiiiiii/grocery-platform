@@ -1,3 +1,7 @@
+import os
+from datetime import timedelta
+
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_backends
 from django.core.exceptions import ValidationError
@@ -8,7 +12,7 @@ from rest_framework.test import APIClient
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Merchant, User
+from .models import Merchant, User, UserAuthSession
 
 
 class AuthenticatedProbe(APIView):
@@ -17,6 +21,19 @@ class AuthenticatedProbe(APIView):
     def get(self, request):
         from rest_framework.response import Response
         return Response({"ok": True})
+
+
+class JWTTechnicalDecisionTests(TestCase):
+    def test_bearer_lifetimes_and_environment_signing_key(self):
+        self.assertEqual(settings.SIMPLE_JWT["AUTH_HEADER_TYPES"], ("Bearer",))
+        self.assertEqual(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"], timedelta(minutes=30))
+        self.assertEqual(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"], timedelta(days=30))
+        self.assertEqual(settings.SIMPLE_JWT["SIGNING_KEY"], os.environ["JWT_SIGNING_KEY"])
+
+    def test_access_jwt_values_are_not_stored_on_server_sessions(self):
+        stored_fields = {field.name for field in UserAuthSession._meta.fields}
+        self.assertNotIn("access_token", stored_fields)
+        self.assertEqual(stored_fields, {"id", "session_id", "user", "refresh_token"})
 
 
 class MerchantAuthenticationAPITests(TestCase):
@@ -91,11 +108,15 @@ class MerchantAuthenticationAPITests(TestCase):
 
     def test_refresh_rotation_and_logout_revoke_session(self):
         first = self.login().data
+        invalid = self.client.post(reverse("auth-refresh"), {"refresh": "invalid-token"}, format="json")
+        self.assertEqual(invalid.status_code, 401)
+        self.assertEqual(invalid.data, {"detail": "Invalid refresh token."})
         rotated = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
         self.assertEqual(rotated.status_code, 200)
         self.assertNotEqual(rotated.data["refresh"], first["refresh"])
         reused = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
         self.assertEqual(reused.status_code, 401, reused.data)
+        self.assertEqual(reused.data, {"detail": "Invalid refresh token."})
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {rotated.data['access']}")
         logged_out = self.client.post(reverse("auth-logout"), {"refresh": rotated.data["refresh"]}, format="json")
         self.assertEqual(logged_out.status_code, 204)
