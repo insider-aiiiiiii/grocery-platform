@@ -263,4 +263,4 @@ class MerchantProfileTests(TestCase):
             merchant.full_clean()
 
     def test_merchant_has_no_shop_fields(self):
-        self.assertNotIn("shop", {field.name for field in Merchant._meta.get_fields()})
+        self.assertNotIn("shop", {field.name for field in Merchant._meta.fields})

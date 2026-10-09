@@ -31,7 +31,7 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 - Shop is the primary tenant boundary.
 - Merchant-owned data belongs to a Shop and must remain isolated from other Shops.
 - Merchants must not access another Shop's tenant-owned data.
-- Super Admin cannot view Shop information, edit Shop information, or deactivate a Shop in MVP. Super Admin may reactivate a deactivated Shop.
+- Super Admin cannot view or edit private Shop information in MVP. Super Admin can suspend a Shop, and can reactivate or unsuspend an inactive Shop.
 - Every Customer profile belongs to one Shop, and customer history remains Shop-scoped.
 - WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. A WhatsApp number alone does not authorize access to customer history.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
@@ -269,9 +269,9 @@ The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders
 
 Shop lifecycle and deletion rules are approved:
 
-- Shop status is `ACTIVE` or `DEACTIVATED`.
-- Merchant can deactivate their Shop. Super Admin cannot deactivate it; only Super Admin can reactivate it.
-- A deactivated Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
+- Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
+- Merchant can deactivate their Shop. Super Admin can suspend a Shop. Only Super Admin can reactivate or unsuspend an inactive Shop.
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
 - Merchant account deactivation automatically deactivates the Merchant's Shop.
 - Merchant can permanently delete the Shop, including when it has existing orders. Deletion requires confirmation and a clear warning that Shop data and orders will be deleted.
 - Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Merchant may then immediately create a new Shop.
