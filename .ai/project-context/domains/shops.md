@@ -29,49 +29,39 @@ A Merchant with no Shop sees the Create Shop flow after login. A deactivated Sho
 
 ## 4. Shop Creation and Required Information
 
-The approved creation flow is:
+Two onboarding paths are supported:
+1. **Direct Creation**: Super Admin creates the Merchant account directly.
+2. **Merchant Application**: Merchant applies to join; Super Admin reviews and approves the application to onboard the Merchant.
 
-```text
-Merchant logs in
-        ↓
-If no Shop exists
-        ↓
-Merchant creates Shop
-        ↓
-Shop becomes ACTIVE
-```
+Once onboarded, if no Shop exists, the Merchant creates their Shop and it becomes `ACTIVE` immediately.
 
 Shop creation requires:
 
 - Shop name. It does not need to be unique.
 - Full structured address: address line, area, city, state, and pincode.
-- Shop contact number, which is the Merchant's mobile number.
+- Shop contact number, which strictly equals the Merchant's mobile number.
 
 Shop description and Shop logo are optional.
 
-The Shop contact number cannot be changed separately from the Merchant mobile number. The technical representation and synchronization of these values are not defined here.
+The Shop contact number cannot be changed separately from the Merchant mobile number.
 
-## 5. Shop Profile Editing
+## 5. Shop Profile Editing & Operational Controls
 
-- Merchant can edit all Shop details.
-- Merchant cannot change the Shop contact number separately because it is the Merchant's mobile number.
-- Merchant can change business hours and delivery charge at any time.
-- Merchant can independently enable or disable Home Delivery and Pickup.
-- Shop name uniqueness is not required.
-- Super Admin cannot view or edit Shop information. Super Admin can reactivate a deactivated Shop as described in the lifecycle rules.
+- Merchant can edit Shop details (name, description, logo, structured address).
+- Merchant cannot change the Shop contact number separately because it is strictly linked to the Merchant's mobile number.
+- Merchant controls operational open/closed state (temporary closure / daily business hours) and delivery options.
+- Merchant cannot change platform lifecycle status (`ACTIVE`, `DEACTIVATED`, `SUSPENDED`).
+- Super Admin controls platform status and can suspend, deactivate, or activate any shop.
 
 ## 6. Shop Status and Lifecycle
 
 Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 
-- Merchant can deactivate their Shop.
-- Super Admin can suspend a Shop.
-- Only Super Admin can reactivate a deactivated Shop or unsuspend a suspended Shop. Merchant cannot reactivate or unsuspend it.
+- **Super Admin Only**: Only Super Admin can activate, deactivate, or suspend a Shop. Merchant cannot deactivate or suspend their Shop.
+- **Merchant Controls Operations Only**: Merchant controls operational ON/OFF status (temporary closure outside business hours).
 - Deactivating a Merchant account automatically deactivates that Merchant's Shop.
-- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains until the Shop is permanently deleted.
-- A reactivated or unsuspended Shop requires a newly generated QR code; its previous QR does not work.
-
-Super Admin can suspend a Shop or reactivate/unsuspend an inactive Shop. Super Admin cannot edit Shop information directly.
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains preserved.
+- When Super Admin reactivates or unsuspends a Shop, a new QR code / public link is assigned; previous QR code does not work. Existing data mapping (products, previous orders, customer history) remains completely intact.
 
 ## 7. Business Hours and Temporary Closure
 
@@ -118,11 +108,12 @@ The exact public link format, domain, and routing implementation remain unresolv
 ## 10. Shop QR Code
 
 - The system generates a QR code that uses a system-generated public Shop link; the Shop ID is not the public identifier.
-- Merchant can regenerate the QR code.
-- When a Shop is deactivated, its QR remains technically valid and displays the Shop as unavailable.
+- The QR code remains fixed for an active Merchant to preserve printed materials and customer access. Merchant cannot regenerate the QR code.
+- Super Admin can regenerate the QR code if an issue arises or if the link is compromised.
+- When a Shop is deactivated or suspended, its existing QR displays the Shop as unavailable.
+- When a deactivated or suspended Shop is reactivated by Super Admin, a new QR code is assigned, and the old QR stops working.
+- Regenerating a QR code updates only the public link token (`public_slug`); all existing data mapping (products, orders, customer history) remains completely preserved and unaffected.
 - When the Shop is deleted, its QR and public link become unavailable immediately.
-- Deleting and recreating a Shop creates a new Shop and does not restore the previous QR.
-- If a deactivated Shop is reactivated, its old QR does not work; a new QR must be generated.
 
 QR encoding, image format/storage, and link-generation implementation remain technical decisions.
 

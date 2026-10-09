@@ -40,8 +40,10 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 
 ## 4. Merchant Account and Shop Setup Rules
 
-- Only a Super Admin creates a Merchant account in MVP. There is no Merchant application, review, approval, rejection, re-application, or application status flow.
-- The system generates an initial temporary password when it creates the Merchant account. Merchant must change it on first login.
+- Two Merchant onboarding paths are supported:
+  1. Super Admin creates the Merchant account directly.
+  2. Merchant applies to join; Super Admin reviews and approves the application to onboard the Merchant.
+- The system generates an initial temporary password when the Merchant account is onboarded. Merchant must change it on first login.
 - Merchant logs in using a mobile number unique across Merchant accounts. Email is also unique across Merchant accounts, is used for contact/recovery, and is not the login identifier.
 - Merchant exists before Shop creation and may log in without a Shop.
 - If the Merchant has no Shop, show the Create Shop flow after login. Merchant creates their own Shop; Super Admin does not create it.
@@ -54,16 +56,18 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 
 - Required Shop information: Shop name; structured address with address line, area, city, state, and pincode; Shop contact number equal to the Merchant's mobile number.
 - Shop name does not need to be unique. Shop description and Shop logo are optional.
-- Merchant can edit all Shop details, but cannot change Shop contact number separately from the Merchant mobile number.
-- Merchant can manage Merchant personal information and Shop profile. Super Admin cannot edit Merchant or Shop information after creation and cannot view Shop information.
+- Merchant can edit Shop details, but cannot change Shop contact number separately from the Merchant mobile number.
+- Merchant can manage Merchant personal information and Shop profile details. Merchant cannot alter platform lifecycle status (ACTIVE, DEACTIVATED, SUSPENDED) or regenerate the QR code.
 
 ## 6. QR / Public Shop Access Rules
 
 - Customers access a Shop through its system-generated Shop QR code or public Shop link. Public Shop links can be shared.
 - The customer flow is QR/public Shop link → Shop details → Categories → Products.
-- The QR uses a system-generated public link and does not expose or use the Shop ID as its public identifier. Merchant can regenerate the QR code.
-- When a Shop is deactivated, its QR remains technically valid but shows the Shop as unavailable. If the Shop is deleted, the QR and public link become unavailable immediately.
-- Deleting and recreating a Shop does not restore its previous QR. If a deactivated Shop is reactivated, its old QR does not work; a new QR must be generated.
+- The QR uses a system-generated public link and does not expose or use the Shop ID as its public identifier.
+- The QR code remains fixed for an active Merchant to preserve printed materials and customer access. Merchant cannot regenerate the QR code; only Super Admin can regenerate it if an issue arises.
+- When a Shop is deactivated or suspended, its QR displays the Shop as unavailable.
+- When Super Admin reactivates or unsuspends a Shop, a new QR code is assigned, and the old QR stops working. Existing data mapping (orders, products, customer history) remains completely intact.
+- If the Shop is deleted, the QR and public link become unavailable immediately.
 - Public access must not expose private Merchant information or grant Merchant/admin access.
 ## 7. Master Catalog Rules
 
@@ -302,9 +306,11 @@ The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders
 Shop lifecycle and deletion rules are approved:
 
 - Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
-- Merchant can deactivate their Shop. Super Admin can suspend a Shop. Only Super Admin can reactivate or unsuspend an inactive Shop.
-- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
+- Only Super Admin can activate, deactivate, or suspend a Shop. Merchant cannot deactivate or suspend their Shop.
+- Merchant only controls operational open/closed status (temporary closure).
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains preserved.
 - Merchant account deactivation automatically deactivates the Merchant's Shop.
+- When Super Admin reactivates or unsuspends a Shop, a new QR code is assigned, and the old QR stops working. Existing data mapping (products, orders, customer history) remains completely intact.
 - Merchant can permanently delete the Shop, including when it has existing orders. Deletion requires confirmation and a clear warning that Shop data and orders will be deleted.
 - Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Merchant may then immediately create a new Shop.
 
