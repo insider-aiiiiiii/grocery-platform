@@ -119,16 +119,16 @@ QR encoding, image format/storage, and link-generation implementation remain tec
 
 ## 11. Shop Deletion
 
-Merchant can permanently delete their Shop, including when it has existing orders.
+Only Super Admin can permanently delete a Shop (Merchants cannot delete a Shop).
 
-- Deletion requires confirmation.
-- Before confirmation, the system must clearly warn that Shop data and orders will be deleted.
+- Deletion requires Super Admin confirmation with clear warnings that Shop data and associated merchant login will be permanently removed.
 - Deletion is permanent; a deleted Shop cannot be restored.
-- Shop products and Shop orders are deleted.
+- The Merchant is the login persona for that Shop; permanent deletion of a Shop deletes the associated Merchant profile and login credentials.
+- Conversely, deleting a Merchant cascades and deletes the Shop.
+- Shop products and Shop orders are deleted with the Shop.
 - The Shop QR and public link become unavailable immediately.
-- Merchant may immediately create a new Shop after deletion. It is a new Shop entity with a new QR/link.
 
-This approved deletion behavior is a business rule. Physical deletion mechanics and database-level handling of related records are not defined here.
+This approved deletion behavior strictly links the Merchant identity and Shop lifecycle without resolving database deletion strategy globally.
 
 ## 12. Super Admin and Merchant Access
 

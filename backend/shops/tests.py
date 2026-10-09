@@ -263,3 +263,58 @@ class ShopModelTests(TestCase):
         self.assertTrue(shop.is_temporarily_closed)
         self.assertEqual(shop.opening_time, datetime.time(9, 0))
         self.assertEqual(shop.closing_time, datetime.time(21, 0))
+
+    def test_shop_deletion_removes_merchant_and_user(self):
+        """Verify permanent deletion of Shop removes the Merchant profile and User credentials."""
+        user = User.objects.create_user(
+            username="delete_merchant",
+            mobile_number="+919988776655",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+        )
+        merchant = Merchant.objects.create(user=user)
+        shop = Shop.objects.create(
+            merchant=merchant,
+            name="Delete Shop",
+            address_line="Line 1",
+            area="Area 1",
+            city="City 1",
+            state="State 1",
+            pincode="123456",
+            contact_number=user.mobile_number,
+        )
+        shop_id = shop.id
+        merchant_id = merchant.id
+        user_id = user.id
+
+        shop.delete()
+
+        self.assertFalse(Shop.objects.filter(id=shop_id).exists())
+        self.assertFalse(Merchant.objects.filter(id=merchant_id).exists())
+        self.assertFalse(User.objects.filter(id=user_id).exists())
+
+    def test_merchant_deletion_cascades_to_shop(self):
+        """Verify deleting Merchant cascades and deletes the associated Shop."""
+        user = User.objects.create_user(
+            username="cascade_merchant",
+            mobile_number="+919988776644",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+        )
+        merchant = Merchant.objects.create(user=user)
+        shop = Shop.objects.create(
+            merchant=merchant,
+            name="Cascade Shop",
+            address_line="Line 1",
+            area="Area 1",
+            city="City 1",
+            state="State 1",
+            pincode="123456",
+            contact_number=user.mobile_number,
+        )
+        shop_id = shop.id
+
+        merchant.delete()
+
+        self.assertFalse(Shop.objects.filter(id=shop_id).exists())
+
