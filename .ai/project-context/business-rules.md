@@ -103,7 +103,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - Once an Order is created, later Catalog price changes do not change its historical purchase price.
 - If the Merchant reduces an item's fulfillable quantity before acceptance, the Order total is recalculated using that reduced quantity.
 - When a Shop uses a fixed delivery charge, the delivery charge used for the Order is preserved as part of the historical Order. When a Shop uses "Fee confirmed on WhatsApp", no delivery charge is added to the Order total at checkout, and delivery charges are settled directly between merchant and customer. The Merchant can change the Shop's delivery charge policy; its effect on an existing/pending Order is controlled by the Merchant, without a more specific mechanism defined here.
-- No tax calculation applies in MVP unless explicitly documented elsewhere. Do not introduce a discount engine unless Campaigns later defines one.
+- No tax calculation applies in MVP unless explicitly documented elsewhere. No campaign-driven discount engine is part of the current MVP. A future discount engine requires a separate approved product decision.
 
 Currency representation and price snapshot mechanics are **Not Finalized / Require Decision**.
 
@@ -260,9 +260,11 @@ Super Admin login accepts email or mobile number with a password. Email and mobi
 
 ## 22. Campaign / Advertising Rules
 
-Super Admin can manage platform campaigns/advertisements according to the approved product concept. Campaigns may be platform-level or shop-related, subject to the finalized domain design.
+Campaigns are platform-level promotional content managed exclusively by Super Admin. A campaign may display across all Shops or a selected set of Shops; display does not make a Shop the campaign owner. Campaigns may mention products, categories, brands, or Shops as content only; the MVP has no persistent Catalog targeting relationships.
 
-Advertising pricing, targeting algorithms, campaign bidding, monetization, and ad ranking are **Not Finalized / Require Decision** unless explicitly approved.
+The MVP lifecycle is Draft, Active, and Ended. Start and end times are optional. A campaign is customer-visible only when Active, within any configured schedule, and within the display scope of the Shop being viewed. Super Admin can deactivate an Active campaign. Draft campaigns can be edited. Ended campaigns cannot be reactivated. Active and Ended campaigns are deactivated or retained rather than deleted through normal campaign management.
+
+Campaigns do not modify prices, inventory, product availability, checkout totals, Orders, or discounts. Merchant-created campaigns, coupons, discount rules, customer segmentation, personalization, campaign-triggered notifications, and campaign attribution analytics are excluded from the MVP. Campaigns must preserve platform authorization and public Shop visibility boundaries. Schema, APIs, timezone handling, and retention mechanics remain technical design choices.
 
 ## 23. Analytics Rules
 
@@ -333,7 +335,6 @@ The following require product/business approval and must not be answered by assu
 - Product/variant schema, attribute representation, image storage, and inventory mapping.
 - Historical Order product snapshot/reference strategy.
 - Inventory technical/database representation, aggregate Product stock recalculation, and transaction/concurrency implementation.
-- Campaign rules.
 - Analytics formulas.
 - Deletion and retention policies for entities other than the approved Shop deletion behavior.
 - Historical-data requirements outside approved Shop lifecycle and deletion rules.

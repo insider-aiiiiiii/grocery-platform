@@ -76,7 +76,8 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | `cart` | Scaffolded / No Business Logic | App files exist; no cart behavior or persistence. |
 | `orders` | Scaffolded / No Business Logic | App files exist; no order behavior or state machine. |
 | Orders business rules | Finalized | Lifecycle, cancellation/rejection outcomes, inventory effects, payment, pricing, fulfillment, customer Order history access, and Shop deletion behavior are documented. Order implementation has not started. |
-| `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior. |
+| Campaigns business rules | Finalized | Platform-level Super Admin campaigns, Shop display scope, lifecycle, optional scheduling, pricing/order boundaries, visibility, and MVP exclusions are documented. Technical design remains open. |
+| `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior or implementation. |
 | `notifications` | Scaffolded / No Business Logic | App files exist; no notification or WhatsApp integration. |
 | `analytics` | Scaffolded / No Business Logic | App files exist; no analytics implementation. |
 | Authentication | Partially Implemented | Credential backend and identity models exist. Merchant JWT contract is finalized; Merchant login, password-change, logout, refresh endpoints, and token enforcement are pending. Authorization beyond the temporary-password restriction remains undecided. |
@@ -224,7 +225,8 @@ See `.ai/project-context/business-rules.md` for the canonical unresolved-decisio
 - Merchant handling mechanism for delivery-charge changes affecting existing/pending Orders; the business decision leaves this under Merchant control without specifying a mechanism.
 - Responsibilities for external refunds, if any; no centralized refund workflow is approved for MVP.
 - Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.
-- Campaign rules and analytics formulas.
+- Campaign schema, API and authorization design, Shop display-scope representation, schedule/timezone handling, and retention mechanics; Campaign business rules are finalized.
+- Analytics formulas.
 - Physical deletion mechanics for Shop-related records; deletion/retention rules for other entities and historical-data requirements beyond the approved Shop rules.
 
 Do not resolve these by assumption in implementation.
