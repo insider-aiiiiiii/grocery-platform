@@ -122,6 +122,41 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertEqual(logged_out.status_code, 204)
         self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
 
+    def test_logout_revokes_only_the_matching_device_session(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        first = self.login().data
+        second = self.login().data
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 2)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
+        mismatched = self.client.post(reverse("auth-logout"), {
+            "refresh": second["refresh"],
+        }, format="json")
+        self.assertEqual(mismatched.status_code, 401)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 2)
+
+        logged_out = self.client.post(reverse("auth-logout"), {
+            "refresh": first["refresh"],
+        }, format="json")
+        self.assertEqual(logged_out.status_code, 204)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 1)
+
+        from rest_framework.test import APIRequestFactory
+        first_access = APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=f"Bearer {first['access']}"
+        )
+        second_access = APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=f"Bearer {second['access']}"
+        )
+        self.assertEqual(AuthenticatedProbe.as_view()(first_access).status_code, 401)
+        self.assertEqual(AuthenticatedProbe.as_view()(second_access).status_code, 200)
+
+        second_refresh = self.client.post(reverse("auth-refresh"), {
+            "refresh": second["refresh"],
+        }, format="json")
+        self.assertEqual(second_refresh.status_code, 200)
+
 
 class SuperAdminAuthenticationAPITests(TestCase):
     def setUp(self):
