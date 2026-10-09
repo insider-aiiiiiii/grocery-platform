@@ -102,6 +102,94 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
 
 
+class SuperAdminAuthenticationAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.super_admin = User.objects.create_user(
+            username="super-admin-auth",
+            email="admin@example.com",
+            mobile_number="+919876543210",
+            password="admin-password",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def login(self, identifier, password="admin-password"):
+        return self.client.post(reverse("auth-super-admin-login"), {
+            "identifier": identifier,
+            "password": password,
+        }, format="json")
+
+    def test_super_admin_can_login_with_email_or_mobile(self):
+        for identifier in (self.super_admin.email, self.super_admin.mobile_number):
+            response = self.login(identifier)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data["user"], {
+                "id": self.super_admin.pk,
+                "role": "SUPER_ADMIN",
+                "shop_id": None,
+            })
+            self.assertFalse(response.data["must_change_password"])
+            self.assertIn("access", response.data)
+            self.assertIn("refresh", response.data)
+            self.assertNotIn("password", response.data)
+
+    def test_merchant_credentials_are_rejected_from_super_admin_flow(self):
+        merchant_user = User.objects.create_user(
+            username="merchant-wrong-flow",
+            mobile_number="+911234567890",
+            password="merchant-password",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=merchant_user)
+        response = self.login(merchant_user.mobile_number, "merchant-password")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["detail"], "Invalid credentials.")
+
+    def test_inactive_super_admin_cannot_login_or_keep_using_existing_tokens(self):
+        tokens = self.login(self.super_admin.email).data
+        self.super_admin.is_active = False
+        self.super_admin.save(update_fields=["is_active"])
+        rejected = self.login(self.super_admin.email)
+        self.assertEqual(rejected.status_code, 401)
+        self.assertEqual(rejected.data["detail"], "Invalid credentials.")
+        # Exercise the same DRF authentication stack without adding a production endpoint.
+        from rest_framework.test import APIRequestFactory
+        response = AuthenticatedProbe.as_view()(APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=f"Bearer {tokens['access']}"
+        ))
+        self.assertEqual(response.status_code, 401)
+        refresh_response = self.client.post(reverse("auth-refresh"), {
+            "refresh": tokens["refresh"],
+        }, format="json")
+        self.assertEqual(refresh_response.status_code, 401)
+
+    def test_super_admin_tokens_support_refresh_logout_and_authentication(self):
+        tokens = self.login(self.super_admin.email).data
+        access_response = AuthenticatedProbe.as_view()(
+            self._request(f"Bearer {tokens['access']}")
+        )
+        self.assertEqual(access_response.status_code, 200)
+        rotated = self.client.post(reverse("auth-refresh"), {
+            "refresh": tokens["refresh"],
+        }, format="json")
+        self.assertEqual(rotated.status_code, 200)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {rotated.data['access']}")
+        logged_out = self.client.post(reverse("auth-logout"), {
+            "refresh": rotated.data["refresh"],
+        }, format="json")
+        self.assertEqual(logged_out.status_code, 204)
+        self.assertEqual(
+            AuthenticatedProbe.as_view()(self._request(f"Bearer {rotated.data['access']}")).status_code,
+            401,
+        )
+
+    def _request(self, authorization):
+        from rest_framework.test import APIRequestFactory
+        return APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=authorization
+        )
+
+
 class UserRoleTests(TestCase):
     def create_super_admin(self, username, email, mobile_number, password="test-password"):
         return User.objects.create_user(

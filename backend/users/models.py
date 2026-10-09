@@ -82,17 +82,17 @@ class Merchant(models.Model):
                 raise ValidationError({"user": "Merchant users require a mobile number."})
 
 
-class MerchantAuthSession(models.Model):
-    """Revocable server-side session metadata; access JWTs are never persisted."""
+class UserAuthSession(models.Model):
+    """Revocable session metadata for authenticated users; access JWTs are not persisted."""
 
     session_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="merchant_auth_sessions",
+        related_name="auth_sessions",
     )
     refresh_token = models.OneToOneField(
         "token_blacklist.OutstandingToken",
         on_delete=models.CASCADE,
-        related_name="merchant_auth_session",
+        related_name="auth_session",
     )

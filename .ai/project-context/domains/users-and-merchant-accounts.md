@@ -133,7 +133,7 @@ The following remain unresolved because they concern technical representation or
 | Decision | Current boundary |
 |---|---|
 | Authentication mechanism | JWT bearer authentication is approved with 30-minute access tokens, 30-day rotating refresh tokens, and the first-login restriction defined above. |
-| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. |
+| Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. Django's `is_active` field controls whether a Super Admin can authenticate. |
 | Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
 | Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
 | API contracts and database fields/constraints | Not specified. |

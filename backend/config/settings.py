@@ -133,7 +133,7 @@ AUTH_USER_MODEL = 'users.User'
 AUTHENTICATION_BACKENDS = ['users.backends.PlatformAuthenticationBackend']
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': ['users.authentication.MerchantJWTAuthentication'],
+    'DEFAULT_AUTHENTICATION_CLASSES': ['users.authentication.PlatformJWTAuthentication'],
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'EXCEPTION_HANDLER': 'users.exceptions.authentication_exception_handler',
 }

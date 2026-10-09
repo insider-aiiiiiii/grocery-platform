@@ -82,9 +82,9 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | Authentication | Partially Implemented | Credential backend and identity models exist. Merchant JWT contract is finalized; Merchant login, password-change, logout, refresh endpoints, and token enforcement are pending. Authorization beyond the temporary-password restriction remains undecided. |
 | Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
 | Multi-tenancy implementation | Not Started | Shop-level isolation is an approved requirement; no tenant-context or tenant-query enforcement was found. |
-| API endpoints | Partially Implemented | Merchant authentication endpoints are routed under `/api/v1/auth/`; other application APIs are not implemented. |
+| API endpoints | Partially Implemented | Merchant and Super Admin login, refresh, logout, and Merchant password-change endpoints are routed under `/api/v1/auth/`; other application APIs are not implemented. |
 | Database schema | Not Started | No domain model declarations or domain schema were found. |
-| Domain migrations | Partially Implemented | Identity migrations exist for User and Merchant; `users.0004` adds Merchant session metadata, and Simple JWT blacklist migrations are enabled for refresh revocation. |
+| Domain migrations | Partially Implemented | Identity migrations exist for User and Merchant; `users.0004` adds session metadata and `users.0005` generalizes it to authenticated Users while preserving existing sessions. Simple JWT blacklist migrations support refresh revocation. |
 | Security implementation | Partially Implemented | Standard Django middleware is configured. Product-specific authorization, tenant controls, and production security configuration are not verified; settings default `DEBUG` to true. |
 | Automated tests | Scaffolded / No Business Logic | Each app has a generated `tests.py`, but inspection found zero test cases. Test execution status is not established by this inventory. |
 | CI/CD | Not Started | No `.github/workflows/` directory or CI configuration was found. |
