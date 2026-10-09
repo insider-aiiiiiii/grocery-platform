@@ -62,16 +62,16 @@ The Shop contact number cannot be changed separately from the Merchant mobile nu
 
 ## 6. Shop Status and Lifecycle
 
-Shop status is `ACTIVE` or `DEACTIVATED`.
+Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 
 - Merchant can deactivate their Shop.
-- Super Admin cannot deactivate a Shop.
-- Only Super Admin can reactivate a deactivated Shop. Merchant cannot reactivate it.
+- Super Admin can suspend a Shop.
+- Only Super Admin can reactivate a deactivated Shop or unsuspend a suspended Shop. Merchant cannot reactivate or unsuspend it.
 - Deactivating a Merchant account automatically deactivates that Merchant's Shop.
-- A deactivated Shop cannot be accessed by customers or by the Merchant; Shop data remains until the Shop is permanently deleted.
-- A reactivated Shop requires a newly generated QR code; its previous QR does not work.
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains until the Shop is permanently deleted.
+- A reactivated or unsuspended Shop requires a newly generated QR code; its previous QR does not work.
 
-Super Admin's Shop capability in MVP is limited to reactivating a deactivated Shop. Super Admin cannot view Shop information, edit Shop information, or deactivate the Shop.
+Super Admin can suspend a Shop or reactivate/unsuspend an inactive Shop. Super Admin cannot edit Shop information directly.
 
 ## 7. Business Hours and Temporary Closure
 
