@@ -4,9 +4,12 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from shops.models import Shop
-from users.models import Merchant, User
+from users.models import Merchant, User, UserAuthSession
 
 
 class ShopModelTests(TestCase):
@@ -317,4 +320,159 @@ class ShopModelTests(TestCase):
         merchant.delete()
 
         self.assertFalse(Shop.objects.filter(id=shop_id).exists())
+
+
+class ShopCreateAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="merchant_creator",
+            email="creator@example.com",
+            mobile_number="+919876543219",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.url = reverse("shops:shop-create")
+
+    def authenticate_user(self, user):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def valid_shop_data(self):
+        return {
+            "name": "Super Daily Grocery",
+            "description": "All organic vegetables and groceries",
+            "address_line": "Shop 4, Sunrise Heights",
+            "area": "Kothrud",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "pincode": "411038",
+            "delivery_fee_type": "FIXED",
+            "delivery_charge": "30.00",
+            "is_home_delivery_enabled": True,
+            "is_pickup_enabled": True,
+        }
+
+    def test_unauthenticated_user_cannot_create_shop(self):
+        """Unauthenticated requests must return 401 Unauthorized."""
+        response = self.client.post(self.url, self.valid_shop_data(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_super_admin_cannot_create_shop(self):
+        """Super Admin is forbidden from creating a merchant shop."""
+        admin_user = User.objects.create_user(
+            username="admin_user",
+            email="admin@example.com",
+            mobile_number="+919876543218",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.post(self.url, self.valid_shop_data(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_merchant_must_change_password_is_blocked(self):
+        """Merchant who hasn't changed their initial password receives 403 PasswordChangeRequired."""
+        self.merchant.must_change_password = True
+        self.merchant.save()
+
+        self.authenticate_user(self.user)
+        response = self.client.post(self.url, self.valid_shop_data(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data.get("code"), "PASSWORD_CHANGE_REQUIRED")
+
+    def test_merchant_creates_shop_successfully(self):
+        """Active merchant creates shop: returns 201 Created, ACTIVE status, and public slug."""
+        self.authenticate_user(self.user)
+        data = self.valid_shop_data()
+
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], data["name"])
+        self.assertEqual(response.data["address_line"], data["address_line"])
+        self.assertEqual(response.data["city"], data["city"])
+        self.assertEqual(response.data["status"], "ACTIVE")
+        self.assertEqual(response.data["contact_number"], self.user.mobile_number)
+        self.assertTrue(bool(response.data["public_slug"]))
+        self.assertEqual(len(response.data["public_slug"]), 12)
+
+        shop = Shop.objects.get(merchant=self.merchant)
+        self.assertEqual(shop.status, Shop.Status.ACTIVE)
+        self.assertEqual(shop.contact_number, self.user.mobile_number)
+
+    def test_merchant_cannot_create_second_shop(self):
+        """Enforces one-Shop-per-Merchant invariant: second creation returns 400 SHOP_ALREADY_EXISTS."""
+        self.authenticate_user(self.user)
+        self.client.post(self.url, self.valid_shop_data(), format="json")
+
+        # Second attempt
+        response = self.client.post(self.url, self.valid_shop_data(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data.get("code"), "SHOP_ALREADY_EXISTS")
+
+    def test_missing_required_fields_rejected(self):
+        """Missing required address or name fields return 400 with validation errors."""
+        self.authenticate_user(self.user)
+        incomplete_data = {
+            "name": "",
+            "area": "Kothrud",
+        }
+        response = self.client.post(self.url, incomplete_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+        self.assertIn("address_line", response.data)
+        self.assertIn("city", response.data)
+        self.assertIn("state", response.data)
+        self.assertIn("pincode", response.data)
+
+    def test_negative_delivery_charge_rejected(self):
+        """Negative delivery charge returns 400 validation error."""
+        self.authenticate_user(self.user)
+        data = self.valid_shop_data()
+        data["delivery_charge"] = "-10.00"
+
+        response = self.client.post(self.url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("delivery_charge", response.data)
+
+    def test_login_returns_shop_id_dynamically(self):
+        """Before shop creation login returns shop_id: null; after creation login returns shop_id."""
+        login_res_1 = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.assertIsNone(login_res_1.data["user"]["shop_id"])
+
+        # Create shop
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login_res_1.data['access']}")
+        create_res = self.client.post(self.url, self.valid_shop_data(), format="json")
+        created_shop_id = create_res.data["id"]
+
+        # Login again
+        login_res_2 = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.assertEqual(login_res_2.data["user"]["shop_id"], created_shop_id)
+
 
