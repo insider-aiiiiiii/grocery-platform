@@ -70,7 +70,7 @@ Customer cart behavior, shop-specific cart context, and cart-item handling. The 
 
 ### `orders`
 
-Order creation, order data, order lifecycle, and fulfillment-related order state. The complete order state machine is not finalized.
+Order creation, order data, the finalized MVP order lifecycle and business rules, and fulfillment-related order state. Order implementation details remain for domain and technical design.
 
 ### `campaigns`
 

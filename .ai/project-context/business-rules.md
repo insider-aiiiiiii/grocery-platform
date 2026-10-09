@@ -31,9 +31,9 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 - Shop is the primary tenant boundary.
 - Merchant-owned data belongs to a Shop and must remain isolated from other Shops.
 - Merchants must not access another Shop's tenant-owned data.
-- Super Admin cannot view Shop information, edit Shop information, or deactivate a Shop in MVP. Super Admin may reactivate a deactivated Shop.
+- Super Admin cannot view or edit private Shop information in MVP. Super Admin can suspend a Shop, and can reactivate or unsuspend an inactive Shop.
 - Every Customer profile belongs to one Shop, and customer history remains Shop-scoped.
-- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. A WhatsApp number alone does not authorize access to customer history.
+- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. Customers may use their WhatsApp number to access their Orders in the relevant Shop/customer context; OTP is not required for this MVP decision. This does not grant access to other customers' information or Orders in another context.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This document does not define technical tenant-context implementation.
@@ -102,7 +102,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - Checkout uses the latest applicable Catalog price.
 - Once an Order is created, later Catalog price changes do not change its historical purchase price.
 - If the Merchant reduces an item's fulfillable quantity before acceptance, the Order total is recalculated using that reduced quantity.
-- The delivery charge used for the Order is preserved as part of the historical Order. The Merchant can change the Shop's delivery charge; its effect on an existing/pending Order is controlled by the Merchant, without a more specific mechanism defined here.
+- When a Shop uses a fixed delivery charge, the delivery charge used for the Order is preserved as part of the historical Order. When a Shop uses "Fee confirmed on WhatsApp", no delivery charge is added to the Order total at checkout, and delivery charges are settled directly between merchant and customer. The Merchant can change the Shop's delivery charge policy; its effect on an existing/pending Order is controlled by the Merchant, without a more specific mechanism defined here.
 - No tax calculation applies in MVP unless explicitly documented elsewhere. Do not introduce a discount engine unless Campaigns later defines one.
 
 Currency representation and price snapshot mechanics are **Not Finalized / Require Decision**.
@@ -117,11 +117,14 @@ Currency representation and price snapshot mechanics are **Not Finalized / Requi
 - MVP stores current stock only; it does not maintain a persistent inventory movement/history ledger.
 - Creating an Order reserves the required quantity, visible to the Merchant. Accepting the Order deducts the reserved stock. Rejecting the Order releases the reservation. Customer cancellation before acceptance releases reserved stock immediately. Merchant cancellation after acceptance and before preparation restores/releases reserved stock automatically, making it available again.
 - When the requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before acceptance. The Customer is notified, the Order reflects the adjusted quantity, and its total is recalculated. The system must not reduce quantities automatically without Merchant action.
+- Creating an Order reserves the required quantity, visible to the Merchant. Accepting the Order deducts the reserved stock. Rejecting the Order releases the reservation. Customer cancellation before acceptance releases reserved stock immediately. Merchant cancellation after acceptance and before preparation restores/releases reserved stock automatically, making it available again.
+- When the requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before acceptance. The Customer is notified, the Order reflects the adjusted quantity, and its total is recalculated. The system must not reduce quantities automatically without Merchant action.
 - Customers can see the exact available quantity. At `0`, they see **Out of Stock**; the product remains visible but cannot be ordered.
 - The MVP has no low-stock threshold. Do not add configurable thresholds, alerts, or low-stock notification events.
 - Removing a Catalog Product or Variant from a Shop Catalog removes its Inventory record. This does not prescribe hard-delete or soft-delete mechanics.
 - Inventory quantity and Catalog manual availability/visibility remain separate concepts.
 
+Exact database representation, Product aggregate recalculation, and transaction/concurrency implementation remain technical decisions.
 Exact database representation, Product aggregate recalculation, and transaction/concurrency implementation remain technical decisions.
 
 ## 12. Customer Identity Rules
@@ -134,6 +137,7 @@ Exact database representation, Product aggregate recalculation, and transaction/
 - A WhatsApp number must not expose another shop's customer history.
 - Traditional customer username/password accounts are not required by the current MVP concept.
 
+Phone-number normalization and formatting, detailed prefill behavior, privacy implementation, and authentication mechanism are **Not Finalized / Require Decision**. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
 Phone-number normalization and formatting, detailed prefill behavior, privacy implementation, and authentication mechanism are **Not Finalized / Require Decision**. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
 
 ## 13. Cart Rules
@@ -155,8 +159,10 @@ Do not invent additional mandatory checkout fields. Address validation remains s
 
 ## 15. Delivery / Pickup and Business Hours Rules
 
-- Shop supports Home Delivery and Pickup. Merchant can independently enable or disable each option. A disabled option is hidden from customers.
-- Merchant controls the delivery charge and may change it at any time. Merchant decides whether a delivery charge of ₹0 is allowed for the Shop. Delivery charge is shown to the customer at checkout.
+- Merchant controls the delivery charge policy with two supported options:
+  1. **Fixed Fee (or ₹0):** Merchant sets a fixed delivery charge (₹0 allowed for free delivery), displayed to the customer at checkout and added to the order total.
+  2. **Fee confirmed on WhatsApp:** No delivery fee is added to the checkout total; checkout displays a notice that delivery charges will be communicated by the merchant via WhatsApp.
+  Merchant may change this configuration at any time.
 - No delivery radius or delivery-area configuration exists in MVP. Merchant handles delivery eligibility manually.
 - Pickup means the customer collects the order from the Shop. Home Delivery requires a delivery address.
 - Business hours are an MVP feature managed by the Merchant. One opening time and one closing time apply to each configured Shop schedule; multiple daily time slots are not part of MVP.
@@ -165,6 +171,7 @@ Do not invent additional mandatory checkout fields. Address validation remains s
 - The MVP does not include centralized delivery-partner management.
 ## 16. Order Rules
 
+The approved MVP Order lifecycle is:
 The approved MVP Order lifecycle is:
 
 ```text
@@ -194,6 +201,15 @@ PENDING → REJECTED
 - Merchant operates acceptance, rejection, fulfillment status, and completion through the ERP/web interface.
 - Merchant marks both Pickup and Home Delivery Orders `COMPLETED`.
 - An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it is `PAID`.
+`PENDING` Orders automatically expire after a configured timeout; the exact default value and expiry representation are not defined. No separate `CANCELLED` state is required. Rejection and cancellation use the existing `REJECTED` outcome/state, and rejected/cancelled Orders cannot be reopened.
+
+- The Customer may cancel before Merchant acceptance while the Order is `PENDING`.
+- The Merchant may cancel an accepted Order only before `PREPARING`.
+- The Merchant may optionally provide a reason when rejecting an Order.
+- The Merchant manually reduces fulfillable quantities before acceptance when stock is insufficient. The Customer is notified, and the Order reflects the reduced quantity.
+- Merchant operates acceptance, rejection, fulfillment status, and completion through the ERP/web interface.
+- Merchant marks both Pickup and Home Delivery Orders `COMPLETED`.
+- An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it is `PAID`.
 
 ## 17. Merchant Order Operations
 
@@ -208,11 +224,14 @@ Do not define exact UI behavior or API endpoints here.
 ## 18. Customer Order Rules
 
 Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
+Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
 
 ## 19. Payment Rules
 
 For the MVP, payment is Merchant-managed. An Order has `PAID` or `UNPAID` status, and only the Merchant may update it. The Merchant decides per Order whether payment is required before acceptance. An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it becomes `PAID`. The platform does not process centralized payments and has no centralized refund workflow in MVP.
+For the MVP, payment is Merchant-managed. An Order has `PAID` or `UNPAID` status, and only the Merchant may update it. The Merchant decides per Order whether payment is required before acceptance. An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it becomes `PAID`. The platform does not process centralized payments and has no centralized refund workflow in MVP.
 
+Automatic payment verification, payment representation, settlements, and commission/monetization remain technical or future business decisions. Do not add centralized gateway or refund behavior.
 Automatic payment verification, payment representation, settlements, and commission/monetization remain technical or future business decisions. Do not add centralized gateway or refund behavior.
 
 ## 20. WhatsApp Rules
@@ -224,7 +243,13 @@ It is not the primary merchant interface for accepting or rejecting orders, chan
 ## 21. Merchant Accounts
 
 Merchant credentials may be shared with employees/staff in MVP. Individual employee accounts, roles, and individual staff permissions are not required; they may be introduced later. Merchant may log in from multiple devices. Failed login attempts have no special application-level lockout rule in MVP; normal authentication security still applies.
+Merchant credentials may be shared with employees/staff in MVP. Individual employee accounts, roles, and individual staff permissions are not required; they may be introduced later. Merchant may log in from multiple devices. Failed login attempts have no special application-level lockout rule in MVP; normal authentication security still applies.
 
+Merchant status is `ACTIVE` or `DEACTIVATED`. Deactivation immediately prevents Merchant login and platform access and invalidates existing sessions. Merchant data is not permanently deleted. A deactivated Merchant cannot be reactivated in MVP. Deactivating the Merchant account automatically deactivates their Shop. Both Merchant and Super Admin can change or reset the Merchant password. Standard platform password rules apply.
+
+Merchant API authentication uses JWT bearer tokens. Access tokens last 30 minutes and are not stored server-side; refresh tokens last 30 days and rotate on refresh. JWT signing keys come from environment-based secret management. Missing or invalid JWTs return `401 Unauthorized`.
+
+The successful login response contains `access`, `refresh`, `user` (`id`, `role`, `shop_id`), and the top-level `must_change_password` flag. Password hashes and secrets are never returned. Temporary-password tokens allow only password change, logout, and refresh. Other authenticated requests return `403 Forbidden` with `{"detail":"Password change required.","code":"PASSWORD_CHANGE_REQUIRED"}`. After password change, all previous access and refresh tokens are invalidated and the Merchant must log in again. Logout invalidates the current session/refresh token.
 Merchant status is `ACTIVE` or `DEACTIVATED`. Deactivation immediately prevents Merchant login and platform access and invalidates existing sessions. Merchant data is not permanently deleted. A deactivated Merchant cannot be reactivated in MVP. Deactivating the Merchant account automatically deactivates their Shop. Both Merchant and Super Admin can change or reset the Merchant password. Standard platform password rules apply.
 
 Merchant API authentication uses JWT bearer tokens. Access tokens last 30 minutes and are not stored server-side; refresh tokens last 30 days and rotate on refresh. JWT signing keys come from environment-based secret management. Missing or invalid JWTs return `401 Unauthorized`.
@@ -250,7 +275,9 @@ Platform analytics may include shops, orders, sales, shop performance, product p
 The following invariants must hold across domains:
 
 - An Order belongs to one Shop context and is deleted when that Shop is deleted.
+- An Order belongs to one Shop context and is deleted when that Shop is deleted.
 - Merchant-specific pricing belongs to the appropriate shop.
+- Shop-specific Customer identity remains within that Shop; the Customer entity remains if the Shop is deleted.
 - Shop-specific Customer identity remains within that Shop; the Customer entity remains if the Shop is deleted.
 - Inventory belongs to the appropriate shop/product context.
 - Merchant operations cannot cross shop boundaries.
@@ -264,14 +291,15 @@ These are business invariants, not a definition of database constraints or schem
 When a business operation changes current information, consider whether historical records must preserve the state that existed when an event occurred. Relevant examples may include order information, the pricing used for an order, the customer/order relationship, and merchant/shop state.
 
 The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders preserve their historical purchase price and delivery charge while they exist. Later Catalog or Shop delivery-charge changes do not rewrite those historical values. Shop deletion removes its Orders; it does not globally delete Customer entities.
+The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders preserve their historical purchase price and delivery charge while they exist. Later Catalog or Shop delivery-charge changes do not rewrite those historical values. Shop deletion removes its Orders; it does not globally delete Customer entities.
 
 ## 26. Deactivation / Deletion
 
 Shop lifecycle and deletion rules are approved:
 
-- Shop status is `ACTIVE` or `DEACTIVATED`.
-- Merchant can deactivate their Shop. Super Admin cannot deactivate it; only Super Admin can reactivate it.
-- A deactivated Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
+- Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
+- Merchant can deactivate their Shop. Super Admin can suspend a Shop. Only Super Admin can reactivate or unsuspend an inactive Shop.
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains until permanent deletion.
 - Merchant account deactivation automatically deactivates the Merchant's Shop.
 - Merchant can permanently delete the Shop, including when it has existing orders. Deletion requires confirmation and a clear warning that Shop data and orders will be deleted.
 - Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Merchant may then immediately create a new Shop.
@@ -304,13 +332,7 @@ The following require product/business approval and must not be answered by assu
 - Physical representation of Shop Products and any Master Product selection/link reference.
 - Product/variant schema, attribute representation, image storage, and inventory mapping.
 - Historical Order product snapshot/reference strategy.
-- Detailed partial-quantity behavior with Orders.
 - Inventory technical/database representation, aggregate Product stock recalculation, and transaction/concurrency implementation.
-- Pending Order timeout default and technical expiry representation.
-- Exact handling when the Merchant changes a Shop delivery charge while Orders already exist or are pending.
-- Detailed Order validation, snapshot representation, authorization, and API/technical design.
-- Responsibilities for external refunds, if any, remain undefined; no centralized refund workflow is included in MVP.
-- Payment verification.
 - Campaign rules.
 - Analytics formulas.
 - Deletion and retention policies for entities other than the approved Shop deletion behavior.

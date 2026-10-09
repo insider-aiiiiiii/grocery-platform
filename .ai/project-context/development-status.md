@@ -66,19 +66,20 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | PostgreSQL configuration | Partially Implemented | Settings select PostgreSQL from `POSTGRES_*` environment variables when `POSTGRES_DB` is set; otherwise they use SQLite. No PostgreSQL connection is verified. |
 | Environment configuration | Partially Implemented | `.env.example` exists and settings read environment variables. No `.env` file was found; no dotenv-loading behavior was verified. |
 | `users` | Partially Implemented | Custom Django User model with globally unique email/mobile, role-aware credential backend, one-to-one Merchant profile, Merchant JWT login/password-change/logout/refresh endpoints, and revocable session metadata. Shop relationship is not implemented because the Shop model does not exist. |
-| `shops` | Scaffolded / No Business Logic | Shop business decisions are finalized; app files exist, but Shop implementation has not started. |
+| `shops` | Partially Implemented | Shop model with 1-to-1 Merchant relationship, structured address, operational controls, SUSPENDED status, DB constraints, migrations, and unit tests implemented under SHOP-001. Shop APIs not yet started. |
 | Shop domain business decisions | Finalized | Approved Shop creation, ownership, lifecycle, profile, business hours, fulfillment, customer access, QR, deletion, and Super Admin rules are documented. Implementation has not started. |
 | Catalog domain business decisions | Finalized | Master and Shop Catalog independence, Merchant control, products, variants, pricing, categories, brands, attributes, images, visibility, availability, deletion, and customer-facing rules are documented. Catalog implementation has not started. |
 | `catalog` | Scaffolded / No Business Logic | App files exist; no Catalog models, migrations, APIs, tests, or frontend work have been implemented. |
-| Inventory business decisions | Finalized | Shop-scoped stock, granularity, quantities, initial stock, merchant updates, order reservation/deduction/restoration, customer visibility, no low-stock threshold or movement ledger, and removal behavior are documented. Partial-quantity details and other Orders dependencies remain open. |
+| Inventory business decisions | Finalized | Shop-scoped stock, granularity, quantities, initial stock, merchant updates, reservation/deduction/release/restoration, manual insufficient-quantity reduction with customer notification, customer visibility, no low-stock threshold or movement ledger, and removal behavior are documented. Technical/database design remains open. |
 | `inventory` | Scaffolded / No Business Logic | Inventory implementation has not started. It remains dependent on technical/database design and relevant Orders integration. No inventory models, migrations, APIs, tests, or frontend work are complete. |
 | `customers` | Scaffolded / No Business Logic | App files exist; no customer identity implementation. |
 | `cart` | Scaffolded / No Business Logic | App files exist; no cart behavior or persistence. |
 | `orders` | Scaffolded / No Business Logic | App files exist; no order behavior or state machine. |
+| Orders business rules | Finalized | Lifecycle, cancellation/rejection outcomes, inventory effects, payment, pricing, fulfillment, customer Order history access, and Shop deletion behavior are documented. Order implementation has not started. |
 | `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior. |
 | `notifications` | Scaffolded / No Business Logic | App files exist; no notification or WhatsApp integration. |
 | `analytics` | Scaffolded / No Business Logic | App files exist; no analytics implementation. |
-| Authentication | Implemented for Merchant and Super Admin login/session flows | Merchant mobile/password login and Super Admin email/mobile login use 30-minute access and 30-day rotating refresh tokens. Temporary-password restriction applies to Merchants; password changes and logout revoke sessions; Merchant deactivation and inactive Super Admin state reject existing sessions. Full resource authorization remains unimplemented. |
+| Authentication | Partially Implemented | Credential backend and identity models exist. Merchant JWT contract is finalized; Merchant login, password-change, logout, refresh endpoints, and token enforcement are pending. Authorization beyond the temporary-password restriction remains undecided. |
 | Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
 | Multi-tenancy implementation | Not Started | Shop-level isolation is an approved requirement; no tenant-context or tenant-query enforcement was found. |
 | API endpoints | Partially Implemented | Merchant and Super Admin login, refresh, logout, and Merchant password-change endpoints are routed under `/api/v1/auth/`; other application APIs are not implemented. |
@@ -217,10 +218,12 @@ See `.ai/project-context/business-rules.md` for the canonical unresolved-decisio
 - Customer identity mechanism.
 - Physical representation of independent Shop Products and optional Master Product selection.
 - Catalog schema details, attribute representation, image storage, inventory mapping, and historical Order product snapshot/reference strategy.
-- Inventory technical/database representation, aggregate Product quantity behavior, partial-quantity Orders behavior, other Order cancellation/state-machine decisions, and transaction/concurrency design.
-- Complete order state machine, cancellation, and refunds.
+- Inventory and Order technical/database representation, aggregate Product quantity behavior, inventory transaction/concurrency design, and expiry-state representation.
+- Configured pending-timeout default; business timeout behavior is finalized, but no default duration has been chosen.
+- Order snapshot representation, total calculation implementation, validation, authorization, and API contracts.
+- Merchant handling mechanism for delivery-charge changes affecting existing/pending Orders; the business decision leaves this under Merchant control without specifying a mechanism.
+- Responsibilities for external refunds, if any; no centralized refund workflow is approved for MVP.
 - Technical representation of Shop business hours, public link/QR generation, and physical Shop deletion mechanics; approved Shop behavior is documented.
-- Payment verification.
 - Campaign rules and analytics formulas.
 - Physical deletion mechanics for Shop-related records; deletion/retention rules for other entities and historical-data requirements beyond the approved Shop rules.
 
@@ -228,7 +231,7 @@ Do not resolve these by assumption in implementation.
 
 ## 16. Do Not Implement Yet
 
-Until corresponding decisions and technical designs are completed, do not implement final authentication or authorization, final user/membership architecture, detailed Order workflows, Inventory technical/database design or Orders integration, a centralized payment gateway, delivery-partner management, microservices, advanced event-driven architecture, or complex ERP accounting. Inventory business rules are finalized; remaining Orders dependencies must not be resolved by assumption. Follow `product.md`, `architecture.md`, and `business-rules.md` for current boundaries.
+Until corresponding decisions and technical designs are completed, do not implement final authentication or authorization, final user/membership architecture, Order workflows, Inventory technical/database design or Orders integration, a centralized payment gateway, delivery-partner management, microservices, advanced event-driven architecture, or complex ERP accounting. Order and Inventory business rules are finalized; remaining technical work must not be resolved by assumption. Follow `product.md`, `architecture.md`, and `business-rules.md` for current boundaries.
 
 ## 17. Change Tracking
 

@@ -77,6 +77,8 @@ Merchant application, review, approval, rejection, re-application, and applicati
 - Merchant credentials may be shared with employees/staff in MVP. Separate employee accounts, roles, and individual staff permissions are not required.
 - Merchant may log in from multiple devices. Logout invalidates the current session/refresh token.
 - A deactivated Merchant cannot use existing sessions or tokens; deactivation takes effect immediately.
+- Merchant may log in from multiple devices. Logout invalidates the current session/refresh token.
+- A deactivated Merchant cannot use existing sessions or tokens; deactivation takes effect immediately.
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 - Failed login attempts have no special application-level lockout rule in MVP. Normal authentication security still applies.
 
@@ -108,22 +110,7 @@ Merchant access is limited to the Merchant's Shop. Server-side authorization mus
 
 ## 10. Authentication and Technical Boundaries
 
-The application uses a custom Django `User` model derived from `AbstractUser`. Its email and mobile fields have global uniqueness constraints across all User accounts, and a Super Admin must have at least one of those login identifiers. Merchant login uses mobile number and password. A separate Merchant profile stores status (`ACTIVE` or `DEACTIVATED`, default `ACTIVE`) and a first-login password-change flag (default true). Django stores password hashes on User.
-
-### JWT Authentication Contract
-
-- Send access tokens in the `Authorization: Bearer <token>` header. Missing or invalid JWTs receive HTTP `401 Unauthorized`.
-- Access tokens last 30 minutes and are not stored server-side. Refresh tokens last 30 days; refresh-token rotation is enabled.
-- JWT signing uses a secret supplied through environment-based secret management.
-- `POST /api/v1/auth/login/` accepts `mobile_number` and `password`. Successful Merchant login returns `access`, `refresh`, `user` (`id`, `role`, and `shop_id`), and the top-level `must_change_password` boolean. `shop_id` is `null` until the Merchant has a Shop. Password hashes and secrets are never included.
-- `POST /api/v1/auth/super-admin/login/` accepts `identifier` (an email address or mobile number) and `password`. It authenticates only an active (`User.is_active = true`) `SUPER_ADMIN`; Merchant credentials are rejected. Deactivating a Super Admin (`is_active = false`) immediately invalidates existing access and refresh tokens. Success uses the same login response structure, with `role: "SUPER_ADMIN"`, `shop_id: null`, and `must_change_password: false`.
-- Invalid credentials, an inactive account, or an account with a different role return HTTP `401` with the standard DRF error object `{"detail":"Invalid credentials."}`. This response does not disclose whether an identifier is registered.
-- When `must_change_password` is true, the access and refresh tokens are restricted to `POST /api/v1/auth/change-password/`, `POST /api/v1/auth/logout/`, and `POST /api/v1/auth/refresh/`. Every other authenticated request returns HTTP `403` and `{"detail":"Password change required.","code":"PASSWORD_CHANGE_REQUIRED"}`.
-- Password change accepts `current_password` and `new_password`. A successful change sets `must_change_password` false, invalidates all existing access and refresh tokens, returns `204 No Content`, and requires a new login. Only the new login returns unrestricted tokens.
-- Refresh accepts `refresh` and returns rotated `access` and `refresh` tokens. Logout accepts the current `refresh` token, invalidates its session, and returns `204 No Content`.
-- Password changes invalidate all sessions. Merchant deactivation immediately invalidates existing sessions.
-
-Access tokens carry a session identifier and the first-login restriction state, but access-token strings are never stored server-side. Server-side session metadata supports immediate logout and token invalidation.
+The application uses a custom Django `User` model derived from `AbstractUser`. Its email and mobile fields have global uniqueness constraints across all User accounts, and a Super Admin must have at least one of those login identifiers. The configured Django authentication backend accepts Merchant mobile/password and Super Admin email/password or mobile/password. A separate Merchant profile stores status (`ACTIVE` or `DEACTIVATED`, default `ACTIVE`) and a first-login password-change flag (default true). Django stores password hashes on User. Phone/email normalization, session/token behavior, APIs, and other profile fields remain unspecified.
 
 ## 11. Approved Business Invariants
 
@@ -148,8 +135,8 @@ The following remain unresolved because they concern technical representation or
 | Authentication mechanism | JWT bearer authentication is approved with 30-minute access tokens, 30-day rotating refresh tokens, and the first-login restriction defined above. |
 | Django User and Merchant profile | One custom `AbstractUser` with `SUPER_ADMIN` and `MERCHANT` roles, global email/mobile uniqueness, and a separate one-to-one Merchant profile is implemented under AUTH-001/AUTH-003. Django's `is_active` field controls whether a Super Admin can authenticate. |
 | Password hashing implementation | Django's standard password hashing is used through `AbstractUser`. |
-| Token revocation implementation | Implemented with refresh-token blacklist records and revocable User session metadata; access JWT strings are not persisted. |
-| API request details beyond the approved authentication response and token behavior | Login, refresh, logout, and password-change request fields and paths are documented in the approved contract above. |
+| Session/token implementation and exact logout mechanics | Must implement the approved invalidation behavior once auth is selected. |
+| API contracts and database fields/constraints | Not specified. |
 | Phone/email normalization | Not specified. |
 
 ## 13. Explicit Non-Goals

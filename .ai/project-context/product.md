@@ -97,11 +97,11 @@ Customer information
 Order history
 ```
 
-When a customer provides the same WhatsApp number for that shop, previously provided information such as name or address may be reused or pre-filled. A password-based customer account is not required for this experience. Customer identification, privacy, security, and repeat-order behavior will be defined in the Customer domain specification.
+Customer Order history is available within the relevant Shop/customer context using the customer's WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Previously provided name or address may be reused or pre-filled according to Customer-domain rules.
 
 ## 10. Orders
 
-A customer creates an order from their cart. The merchant reviews the order before accepting it. The initial lifecycle is conceptual:
+A customer creates an order from their cart. The merchant reviews the order before accepting it. The approved MVP lifecycle is:
 
 ```text
 PENDING
@@ -123,15 +123,19 @@ PENDING
 REJECTED
 ```
 
-The exact order state machine, cancellation rules, status transitions, inventory behavior, and delivery workflow belong in the Order domain specification. Do not infer additional order states from this document.
+`PENDING` Orders expire after a configured timeout; its default value remains a configuration/technical decision. Customer cancellation is allowed while `PENDING`; Merchant cancellation is allowed after acceptance only before `PREPARING`. Rejection and cancellation use the existing `REJECTED` outcome/state, with no separate `CANCELLED` state, and those Orders cannot be reopened. Rejection reasons are optional. The Merchant manually reduces fulfillable quantities when stock is insufficient, the Customer is notified, and the Order reflects the adjusted quantity.
+
+Checkout uses the latest Catalog price. An Order preserves its historical purchase price and delivery charge; Merchant-approved quantity reductions before acceptance recalculate the Order total. The Merchant controls the effect of a delivery-charge change on an existing or pending Order. No tax calculation applies in MVP unless explicitly documented elsewhere, and no discount engine is introduced unless Campaigns later defines one.
+
+Order creation reserves stock; acceptance deducts it; rejection and pending Customer cancellation release it; eligible Merchant cancellation restores/releases it. See the Orders and Inventory specifications for these rules.
 
 ## 11. Pickup and Home Delivery
 
-Customers can choose `PICKUP` or `DELIVERY`. For pickup, the customer collects the order from the shop. For delivery, the customer provides a delivery address. The initial product does not require a centralized delivery-partner system. Delivery partners, tracking, delivery zones, and delivery assignment, if introduced later, will be defined separately.
+Customers choose `PICKUP` or `DELIVERY` during checkout. Home Delivery requires an address; the Customer may choose a saved address or enter a new one. Pickup does not require an address. The Merchant marks both Pickup and Home Delivery Orders `COMPLETED`. The initial product does not require a centralized delivery-partner system. Delivery partners, tracking, delivery zones, and delivery assignment, if introduced later, will be defined separately.
 
 ## 12. Payments
 
-In the current product scope, payment is handled by the merchant rather than through the platform's online payment gateway. The merchant may provide payment instructions through WhatsApp, UPI, UPI QR, or physical payment at the shop. The platform does not currently need an online payment gateway integration. The payment-status model will be defined separately. Do not introduce Razorpay, Stripe, or another payment gateway unless explicitly approved later.
+Payment is Merchant-managed. Orders have `PAID` / `UNPAID` status, and only the Merchant can update payment status. The Merchant decides per Order whether payment is required before acceptance. An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it becomes `PAID`. There is no centralized payment gateway or centralized refund workflow in MVP.
 
 ## 13. WhatsApp
 

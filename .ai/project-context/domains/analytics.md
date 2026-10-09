@@ -242,16 +242,16 @@ Do not implement a formula by assuming that all created orders or all order tota
 
 Orders owns the order lifecycle and historical transaction meaning. Analytics consumes those facts.
 
-The conceptual order states documented by the product are:
+The finalized MVP Order lifecycle is:
 
 ```text
 PENDING → ACCEPTED → PREPARING → READY → COMPLETED
 PENDING → REJECTED
 ```
 
-The Orders domain does not finalize a complete state machine, cancellation rules, payment status, or inventory effects. Analytics must not infer those rules.
+Customer cancellation while `PENDING` and eligible Merchant cancellation after acceptance use the existing `REJECTED` Order outcome/state; there is no separate `CANCELLED` Order state. Orders also have `PAID` / `UNPAID` status, and inventory effects are defined in the Orders and Inventory specifications. The default pending timeout and its technical expiry representation remain unresolved.
 
-For each order-based metric, the approved design must specify whether `PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `COMPLETED`, and `REJECTED` contribute. Cancelled, failed, expired, refunded, or other states must not be assumed because they are not currently finalized.
+For each Order-based metric, the approved design must specify whether `PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `COMPLETED`, and `REJECTED` contribute. Do not treat cancellation as a separate Order status. Do not assume an expiry status value; pending timeout behavior is approved, but its technical representation is open.
 
 ## 13. Historical Accuracy
 

@@ -300,7 +300,7 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 \- Status: **\*\*APPROVED\*\*** as a business concept.
 
-Each Customer profile belongs to one Shop, and Customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. A WhatsApp number does not grant access to customer history.
+Each Customer profile belongs to one Shop, and Order history remains within the Shop/customer context. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. Customers may access their Orders in the relevant context using their WhatsApp number; OTP is not required for this MVP decision. This does not grant access to another customer's information or Orders outside that context.
 
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
@@ -530,9 +530,9 @@ Do not add a Cart foreign key to Order merely because checkout passed through Ca
 
 There is one current Customer record per customer at a Shop. When the same customer places another order, the current Customer details may be updated.
 
-Orders are retained as historical transactions unless the Merchant permanently deletes the Shop, which also deletes its Orders. The full Customer profile is not copied into every Order. However, an Order preserves the order-time information required for historical accuracy, especially the delivery address used for that order.
+Orders are retained as historical transactions while the Shop exists. Deleting the Shop also deletes its Orders. The Customer entity remains and is not globally deleted because of Shop deletion. The full Customer profile is not copied into every Order. An Order preserves its historical purchase price and delivery charge, plus order-time information required for historical accuracy.
 
-Customer-facing UI may show only the latest 2–3 Orders, but older Orders remain stored as historical transaction records unless the Merchant permanently deletes the Shop, which also deletes its Orders.
+Customers may view all previous Orders available within their Shop/customer context using their WhatsApp number; OTP is not required for this MVP decision. Merchant can view all historical Orders for the Shop while it exists.
 
 **## 28. Order → OrderItem**
 
@@ -570,7 +570,7 @@ The Orders domain requires historical purchase information but does not choose c
 - Classification: Business interaction.
 - Cardinality: Physical representation remains a database-design decision.
 - Tenant scope: Order and Inventory share the same Shop context.
-- Status: **APPROVED** as business behavior, with partial-quantity and remaining Order lifecycle dependencies.
+- Status: **APPROVED** as business behavior. Technical transaction/concurrency behavior remains unresolved.
 
 ```text
 Order Created
@@ -589,14 +589,14 @@ Reserved Quantity Released
 ```
 
 ```text
-Accepted Order Cancelled
+Accepted Order Cancelled before PREPARING
     ↓
 Deducted Quantity Restored
     ↓
 Quantity Immediately Available Again
 ```
 
-Reserved quantity is visible to the Merchant. A requested quantity greater than available stock may result in partial quantity. Detailed customer/order behavior for partial quantity remains an Orders-domain dependency. The complete Order state machine, additional cancellation scenarios, and exact transaction/concurrency implementation remain unresolved.
+Reserved quantity is visible to the Merchant. When requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before acceptance; the Customer is notified and the Order reflects the reduced quantity. No automatic quantity reduction occurs. Rejection and pending Customer cancellation release reserved quantity; eligible Merchant cancellation restores/releases it. Exact transaction/concurrency implementation remains unresolved.
 **## 31. Order → Notification**
 
 \- Meaning: An Order may trigger communication about an approved business event.
@@ -731,12 +731,13 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Shop | Cart | Cart cannot cross Shop | `1 → many` possible | Tenant | Scoping | **APPROVED** |
 | Cart | CartItem | Cart contains selected items | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
 | CartItem | Product/Variant | Item references catalog selection | `many → 1` | Tenant | Reference | **CONCEPTUAL** |
-| Customer | Order | Shop-specific customer has Orders | `1 → many` | Tenant | Association | **APPROVED** |
-| Shop | Order | Order belongs to one Shop | `1 → many` | Tenant | Ownership | **APPROVED** |
+| Customer | Order | Shop/customer-context Customer has historical Orders | one-to-many | Tenant/customer context | Association | **APPROVED** |
+| Shop | Order | Order belongs to one Shop; deleting the Shop deletes its Orders | one-to-many | Tenant | Ownership and deletion outcome | **APPROVED business rule** |
 | Cart | Order | Cart supplies checkout intent; no persistent link | `TBD` persistent | Tenant | Business interaction | **APPROVED** |
 | Order | OrderItem | Order contains historical lines | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
 | OrderItem | Product/Variant | Historical purchase references item meaning | `many → 1` possible | Tenant/global reference | Historical/reference | **CONCEPTUAL** |
-| Order | Inventory | Creation reserves; acceptance deducts; rejection releases; accepted cancellation restores | Physical mapping TBD | Tenant | Business interaction | **APPROVED business behavior** |
+| Order | Inventory | Creation reserves; acceptance deducts; rejection or pending Customer cancellation releases; eligible Merchant cancellation restores/releases; Merchant manually adjusts insufficient quantity | Physical mapping TBD | Tenant | Business interaction | **APPROVED business behavior** |
+| Order | Payment status | Order has `PAID` / `UNPAID` status; only Merchant updates it | Order context; physical representation TBD | Tenant | Business state | **APPROVED business rule** |
 | Order | Notification | Order events may trigger required notifications | `1 → many` possible | Tenant | Business interaction | **CONCEPTUAL** |
 | Notification | Recipient | MVP targets Shop's one configured merchant WhatsApp number or the relevant Shop-specific Customer WhatsApp number | `TBD` | Tenant | Delivery/tenant-scoping | **APPROVED** |
 | Campaign | Shop | Campaign may display across all or selected Shops | `many ↔ many` possible | Platform/display scope | Targeting/display | **CONCEPTUAL** |
@@ -892,7 +893,7 @@ This is not approved. Identity, business/operator context, tenant context, and a
 
 **### Keep Customer profiles shop-scoped**
 
-Each Customer profile belongs to one Shop and customer history remains shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins, but the number alone does not authorize access to customer history. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
+Each Customer profile belongs to one Shop. Customers can access all their Orders available within their Shop/customer context using their globally unique WhatsApp number; OTP is not required for this MVP decision. Do not expose Orders across Shop/customer contexts, and minimize customer information. WhatsApp/mobile identity values are globally unique across Customer, Merchant, and Super Admin accounts. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
 
 **### Do not make Merchant the tenant**
 
@@ -985,13 +986,13 @@ The following business decisions have been explicitly resolved during relationsh
 6. **Customer records are Shop-specific.** Within a Shop, the WhatsApp number is the primary identifier for recognizing a returning Customer. A permanent Customer record is created when the customer first provides that WhatsApp number, including before checkout; abandoned carts may therefore be associated with permanent Customer records.
 7. **Cart has direct Shop context and cannot mix Shops.** Checkout creates the Order, but no persistent Cart → Order relationship is required.
 8. **One current Customer record per customer per Shop.** Repeat orders may update the current Customer details. Orders remain complete historical transaction records.
-9. **Full Order history is retained unless the Merchant permanently deletes the Shop.** Shop deletion removes its Shop Orders; otherwise Customer UI may show only the latest 2–3 Orders without deleting older Orders.
+9. **Order history remains available while the Shop exists.** Merchant can view all historical Shop Orders. Customers can view all their Orders available within the Shop/customer context. Shop deletion removes the Shop's Orders; there is no history-count limit while they exist.
 10. **Order preserves order-time delivery information.** The complete current Customer profile is not duplicated into every Order.
-11. **Order creation reserves required stock; Merchant acceptance deducts it.** Reserved quantity is visible to the Merchant. Rejection releases the reservation, and cancellation after acceptance restores the deducted stock for immediate availability. Requested quantities above availability may result in partial quantity; detailed behavior remains an Orders-domain dependency.
+11. **Order creation reserves required stock; Merchant acceptance deducts it.** Reserved quantity is visible to the Merchant. Rejection and pending Customer cancellation release it; eligible Merchant cancellation after acceptance restores/releases it. When stock is insufficient, Merchant may manually reduce the fulfillable quantity before acceptance, the Customer is notified, and the Order total reflects the reduced quantity. No automatic reduction is allowed.
 12. **MVP campaigns are platform advertising content.** Super Admin creates them; they may display to all or selected Shops; product/category mentions are advertisement content, not persistent targets.
 13. **MVP WhatsApp notifications are limited to two flows:** new Order → the Shop's one configured merchant WhatsApp number, and Merchant ACCEPTED/REJECTED → the relevant Shop-specific Customer's WhatsApp number. No WhatsApp notifications are required for PREPARING, READY, or COMPLETED. WhatsApp is notification-only; order operations remain in the Merchant ERP/application, and delivery failure does not change Order state.
 14. **MVP Analytics queries source domain data directly.** No separate analytics database or duplicated fact tables are required initially.
-15. **Deletion/retention is not globally automatic.** Business entities should preserve historical context; physical deletion mechanics and retention for records related to a deleted Shop, and rules for other entities, remain for database design.
+15. **Shop deletion removes the Shop and its Orders, but does not globally delete Customer entities.** Physical deletion mechanics remain for database design; other entities follow their own approved deletion rules.
 
 These decisions are business-level relationship decisions. They do not finalize Django fields, authentication technology, API contracts, database constraints, indexes, or transaction implementation.
 

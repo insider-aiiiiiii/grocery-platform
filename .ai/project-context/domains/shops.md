@@ -62,16 +62,16 @@ The Shop contact number cannot be changed separately from the Merchant mobile nu
 
 ## 6. Shop Status and Lifecycle
 
-Shop status is `ACTIVE` or `DEACTIVATED`.
+Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 
 - Merchant can deactivate their Shop.
-- Super Admin cannot deactivate a Shop.
-- Only Super Admin can reactivate a deactivated Shop. Merchant cannot reactivate it.
+- Super Admin can suspend a Shop.
+- Only Super Admin can reactivate a deactivated Shop or unsuspend a suspended Shop. Merchant cannot reactivate or unsuspend it.
 - Deactivating a Merchant account automatically deactivates that Merchant's Shop.
-- A deactivated Shop cannot be accessed by customers or by the Merchant; Shop data remains until the Shop is permanently deleted.
-- A reactivated Shop requires a newly generated QR code; its previous QR does not work.
+- A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains until the Shop is permanently deleted.
+- A reactivated or unsuspended Shop requires a newly generated QR code; its previous QR does not work.
 
-Super Admin's Shop capability in MVP is limited to reactivating a deactivated Shop. Super Admin cannot view Shop information, edit Shop information, or deactivate the Shop.
+Super Admin can suspend a Shop or reactivate/unsuspend an inactive Shop. Super Admin cannot edit Shop information directly.
 
 ## 7. Business Hours and Temporary Closure
 
@@ -88,9 +88,10 @@ The Shop's temporary closed state does not deactivate the Shop. Time formats, ti
 
 ## 8. Home Delivery and Pickup
 
-The Shop supports Home Delivery and Pickup. The Merchant can independently enable or disable each option. If an option is disabled, it is hidden from customers.
-
-- **Home Delivery:** Merchant controls the delivery charge and may change it at any time. Merchant decides whether a zero charge (₹0) is allowed for their Shop. Delivery charge is shown to the customer at checkout.
+- **Home Delivery:** Merchant controls the delivery charge policy and may choose between two options:
+  1. **Fixed Fee (or ₹0):** Merchant sets a fixed delivery charge (including ₹0 for free delivery), which is displayed to the customer at checkout and added to the order total.
+  2. **Fee Confirmed on WhatsApp:** No delivery charge is added to the checkout total; checkout displays a clear notice: *"Delivery charges will be communicated by the merchant via WhatsApp."*
+  Merchant may change this configuration at any time.
 - **Delivery eligibility:** There is no delivery radius or delivery-area configuration in MVP. Merchant handles delivery eligibility manually.
 - **Pickup:** Customers collect the order from the Shop.
 
