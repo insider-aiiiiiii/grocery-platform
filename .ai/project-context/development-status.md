@@ -77,8 +77,9 @@ The `backend/` directory contains `manage.py`, `requirements.txt`, and a standar
 | `orders` | Scaffolded / No Business Logic | App files exist; no order behavior or state machine. |
 | Orders business rules | Finalized | Lifecycle, cancellation/rejection outcomes, inventory effects, payment, pricing, fulfillment, customer Order history access, and Shop deletion behavior are documented. Order implementation has not started. |
 | Campaigns business rules | Finalized | Platform-level Super Admin campaigns, Shop display scope, lifecycle, optional scheduling, pricing/order boundaries, visibility, and MVP exclusions are documented. Technical design remains open. |
+| Notifications business rules | Finalized | WhatsApp-only MVP Order event matrix, recipients, delivery guarantees, fixed-template requirement, privacy boundaries, and exclusions are documented. Technical design remains open, including notification-history retention. |
 | `campaigns` | Scaffolded / No Business Logic | App files exist; no campaign behavior or implementation. |
-| `notifications` | Scaffolded / No Business Logic | App files exist; no notification or WhatsApp integration. |
+| `notifications` | Scaffolded / No Business Logic | App files exist; approved MVP WhatsApp order events, recipients, delivery guarantees, and exclusions are documented; no notification or WhatsApp integration. Technical design, including history retention, remains open. |
 | `analytics` | Scaffolded / No Business Logic | App files exist; no analytics implementation. |
 | Authentication | Partially Implemented | Credential backend and identity models exist. Merchant JWT contract is finalized; Merchant login, password-change, logout, refresh endpoints, and token enforcement are pending. Authorization beyond the temporary-password restriction remains undecided. |
 | Authorization | Blocked / Requires Decision | Final authorization model and permission matrix are not finalized; no product/API authorization implementation was found. |
@@ -170,7 +171,7 @@ Each app has a generated `tests.py`, but no test cases were found. No domain, AP
 
 ### WhatsApp
 
-Order notifications and acknowledgements are product requirements. Provider/architecture is not finalized, and no integration implementation was found.
+The approved MVP event and recipient matrix is documented in `.ai/project-context/domains/notifications.md`. Provider/architecture is not finalized, and no integration implementation was found. Notification history retention must be decided before implementation.
 
 ### Payments
 

@@ -236,9 +236,11 @@ Automatic payment verification, payment representation, settlements, and commiss
 
 ## 20. WhatsApp Rules
 
-WhatsApp is primarily a communication and notification channel. It may be used for order notifications, acknowledgements, and merchant/customer communication when explicitly approved.
+WhatsApp is the only approved channel for MVP Order notifications. The required events, recipients, and triggers are: successful Order creation notifies the Shop's configured merchant WhatsApp number and sends the Customer an Order-received acknowledgement; Merchant acceptance or rejection notifies the Customer; Merchant manual quantity reduction before acceptance notifies the Customer; Customer cancellation of a pending Order notifies the Shop's configured merchant number; and Merchant cancellation of an accepted Order before preparation notifies the Customer. The immediate acknowledgement says the Order was received, not accepted. See `.ai/project-context/domains/notifications.md` for the complete event mapping.
 
-It is not the primary merchant interface for accepting or rejecting orders, changing order status, or managing inventory. The merchant ERP/web interface remains the operational interface. Do not select a WhatsApp provider or integration architecture here.
+Notifications track delivery separately from Order state. Delivery failure does not change Order state, and a message must not be reported as delivered without provider confirmation. Prevent unintended duplicate messages for the same originating event and recipient; use bounded retries for transient failures and avoid retries for permanent failures, subject to provider capability. Use fixed, reviewed templates and only necessary Order information. History retention must be decided before implementation; no retention period is set here.
+
+WhatsApp messages must never accept, reject, cancel, or otherwise change an Order. Merchant Order operations remain in the ERP/web interface. Do not select a WhatsApp provider or integration architecture here. Email, SMS, push, in-app notifications, campaign messages, low-stock alerts, customer segmentation, and notification preferences are excluded from the MVP.
 
 ## 21. Merchant Accounts
 

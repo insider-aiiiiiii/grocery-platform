@@ -205,9 +205,7 @@ After successful order creation, the order is independent of future cart changes
 
 ## 27. Notifications
 
-Orders produce approved notifications, including notifying the Customer when the Merchant manually reduces a fulfillable quantity. The Notifications domain defines delivery behavior. Do not implement notifications here.
-
-The Notifications domain defines delivery behavior. Do not implement notifications here.
+Orders is the source of truth for order data, state, and business events; Notifications owns message preparation and delivery handling. The MVP WhatsApp notification events are: successful Order creation notifies the Shop's configured merchant number and sends the Customer an Order-received acknowledgement; acceptance, rejection, manual quantity reduction before acceptance, and Merchant cancellation after acceptance but before preparation notify the Customer; pending Customer cancellation notifies the Shop's configured merchant number. The received acknowledgement must not imply acceptance. Delivery failure does not change Order state. See `.ai/project-context/domains/notifications.md` for the full mapping and delivery rules.
 
 ## 28. WhatsApp Boundary
 
@@ -224,6 +222,8 @@ WhatsApp
 ```
 
 WhatsApp is a notification/acknowledgement channel. Merchant order operations remain in the ERP/web interface. Do not define or imply WhatsApp commands for accepting, rejecting, preparing, marking ready, or completing orders unless a future product decision explicitly changes scope.
+
+WhatsApp messages must never accept, reject, cancel, or otherwise change an Order. Customer cancellation while `PENDING`, Merchant rejection while `PENDING`, and Merchant cancellation after acceptance but before `PREPARING` use the existing `REJECTED` outcome/state; Notifications communicates which event occurred without adding an Order state. No notifications are required for `PREPARING`, `READY`, or `COMPLETED`.
 
 ## 29. Order History
 

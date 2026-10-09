@@ -609,18 +609,22 @@ Reserved quantity is visible to the Merchant. When requested quantity exceeds wh
 
 \- Status: **\*\*CONCEPTUAL\*\***.
 
-Orders owns order state and lifecycle events. Notifications owns message preparation, recipient/channel selection, delivery, and delivery status. Notifications must not accept, reject, or otherwise mutate an Order.
+Orders owns order state and lifecycle events. Notifications owns message preparation, recipient/channel selection, delivery, and delivery status. WhatsApp messages must never accept, reject, cancel, or otherwise change an Order.
 
 The source does not require a persistent Order-to-Notification foreign key. The implementation must not create one solely because an order can trigger a message.
 
 **## 32. Notification → Recipient**
 
-MVP WhatsApp notification recipients are intentionally limited.
+MVP WhatsApp notifications use these approved event and recipient mappings:
 
-1. **Order created → Merchant WhatsApp**: notify the merchant that a new order was received.
-2. **Merchant decision → Customer WhatsApp**: notify the customer when the Order is ACCEPTED or REJECTED.
+1. **Successful Order creation → Merchant WhatsApp and Customer WhatsApp**: notify the Shop's configured merchant number of a new Order and send the Customer an Order-received acknowledgement. The acknowledgement does not mean accepted.
+2. **Merchant acceptance → Customer WhatsApp**: communicate acceptance.
+3. **Merchant rejection → Customer WhatsApp**: communicate rejection.
+4. **Merchant manual quantity reduction before acceptance → Customer WhatsApp**: communicate the adjusted fulfillable quantity.
+5. **Pending Customer cancellation → Merchant WhatsApp**: notify the Shop's configured merchant number.
+6. **Accepted Merchant cancellation before PREPARING → Customer WhatsApp**: communicate the cancellation outcome.
 
-No WhatsApp notification is required for PREPARING, READY, or COMPLETED in MVP.
+The Customer/Merchant cancellation and Merchant rejection outcomes follow the Orders specification's existing `REJECTED` state; no separate `CANCELLED` state is added. No WhatsApp notification is required for PREPARING, READY, or COMPLETED in MVP.
 
 - Classification: Delivery and tenant-scoping relationship.
 - Cardinality: `TBD`.
@@ -629,7 +633,7 @@ No WhatsApp notification is required for PREPARING, READY, or COMPLETED in MVP.
 
 For MVP, each Shop has exactly one configured merchant WhatsApp number for merchant-side order notifications. Multiple merchant WhatsApp numbers per Shop are out of scope for MVP. Customer notifications target the WhatsApp number belonging to the relevant Shop-specific Customer context.
 
-WhatsApp numbers are contact information, not authentication or authorization. WhatsApp is notification-only: the Merchant accepts or rejects Orders in the ERP/application, not through WhatsApp. Notification delivery failure must not change the Order state.
+WhatsApp numbers are contact information, not authentication or authorization. Customer recipients resolve from the relevant Shop-specific Customer record. WhatsApp is notification-only: it must never accept, reject, cancel, or otherwise change Orders. Notification delivery failure must not change the Order state; a message is not reported delivered without provider confirmation. Prevent duplicates for the same originating event and recipient, use bounded retries for transient failures, and do not retry permanent failures, subject to provider capability. Use fixed reviewed templates and minimal content/history; retention period remains undecided.
 
 The exact recipient storage, phone representation, provider, message templates, delivery infrastructure, retry architecture, and API behavior remain later design decisions.
 
@@ -740,8 +744,8 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | OrderItem | Product/Variant | Historical purchase references item meaning | `many → 1` possible | Tenant/global reference | Historical/reference | **CONCEPTUAL** |
 | Order | Inventory | Creation reserves; acceptance deducts; rejection or pending Customer cancellation releases; eligible Merchant cancellation restores/releases; Merchant manually adjusts insufficient quantity | Physical mapping TBD | Tenant | Business interaction | **APPROVED business behavior** |
 | Order | Payment status | Order has `PAID` / `UNPAID` status; only Merchant updates it | Order context; physical representation TBD | Tenant | Business state | **APPROVED business rule** |
-| Order | Notification | Order events may trigger required notifications | `1 → many` possible | Tenant | Business interaction | **CONCEPTUAL** |
-| Notification | Recipient | MVP targets Shop's one configured merchant WhatsApp number or the relevant Shop-specific Customer WhatsApp number | `TBD` | Tenant | Delivery/tenant-scoping | **APPROVED** |
+| Order | Notification | Seven approved Order events may trigger notifications: new Order, received acknowledgement, accepted, rejected, quantity reduced, Customer cancellation, Merchant cancellation | `1 → many` possible | Tenant | Business interaction | **APPROVED business behavior** |
+| Notification | Recipient | Merchant messages resolve to the Shop's configured merchant WhatsApp number; customer messages resolve to the relevant Shop-specific Customer WhatsApp number | `TBD` | Tenant | Delivery/tenant-scoping | **APPROVED** |
 | Campaign | Shop | Campaign may display across all or selected Shops | `many ↔ many` possible | Platform/display scope | Targeting/display | **APPROVED BUSINESS SCOPE; schema conceptual** |
 | Campaign | Product | Advertisement content may mention products; no persistent target | N/A | Platform | Content only | **NOT APPLICABLE** |
 | Campaign | Category | Advertisement content may mention categories; no persistent target | N/A | Platform | Content only | **NOT APPLICABLE** |
@@ -992,7 +996,7 @@ The following business decisions have been explicitly resolved during relationsh
 10. **Order preserves order-time delivery information.** The complete current Customer profile is not duplicated into every Order.
 11. **Order creation reserves required stock; Merchant acceptance deducts it.** Reserved quantity is visible to the Merchant. Rejection and pending Customer cancellation release it; eligible Merchant cancellation after acceptance restores/releases it. When stock is insufficient, Merchant may manually reduce the fulfillable quantity before acceptance, the Customer is notified, and the Order total reflects the reduced quantity. No automatic reduction is allowed.
 12. **MVP campaigns are platform advertising content.** Super Admin manages them; they may display to all or selected Shops; mentions of products, categories, brands, or Shops are content only, not persistent targets. The lifecycle is Draft, Active, and Ended; start/end times are optional; visibility requires Active status, in-schedule time, and matching Shop scope. Super Admin can deactivate Active campaigns; Ended campaigns cannot be reactivated. MVP excludes merchant campaigns, discounts/coupons, customer segmentation/personalization, campaign notifications, and campaign attribution analytics.
-13. **MVP WhatsApp notifications are limited to two flows:** new Order → the Shop's one configured merchant WhatsApp number, and Merchant ACCEPTED/REJECTED → the relevant Shop-specific Customer's WhatsApp number. No WhatsApp notifications are required for PREPARING, READY, or COMPLETED. WhatsApp is notification-only; order operations remain in the Merchant ERP/application, and delivery failure does not change Order state.
+13. **MVP WhatsApp notifications use seven approved event/recipient mappings:** successful Order creation → Shop's configured merchant number and Customer received acknowledgement; Merchant acceptance → Customer; rejection → Customer; Merchant manual quantity reduction before acceptance → Customer; pending Customer cancellation → Shop's configured merchant number; and accepted Merchant cancellation before PREPARING → Customer. Received acknowledgement must not imply acceptance. Customer/Merchant cancellations and Merchant rejection use the existing `REJECTED` outcome; no new Order state is added. No notifications are required for PREPARING, READY, or COMPLETED. WhatsApp is notification-only; delivery failure does not change Order state and delivery is not reported without provider confirmation. Prevent duplicates for the same event and recipient; use bounded retries for transient failures and no retries for permanent failures, subject to provider capabilities. Fixed reviewed templates, minimal content, and minimal history are required; retention period remains undecided.
 14. **MVP Analytics queries source domain data directly.** No separate analytics database or duplicated fact tables are required initially.
 15. **Shop deletion removes the Shop and its Orders, but does not globally delete Customer entities.** Physical deletion mechanics remain for database design; other entities follow their own approved deletion rules.
 

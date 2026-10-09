@@ -55,6 +55,8 @@ Shop B: No second Customer profile can use WhatsApp number X
 
 Customer information and accessible Order history remain Shop/customer-context scoped. Expose only the customer information needed for the Order experience. Phone-number normalization and formatting rules are not finalized.
 
+For MVP Order notifications, Notifications resolves the recipient from the relevant Shop-specific Customer record and its WhatsApp number. Checkout contact information creates or identifies that Customer; notification delivery does not introduce another customer identity or authorize Order-history access.
+
 ## 6. Customer Creation
 
 Conceptually, customer information is provided in the context of a shop's shopping flow:
@@ -219,7 +221,7 @@ Customers place orders; order history is associated with the relevant shop-speci
 
 ### Notifications
 
-WhatsApp/order notifications may use customer contact information according to approved behavior. The Notifications domain owns integration and delivery behavior.
+For MVP Order notifications, Notifications resolves the recipient from the relevant Shop-specific Customer record and its WhatsApp number. The Notifications domain owns message preparation and delivery behavior.
 
 ### Analytics
 
