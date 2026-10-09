@@ -102,7 +102,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - Checkout uses the latest applicable Catalog price.
 - Once an Order is created, later Catalog price changes do not change its historical purchase price.
 - If the Merchant reduces an item's fulfillable quantity before acceptance, the Order total is recalculated using that reduced quantity.
-- The delivery charge used for the Order is preserved as part of the historical Order. The Merchant can change the Shop's delivery charge; its effect on an existing/pending Order is controlled by the Merchant, without a more specific mechanism defined here.
+- When a Shop uses a fixed delivery charge, the delivery charge used for the Order is preserved as part of the historical Order. When a Shop uses "Fee confirmed on WhatsApp", no delivery charge is added to the Order total at checkout, and delivery charges are settled directly between merchant and customer. The Merchant can change the Shop's delivery charge policy; its effect on an existing/pending Order is controlled by the Merchant, without a more specific mechanism defined here.
 - No tax calculation applies in MVP unless explicitly documented elsewhere. Do not introduce a discount engine unless Campaigns later defines one.
 
 Currency representation and price snapshot mechanics are **Not Finalized / Require Decision**.
@@ -155,8 +155,10 @@ Do not invent additional mandatory checkout fields. Address validation remains s
 
 ## 15. Delivery / Pickup and Business Hours Rules
 
-- Shop supports Home Delivery and Pickup. Merchant can independently enable or disable each option. A disabled option is hidden from customers.
-- Merchant controls the delivery charge and may change it at any time. Merchant decides whether a delivery charge of ₹0 is allowed for the Shop. Delivery charge is shown to the customer at checkout.
+- Merchant controls the delivery charge policy with two supported options:
+  1. **Fixed Fee (or ₹0):** Merchant sets a fixed delivery charge (₹0 allowed for free delivery), displayed to the customer at checkout and added to the order total.
+  2. **Fee confirmed on WhatsApp:** No delivery fee is added to the checkout total; checkout displays a notice that delivery charges will be communicated by the merchant via WhatsApp.
+  Merchant may change this configuration at any time.
 - No delivery radius or delivery-area configuration exists in MVP. Merchant handles delivery eligibility manually.
 - Pickup means the customer collects the order from the Shop. Home Delivery requires a delivery address.
 - Business hours are an MVP feature managed by the Merchant. One opening time and one closing time apply to each configured Shop schedule; multiple daily time slots are not part of MVP.

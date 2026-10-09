@@ -88,9 +88,10 @@ The Shop's temporary closed state does not deactivate the Shop. Time formats, ti
 
 ## 8. Home Delivery and Pickup
 
-The Shop supports Home Delivery and Pickup. The Merchant can independently enable or disable each option. If an option is disabled, it is hidden from customers.
-
-- **Home Delivery:** Merchant controls the delivery charge and may change it at any time. Merchant decides whether a zero charge (₹0) is allowed for their Shop. Delivery charge is shown to the customer at checkout.
+- **Home Delivery:** Merchant controls the delivery charge policy and may choose between two options:
+  1. **Fixed Fee (or ₹0):** Merchant sets a fixed delivery charge (including ₹0 for free delivery), which is displayed to the customer at checkout and added to the order total.
+  2. **Fee Confirmed on WhatsApp:** No delivery charge is added to the checkout total; checkout displays a clear notice: *"Delivery charges will be communicated by the merchant via WhatsApp."*
+  Merchant may change this configuration at any time.
 - **Delivery eligibility:** There is no delivery radius or delivery-area configuration in MVP. Merchant handles delivery eligibility manually.
 - **Pickup:** Customers collect the order from the Shop.
 
