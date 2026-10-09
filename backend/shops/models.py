@@ -26,7 +26,7 @@ class Shop(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    logo = models.ImageField(upload_to="shops/logos/", blank=True, null=True)
+    logo = models.FileField(upload_to="shops/logos/", blank=True, null=True)
 
     # Structured address required per domain specification
     address_line = models.CharField(max_length=255)
