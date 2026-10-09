@@ -45,6 +45,19 @@ Shop description and Shop logo are optional.
 
 The Shop contact number cannot be changed separately from the Merchant mobile number.
 
+### Shop Creation API Contract (`POST /api/v1/shops/`)
+
+- **Endpoint**: `POST /api/v1/shops/`
+- **Authentication**: JWT Bearer token required (`PlatformJWTAuthentication`). Role must be `MERCHANT` with active status. If merchant has not changed their initial temporary password, returns `403` (`PASSWORD_CHANGE_REQUIRED`).
+- **Permissions**: `IsActiveMerchant`. Super Admins and unauthenticated requests cannot call this endpoint.
+- **Request Payload**:
+  - Required: `name`, `address_line`, `area`, `city`, `state`, `pincode`.
+  - Optional: `description`, `logo`, `opening_time`, `closing_time`, `is_temporarily_closed`, `is_home_delivery_enabled`, `is_pickup_enabled`, `delivery_fee_type`, `delivery_charge`.
+  - Derived server-side: `contact_number` (auto-mirrored from `request.user.mobile_number`), `status` (`ACTIVE`), `public_slug` (12-char hex QR token).
+- **One-Shop-Per-Merchant**: If the merchant already has a shop, returns `400 Bad Request` with `{"detail": "Merchant already has a shop.", "code": "SHOP_ALREADY_EXISTS"}`.
+- **Response**: `201 Created` with complete Shop profile details.
+
+
 ## 5. Shop Profile Editing & Operational Controls
 
 - Merchant can edit Shop details (name, description, logo, structured address).

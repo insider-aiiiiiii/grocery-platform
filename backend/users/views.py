@@ -89,10 +89,12 @@ class LoginView(APIView):
             session.refresh_token = OutstandingToken.objects.get(jti=refresh["jti"])
             session.save()
         access = refresh.access_token
+        shop = getattr(merchant, "shop", None)
+        shop_id = shop.id if shop else None
         return Response({
             "access": str(access),
             "refresh": str(refresh),
-            "user": {"id": user.pk, "role": user.role, "shop_id": None},
+            "user": {"id": user.pk, "role": user.role, "shop_id": shop_id},
             "must_change_password": merchant.must_change_password,
         })
 
