@@ -49,7 +49,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - If the Merchant has no Shop, show the Create Shop flow after login. Merchant creates their own Shop; Super Admin does not create it.
 - A newly created Shop becomes ACTIVE immediately.
 - A Merchant can have only one active Shop at a time. A Shop belongs to exactly one Merchant and cannot exist without a Merchant.
-- Merchant cannot have multiple active Shops. After permanently deleting their current Shop, Merchant may immediately create another Shop; it is a new Shop entity.
+- Merchant cannot have multiple active Shops. Only Super Admin can permanently delete a Shop; permanent deletion of a Shop removes the Shop and its associated Merchant login credentials.
 - Ownership transfer between Merchants is not supported in MVP.
 
 ## 5. Shop Profile Rules

@@ -117,6 +117,18 @@ class Shop(models.Model):
             self.contact_number = self.merchant.user.mobile_number or ""
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        """Permanent deletion removes both the shop and the associated merchant login credentials."""
+        merchant = getattr(self, "merchant", None)
+        user = getattr(merchant, "user", None) if merchant else None
+        super().delete(*args, **kwargs)
+        if merchant and merchant.pk:
+            from users.models import Merchant
+            if Merchant.objects.filter(pk=merchant.pk).exists():
+                merchant.delete()
+                if user and user.pk:
+                    user.delete()
+
     # Super Admin lifecycle actions
     def suspend(self, save=True) -> None:
         """Super Admin action: suspend the shop."""
