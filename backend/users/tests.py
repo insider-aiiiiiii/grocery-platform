@@ -87,6 +87,9 @@ class MerchantAuthenticationAPITests(TestCase):
 
     def test_temporary_token_restricts_and_password_change_revokes_all_tokens(self):
         first = self.login().data
+        second = self.login().data
+        original_username = self.user.username
+        original_mobile = self.user.mobile_number
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
         request = self._request("/api/probe/")
         response = AuthenticatedProbe.as_view()(request)
@@ -98,13 +101,62 @@ class MerchantAuthenticationAPITests(TestCase):
             "current_password": "temporary-password", "new_password": "A-longer-secure-password-2026!",
         }, format="json")
         self.assertEqual(changed.status_code, 204)
+        self.user.refresh_from_db()
+        self.merchant.refresh_from_db()
+        self.assertTrue(self.user.check_password("A-longer-secure-password-2026!"))
+        self.assertNotEqual(self.user.password, "A-longer-secure-password-2026!")
+        self.assertEqual(self.user.username, original_username)
+        self.assertEqual(self.user.mobile_number, original_mobile)
+        self.assertFalse(self.merchant.must_change_password)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 0)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
         self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
         refreshed = self.client.post(reverse("auth-refresh"), {"refresh": first["refresh"]}, format="json")
         self.assertEqual(refreshed.status_code, 401, refreshed.data)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second['access']}")
+        self.assertEqual(AuthenticatedProbe.as_view()(self._request("/api/probe/")).status_code, 401)
+        second_refresh = self.client.post(reverse("auth-refresh"), {"refresh": second["refresh"]}, format="json")
+        self.assertEqual(second_refresh.status_code, 401, second_refresh.data)
         next_login = self.login("A-longer-secure-password-2026!")
         self.assertEqual(next_login.status_code, 200)
         self.assertFalse(next_login.data["must_change_password"])
+
+    def test_password_change_rejects_wrong_current_password(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        tokens = self.login().data
+        password_hash = self.user.password
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        response = self.client.post(reverse("auth-change-password"), {
+            "current_password": "wrong-password",
+            "new_password": "A-longer-secure-password-2026!",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("current_password", response.data)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.password, password_hash)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 1)
+
+    def test_password_change_enforces_django_password_rules(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        tokens = self.login().data
+        password_hash = self.user.password
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        for new_password in ("short", "password", "1234567890"):
+            with self.subTest(new_password=new_password):
+                response = self.client.post(reverse("auth-change-password"), {
+                    "current_password": "temporary-password",
+                    "new_password": new_password,
+                }, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("new_password", response.data)
+                self.user.refresh_from_db()
+                self.assertEqual(self.user.password, password_hash)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 1)
 
     def test_refresh_rotation_and_logout_revoke_session(self):
         first = self.login().data
