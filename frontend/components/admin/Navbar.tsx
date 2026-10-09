@@ -1,7 +1,8 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { QrCode, Search, Bell, Activity, ShieldAlert, UserCheck, LogOut } from "lucide-react";
+import { QrCode, Search, LogOut } from "lucide-react";
 
 interface NavbarProps {
   adminEmail?: string;
@@ -19,31 +20,68 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
     router.push("/admin/login");
   };
 
+  const [username, setUsername] = useState<string>("Super Admin");
+
+  useEffect(() => {
+    const explicitUsername = localStorage.getItem("admin_username");
+    if (explicitUsername && explicitUsername.trim() !== "") {
+      setUsername(explicitUsername);
+      return;
+    }
+
+    const storedUser = localStorage.getItem("admin_user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        if (parsed && typeof parsed === "object") {
+          const resolved = parsed.username || parsed.email || parsed.mobile_number || (parsed.id ? `Admin #${parsed.id}` : null);
+          if (resolved) {
+            setUsername(resolved);
+            return;
+          }
+        }
+      } catch {
+        if (storedUser.trim()) {
+          setUsername(storedUser);
+          return;
+        }
+      }
+    }
+
+    const token = localStorage.getItem("admin_access_token");
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        if (payload?.username) {
+          setUsername(payload.username);
+        } else if (payload?.user_id) {
+          setUsername(`Admin #${payload.user_id}`);
+        }
+      } catch {
+        // Token decode fallback
+      }
+    }
+  }, []);
+
+  const initials = username
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join("") || "SA";
+
   return (
     <header className="h-14 w-full px-6 flex items-center justify-between z-40 bg-white border-b border-slate-200 shadow-sm fixed top-0 left-0 right-0">
-      {/* Brand & Live Status */}
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded bg-[#1F5D42] flex items-center justify-center text-white font-bold shadow-sm">
-            <QrCode className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-base font-bold tracking-tight text-[#00452D]">DukaanQR</span>
-            <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 tracking-wider">
-              GOVERNANCE
-            </span>
-          </div>
+      {/* Brand */}
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded bg-[#1F5D42] flex items-center justify-center text-white font-bold shadow-sm">
+          <QrCode className="w-5 h-5" />
         </div>
-
-        {/* Live Heartbeat Status Pill */}
-        <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-200 rounded-full text-xs text-slate-600">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+        <div>
+          <span className="text-base font-bold tracking-tight text-[#00452D]">DukaanQR</span>
+          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 tracking-wider">
+            ADMIN
           </span>
-          <span className="text-slate-800 font-semibold">System Operational • 99.98% uptime</span>
-          <span className="text-slate-300">|</span>
-          <span className="font-mono text-slate-500">DB: 18ms</span>
         </div>
       </div>
 
@@ -57,38 +95,22 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
             onChange={(e) => onSearch?.(e.target.value)}
             className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] transition-all outline-none"
           />
-          <kbd className="absolute right-2.5 top-2 px-1.5 py-0.5 text-[9px] font-mono text-slate-400 bg-white border border-slate-200 rounded">
-            ⌘K
-          </kbd>
         </div>
       </div>
 
       {/* User & Actions */}
       <div className="flex items-center gap-3">
-        <button
-          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
-          title="Platform Health"
-        >
-          <Activity className="w-4 h-4" />
-        </button>
-        <button
-          className="p-1.5 rounded text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors relative"
-          title="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-600 rounded-full"></span>
-        </button>
-
-        <div className="h-6 w-px bg-slate-200"></div>
-
-        {/* Super Admin Profile */}
-        <div className="flex items-center gap-2 pl-1">
-          <div className="w-8 h-8 rounded-full border border-[#1F5D42] bg-[#0F172A] text-white flex items-center justify-center font-bold text-xs">
-            SA
+        {/* Super Admin Profile - Clearly visible */}
+        <div className="flex items-center gap-2.5 px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg shadow-sm">
+          <div className="w-7 h-7 rounded-full bg-[#1F5D42] text-white flex items-center justify-center font-bold text-xs shadow-inner">
+            {initials}
           </div>
-          <div className="hidden xl:block text-left text-xs">
-            <div className="font-semibold text-slate-900 leading-tight">Super Admin</div>
-            <div className="text-[10px] text-slate-500 leading-tight">{adminEmail}</div>
+          <div className="text-left leading-tight">
+            <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
+              <span>{username}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" title="Online" />
+            </div>
+            <div className="text-[10px] text-emerald-700 font-semibold tracking-wide">Super Admin</div>
           </div>
         </div>
 

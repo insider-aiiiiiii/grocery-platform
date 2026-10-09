@@ -150,7 +150,14 @@ class SuperAdminLoginView(APIView):
         return Response({
             "access": str(refresh.access_token),
             "refresh": str(refresh),
-            "user": {"id": user.pk, "role": user.role, "shop_id": None},
+            "user": {
+                "id": user.pk,
+                "role": user.role,
+                "shop_id": None,
+                "username": user.username,
+                "email": user.email,
+                "mobile_number": user.mobile_number,
+            },
             "must_change_password": False,
         })
 

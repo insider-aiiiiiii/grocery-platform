@@ -22,7 +22,7 @@ export function MetricCard({
   contextText,
   icon: Icon,
   accentColor = "green",
-  sparkline = [40, 60, 45, 80, 75, 90, 100],
+  sparkline,
 }: MetricCardProps) {
   const colorMap = {
     green: "bg-[#1F5D42]",

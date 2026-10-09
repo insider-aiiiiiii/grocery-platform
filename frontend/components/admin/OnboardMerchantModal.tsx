@@ -15,7 +15,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
   const [username, setUsername] = useState("");
   const [mobileNumber, setMobileNumber] = useState("+91");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("Dukaan#Pass2026!");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
