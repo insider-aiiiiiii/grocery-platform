@@ -80,6 +80,33 @@ These Merchant endpoints are protected APIs. Any future public/customer-facing S
 - Merchant can deactivate their own Shop but cannot reactivate or suspend it.
 - Super Admin may suspend or reactivate a Shop under existing rules. This does not permit browsing or editing private Shop information.
 
+### Merchant Shop Update API Contract (`PATCH /api/v1/shops/me/`, `PUT /api/v1/shops/me/`)
+
+- **Endpoints**: `PATCH /api/v1/shops/me/`, `PUT /api/v1/shops/me/` (alias: `PATCH /api/v1/shops/`, `PUT /api/v1/shops/`)
+- **Authentication**: JWT Bearer token required (`PlatformJWTAuthentication`). Role must be `MERCHANT` with active status. If merchant has not changed their initial temporary password, returns `403` (`PASSWORD_CHANGE_REQUIRED`).
+- **Permissions**: `IsActiveMerchant`. Super Admins and unauthenticated requests cannot call this endpoint.
+- **Tenant Context**: Resolved strictly via `get_merchant_shop(request.user)`. Arbitrary client-provided Shop IDs (in query parameters or payload) are ignored.
+- **Allowed Updatable Fields**:
+  - Profile details: `name`, `description`, `logo`, structured address (`address_line`, `area`, `city`, `state`, `pincode`).
+  - Operational controls: `is_temporarily_closed`, `opening_time`, `closing_time`.
+  - Fulfillment options: `is_home_delivery_enabled`, `is_pickup_enabled`.
+  - Delivery fee policy: `delivery_fee_type`, `delivery_charge`.
+- **Read-Only / Protected Fields**:
+  - `contact_number`: Strictly read-only; automatically mirrors the Merchant's mobile number.
+  - `status`: Strictly read-only; lifecycle status cannot be altered through profile updates.
+  - `public_slug`: Strictly read-only QR code token.
+  - `id`, `created_at`, `updated_at`.
+- **Validation Rules**:
+  - `delivery_charge`: must be `>= 0.00`.
+  - `delivery_fee_type`: if `CONFIRMED_ON_WHATSAPP`, `delivery_charge` is normalized to `0.00`.
+  - Fulfillment: at least one of `is_home_delivery_enabled` or `is_pickup_enabled` must remain `True`.
+  - Business hours: `opening_time` and `closing_time` must be provided together when setting hours, and cannot be identical. Both can be cleared (`null`).
+- **Lifecycle Invariants**:
+  - If the merchant has no shop: returns `404 Not Found` (`SHOP_NOT_FOUND`).
+  - If the shop is `DEACTIVATED` or `SUSPENDED`: returns `403 Forbidden` (`SHOP_INACTIVE`).
+- **Response**: `200 OK` returning full serialized Shop profile with updated fields.
+
+
 ## 6. Shop Status and Lifecycle
 
 Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.

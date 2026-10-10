@@ -725,4 +725,322 @@ class MerchantShopRetrievalAPITests(TestCase):
         self.assertEqual(res2.data["name"], "Merchant 2 Shop")
 
 
+class MerchantShopUpdateAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="merchant_updater",
+            email="updater@example.com",
+            mobile_number="+919876543301",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.url_me = reverse("shops:shop-me")
+        self.url_root = reverse("shops:shop-create")
+
+    def authenticate_user(self, user):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def create_shop(self, merchant, name="Original Shop", status_val=Shop.Status.ACTIVE):
+        return Shop.objects.create(
+            merchant=merchant,
+            name=name,
+            description="Original description",
+            address_line="100 Original St",
+            area="Old Area",
+            city="Old City",
+            state="Old State",
+            pincode="111111",
+            contact_number=merchant.user.mobile_number,
+            status=status_val,
+            is_temporarily_closed=False,
+            is_home_delivery_enabled=True,
+            is_pickup_enabled=True,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("15.00"),
+        )
+
+    def test_unauthenticated_patch_and_put_returns_401(self):
+        """Unauthenticated PATCH or PUT requests must return 401 Unauthorized."""
+        res_patch = self.client.patch(self.url_me, {"name": "New Name"}, format="json")
+        self.assertEqual(res_patch.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_put = self.client.put(self.url_me, {"name": "New Name"}, format="json")
+        self.assertEqual(res_put.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_super_admin_cannot_update_merchant_shop_returns_403(self):
+        """Super Admin cannot update a merchant's shop."""
+        admin_user = User.objects.create_user(
+            username="admin_updater",
+            email="admin_updater@example.com",
+            mobile_number="+919876543302",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_updater@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        res = self.client.patch(self.url_me, {"name": "Admin Hijack"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_merchant_with_temporary_password_returns_403(self):
+        """Merchant who hasn't changed initial password receives 403 PasswordChangeRequired."""
+        self.merchant.must_change_password = True
+        self.merchant.save()
+
+        self.authenticate_user(self.user)
+        res = self.client.patch(self.url_me, {"name": "New Name"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data.get("code"), "PASSWORD_CHANGE_REQUIRED")
+
+    def test_merchant_without_shop_returns_404(self):
+        """Merchant without a shop receives 404 SHOP_NOT_FOUND on update."""
+        self.authenticate_user(self.user)
+        res = self.client.patch(self.url_me, {"name": "New Name"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_deactivated_or_suspended_shop_cannot_be_updated(self):
+        """Deactivated or suspended shop returns 403 SHOP_INACTIVE."""
+        shop = self.create_shop(self.merchant, status_val=Shop.Status.DEACTIVATED)
+        self.authenticate_user(self.user)
+
+        res_patch = self.client.patch(self.url_me, {"name": "Updated Name"}, format="json")
+        self.assertEqual(res_patch.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_patch.data.get("code"), "SHOP_INACTIVE")
+
+        # Suspended
+        shop.status = Shop.Status.SUSPENDED
+        shop.save()
+        res_put = self.client.put(self.url_me, {"name": "Updated Name"}, format="json")
+        self.assertEqual(res_put.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_put.data.get("code"), "SHOP_INACTIVE")
+
+    def test_successful_partial_update_patch_allowed_fields(self):
+        """Merchant updates allowed fields via PATCH successfully."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        update_payload = {
+            "name": "Updated Super Fresh",
+            "description": "Newly renovated store with organic goods",
+            "address_line": "200 New Market St",
+            "area": "Kothrud South",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "pincode": "411038",
+            "is_temporarily_closed": True,
+            "delivery_charge": "25.00",
+        }
+        response = self.client.patch(self.url_me, update_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], update_payload["name"])
+        self.assertEqual(response.data["description"], update_payload["description"])
+        self.assertEqual(response.data["address_line"], update_payload["address_line"])
+        self.assertEqual(response.data["area"], update_payload["area"])
+        self.assertEqual(response.data["pincode"], update_payload["pincode"])
+        self.assertTrue(response.data["is_temporarily_closed"])
+        self.assertEqual(Decimal(str(response.data["delivery_charge"])), Decimal("25.00"))
+
+        shop.refresh_from_db()
+        self.assertEqual(shop.name, "Updated Super Fresh")
+        self.assertTrue(shop.is_temporarily_closed)
+        self.assertEqual(shop.delivery_charge, Decimal("25.00"))
+
+    def test_successful_full_update_put(self):
+        """Merchant updates shop via PUT successfully."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        put_payload = {
+            "name": "Completely Renovated Shop",
+            "description": "Brand new description",
+            "address_line": "500 Grand Road",
+            "area": "Deccan",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "pincode": "411004",
+            "is_temporarily_closed": False,
+            "is_home_delivery_enabled": True,
+            "is_pickup_enabled": False,
+            "delivery_fee_type": "FIXED",
+            "delivery_charge": "40.00",
+        }
+        response = self.client.put(self.url_me, put_payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], put_payload["name"])
+        self.assertFalse(response.data["is_pickup_enabled"])
+        self.assertTrue(response.data["is_home_delivery_enabled"])
+
+        shop.refresh_from_db()
+        self.assertEqual(shop.name, "Completely Renovated Shop")
+        self.assertFalse(shop.is_pickup_enabled)
+
+    def test_contact_number_cannot_be_modified(self):
+        """Shop contact number strictly mirrors merchant mobile and cannot be modified."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        response = self.client.patch(
+            self.url_me,
+            {"contact_number": "+910000000000", "name": "Name Change"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["contact_number"], self.user.mobile_number)
+
+        shop.refresh_from_db()
+        self.assertEqual(shop.contact_number, self.user.mobile_number)
+
+    def test_status_and_public_slug_cannot_be_modified(self):
+        """Merchant cannot modify platform lifecycle status or public_slug."""
+        shop = self.create_shop(self.merchant)
+        original_slug = shop.public_slug
+        self.authenticate_user(self.user)
+
+        response = self.client.patch(
+            self.url_me,
+            {"status": "SUSPENDED", "public_slug": "tampered_slug_123"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "ACTIVE")
+        self.assertEqual(response.data["public_slug"], original_slug)
+
+        shop.refresh_from_db()
+        self.assertEqual(shop.status, Shop.Status.ACTIVE)
+        self.assertEqual(shop.public_slug, original_slug)
+
+    def test_negative_delivery_charge_rejected(self):
+        """Negative delivery charges fail serializer validation."""
+        self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        response = self.client.patch(self.url_me, {"delivery_charge": "-10.00"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("delivery_charge", response.data)
+
+    def test_disabling_both_pickup_and_delivery_rejected(self):
+        """Disabling both home delivery and pickup fails validation."""
+        self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        response = self.client.patch(
+            self.url_me,
+            {"is_home_delivery_enabled": False, "is_pickup_enabled": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fulfillment", response.data)
+
+    def test_confirmed_on_whatsapp_normalizes_delivery_charge(self):
+        """CONFIRMED_ON_WHATSAPP delivery fee type automatically normalizes delivery charge to 0.00."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        response = self.client.patch(
+            self.url_me,
+            {
+                "delivery_fee_type": "CONFIRMED_ON_WHATSAPP",
+                "delivery_charge": "50.00",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["delivery_fee_type"], "CONFIRMED_ON_WHATSAPP")
+        self.assertEqual(Decimal(str(response.data["delivery_charge"])), Decimal("0.00"))
+
+        shop.refresh_from_db()
+        self.assertEqual(shop.delivery_charge, Decimal("0.00"))
+
+    def test_business_hours_validation(self):
+        """Verify business hours validation for valid hours, mismatched nulls, and identical times."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        # 1. Valid business hours
+        res1 = self.client.patch(
+            self.url_me,
+            {"opening_time": "08:30:00", "closing_time": "21:30:00"},
+            format="json",
+        )
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(res1.data["opening_time"], "08:30:00")
+        self.assertEqual(res1.data["closing_time"], "21:30:00")
+
+        # 2. Identical opening and closing times rejected
+        res2 = self.client.patch(
+            self.url_me,
+            {"opening_time": "10:00:00", "closing_time": "10:00:00"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("business_hours", res2.data)
+
+        # 3. Only opening time provided while closing time is set to null
+        res3 = self.client.patch(
+            self.url_me,
+            {"opening_time": "10:00:00", "closing_time": None},
+            format="json",
+        )
+        self.assertEqual(res3.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("business_hours", res3.data)
+
+        # 4. Clearing both hours is allowed
+        res4 = self.client.patch(
+            self.url_me,
+            {"opening_time": None, "closing_time": None},
+            format="json",
+        )
+        self.assertEqual(res4.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res4.data["opening_time"])
+        self.assertIsNone(res4.data["closing_time"])
+
+    def test_cross_merchant_update_isolation(self):
+        """Ensures Merchant 1 cannot update Merchant 2's shop."""
+        shop1 = self.create_shop(self.merchant, name="Shop 1")
+
+        user2 = User.objects.create_user(
+            username="merchant_other",
+            email="other_merchant@example.com",
+            mobile_number="+919876543303",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        merchant2 = Merchant.objects.create(
+            user=user2,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        shop2 = self.create_shop(merchant2, name="Shop 2")
+
+        # Authenticate as user 1 and update
+        self.authenticate_user(self.user)
+        res = self.client.patch(self.url_me, {"name": "Shop 1 Modified"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        shop1.refresh_from_db()
+        shop2.refresh_from_db()
+        self.assertEqual(shop1.name, "Shop 1 Modified")
+        self.assertEqual(shop2.name, "Shop 2")
+
+
+
 
