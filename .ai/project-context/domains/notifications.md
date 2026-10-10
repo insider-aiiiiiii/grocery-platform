@@ -34,7 +34,7 @@ WhatsApp is the only approved channel for MVP order notifications. The following
 | Event | Recipient | Trigger |
 |---|---|---|
 | New order | Shop's configured merchant WhatsApp number | Successful Order creation |
-| Order received acknowledgement | Customer's WhatsApp number | Successful Order creation |
+| Order received acknowledgement and history link | Customer's stored WhatsApp number | Successful Order creation |
 | Order accepted | Customer's WhatsApp number | Merchant accepts the Order |
 | Order rejected | Customer's WhatsApp number | Order is rejected |
 | Quantity reduced | Customer's WhatsApp number | Merchant manually reduces fulfillable quantity before acceptance |
@@ -42,6 +42,8 @@ WhatsApp is the only approved channel for MVP order notifications. The following
 | Merchant cancellation | Customer's WhatsApp number | Merchant cancels an accepted Order before preparation |
 
 The immediate customer acknowledgement says that the Order was received; it must not imply that the Merchant accepted it. The later acceptance or rejection message communicates the Merchant's decision.
+
+The Order-received acknowledgement carries the one-use Customer history link. Resolve its recipient only from the Order's Shop-specific Customer contact record; do not accept a caller-selected number. AUTH-015/017 require provider confirmation before reporting delivery success. The link/session security rules and proposed outbox/token handoff are documented in `.ai/project-context/customer-order-history-access.md`; provider, worker, and retry choices remain open.
 
 Orders defines the lifecycle outcomes: customer cancellation while `PENDING`, Merchant rejection while `PENDING`, and Merchant cancellation after acceptance but before `PREPARING` use the existing `REJECTED` outcome/state. Notification wording must communicate the relevant business outcome without introducing a new Order state.
 
@@ -262,7 +264,7 @@ Because of this, notification content and delivery must follow privacy and secur
 - merchants must not receive another shop's customer information through a notification
 - public or unauthorized access must not expose customer contact details or order details
 
-Customer notification contact information must not grant access to another customer's Orders or history, or to Orders outside the relevant Shop/customer context. The approved repeat-customer/order-history flow does not require OTP, but access cannot rely on a WhatsApp number alone. Its privacy-safe mechanism remains unresolved; minimize exposed customer information.
+Customer notification contact information must not grant access to another customer's Orders or history, or to Orders outside the relevant Shop/customer context. The approved repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone is insufficient. The one-use link and scoped Customer session rules are finalized in `.ai/project-context/customer-order-history-access.md`; minimize exposed customer information. Provider and deployment details remain open.
 
 ## 13. Merchant Privacy and Tenant Isolation
 
@@ -601,7 +603,7 @@ No additional channels, events, preferences, campaign messages, or low-stock ale
 
 This specification does not define:
 
-- authentication mechanism
+- Merchant/Super Admin authentication implementation (Customer Order-history access is specified in `.ai/project-context/customer-order-history-access.md`; Notifications does not authenticate Customers)
 - user identity implementation
 - merchant membership implementation
 - shop model or ownership implementation

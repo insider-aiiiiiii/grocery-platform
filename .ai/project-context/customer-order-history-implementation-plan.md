@@ -6,11 +6,11 @@ This AUTH-016 document plans implementation of the finalized customer access-lin
 
 Three labels distinguish what follows:
 
-- **Repository fact:** verified in the current checkout on `main` at `d3a801d`.
+- **Repository fact:** verified during the AUTH-016 audit on `main` at `d3a801d`; application code findings were rechecked for AUTH-017.
 - **Approved requirement:** binding behavior from the AUTH-016 task and finalized AUTH-015 design.
 - **Recommendation:** proposed technical direction that still needs review where it affects an unresolved API, schema, deployment, provider, or retention choice.
 
-The AUTH-015 finalized design document is on the separate open PR #39 branch and is not yet present on `main`. AUTH-016’s fixed decisions below match that design. The AUTH-015 document and associated canonical domain-rule updates must land before implementation starts; the older wording still present in this checkout must not be interpreted as reversing these approved AUTH-015 decisions.
+AUTH-015 PR #39 has merged. Its committed design document retained earlier proposal wording, so AUTH-017 reconciles that copy and the affected canonical docs. AUTH-016’s fixed decisions below match approved AUTH-015 behavior; older “proposal” wording must not be interpreted as reversing those requirements.
 
 ### Approved requirements this plan preserves
 
@@ -101,8 +101,8 @@ The domains are currently empty, so the original task sequence must be extended 
 
 | ID / phase | Work and dependencies | Acceptance criteria |
 |---|---|---|
-| T0 — Source alignment | Depends on AUTH-015 PR #39. Merge the finalized AUTH-015 access design and its canonical docs before code work. Reconcile stale statements in `customers.md`, `orders.md`, `business-rules.md`, `model-relationships.md`, `authorization-matrix.md`, `product.md`, and `development-status.md`. | Canonical docs consistently state every fixed AUTH-015 rule; older “number alone grants history” and “access design unresolved” statements are gone; unresolved deployment/API/schema decisions remain marked open. |
-| T1 — Technical design and deployment decisions | Depends on T0. Decide provider/failure behavior; frontend/API origin and cookie/CSRF configuration; phone normalization and rate-limit thresholds; route and response contracts; schema, indexes, FK deletion and transaction/concurrency strategy; Customer retention; additional revocation/abuse controls. Record material architecture choices as an ADR only if a significant durable decision is made. | Approved API/data design covers grant issue/exchange, Customer session, history, logout, cancellation, provider callback, Shop deletion, privacy, and failure modes without changing fixed requirements. Deployment settings and secrets are identified without committing values. |
+| T0 — Source alignment | AUTH-015 PR #39 is merged. AUTH-017 reconciles its stale proposal wording and the canonical docs before implementation. | Canonical docs consistently state fixed AUTH-015 rules; older “number alone grants history” and “access design unresolved” statements are removed; deployment/API/schema recommendations remain reviewable. |
+| T1 — Technical design and deployment decisions | Depends on T0. Review AUTH-017’s proposed provider/failure behavior; frontend/API origin and cookie/CSRF configuration; phone normalization and rate-limit thresholds; route/response contracts; schema/indexes/FK deletion/transaction strategy; Customer retention; and revocation/abuse controls. Record durable decisions in an ADR where appropriate. | Approved API/data design covers grant issue/exchange, Customer session, history, logout, cancellation, provider callback, Shop deletion, privacy, and failure modes without changing fixed requirements. |
 | T2 — Domain foundations | Depends on T1 and existing SHOP/Catalog/Inventory specifications. Design and migrate Shop Product/Variant, Customer, cart/checkout, Order/OrderLine, and inventory reservation records/relationships in their owning apps. Preserve Shop scoping and order-time product/price/customer snapshots. | Migrations create the reviewed relationships/constraints; checkout can resolve a Shop-specific Customer and create an Order with reserved stock using current approved data; no Customer/Order can cross Shop scope. |
 | T3 — Customer grants and sessions | Depends on T2 and approved token schema. Implement secure random secret issuance, digest-only persistence, 15-minute expiry, reissue invalidation, purpose/scope binding, atomic redemption, 30-day absolute sessions, one active session per Customer + Shop, replacement, and logout. | Plaintext secrets are not stored/logged/returned except the one-time link delivery/explicit exchange input; expiry/replay/concurrent redemption rules pass tests; session identity comes only from stored digest and relationships; it cannot authenticate platform APIs. |
 | T4 — Link request and exchange API/browser boundary | Depends on T1, T3, and storefront/origin design. Add generic request and exchange endpoints plus the minimal fragment-cleanup landing behavior. | Matching and nonmatching Customer responses do not enumerate; delivery uses the stored Customer number; GET/scanner does not consume a grant; cookie flags, CSRF/origin controls, cache/referrer/CSP, and log redaction pass review. |
@@ -178,7 +178,7 @@ Use the repository’s existing Django test structure unless an approved test-de
 
 ## 9. First implementation task and status
 
-**Proposed first implementation task: AUTH-017 — Approve Customer History API and Persistence Design.** Start with decision review and technical design only: confirm T0 is merged, settle the exact route/request/response contract, database relationship and credential schema, transaction/concurrency rules, and deployment cookie/CSRF model. Then record any durable architecture choices. This is the safest first implementation prerequisite because Customer, Order, and Inventory models do not yet exist, so directly adding link endpoints or token tables would lock in unapproved identities and relationships.
+**Proposed next task: AUTH-018 — Review AUTH-017 Customer History API and Persistence Design.** AUTH-017 supplies candidate routes, schema, and transaction contracts. Resolve its open contact-identity, Customer retention/address, provider/outbox, rate-limit, and deployment decisions before writing models or APIs. This remains a review/design prerequisite because Customer, Order, and Inventory models do not yet exist.
 
 **Implementation has not started.** AUTH-016 is planning/documentation work only. No models, migrations, APIs, runtime behavior, or tests were changed or added for this plan. The Customer history feature remains unimplemented until prerequisite decisions and ordered tasks above are reviewed and approved.
 
@@ -196,4 +196,4 @@ Use the repository’s existing Django test structure unless an approved test-de
 - `.ai/project-context/domains/catalog.md`
 - `.ai/project-context/domains/inventory.md`
 - `.ai/project-context/domains/notifications.md`
-- AUTH-015 finalized design on PR #39: `.ai/project-context/customer-order-history-access.md` (not yet present on `main` at the time of this audit)
+- `.ai/project-context/customer-order-history-access.md` (AUTH-015 approved behavior and AUTH-017 technical design)
