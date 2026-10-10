@@ -147,13 +147,13 @@ QR encoding, image format/storage, and link-generation implementation remain tec
 
 Only Super Admin can permanently delete a Shop (Merchants cannot permanently delete a Shop). Keep the existing Super Admin confirmation safeguards and warning of permanent Shop data deletion.
 
-- Deletion requires Super Admin confirmation with clear warnings that Shop data and associated merchant login will be permanently removed.
+- Deletion requires Super Admin confirmation with clear warnings that Shop data, Shop Products, and Orders will be permanently removed. The Merchant account and login credentials are not removed.
 - Deletion is permanent; a deleted Shop cannot be restored.
-- Existing text says permanent Shop deletion deletes the associated Merchant profile and login credentials. This conflicts with the approved rule that the same Merchant account may create a new Shop after deletion. Approval is required to decide whether credentials survive. Do not delete, retain, or recreate account credentials by assumption.
-- Shop products and Shop orders are deleted with the Shop.
-- The Shop QR and public link become unavailable immediately.
+- The Merchant retains the existing login credentials and may create a replacement Shop with a new identity and public QR/link.
+- Shop Products and Orders are deleted with the Shop. Customer entities are not globally deleted solely because of Shop deletion under the existing Customer rules and are not automatically transferred to the replacement Shop.
+- The Shop QR and public link become unavailable immediately. Data from the deleted Shop, including Products, Orders, and customer history, must not be associated with or exposed through the replacement Shop.
 
-This approved deletion behavior strictly links the Merchant identity and Shop lifecycle without resolving database deletion strategy globally.
+Physical deletion, relationship cleanup, and tenant isolation mechanics remain technical decisions; they must preserve these approved outcomes.
 
 ## 12. Super Admin and Merchant Access
 
@@ -162,7 +162,7 @@ This approved deletion behavior strictly links the Merchant identity and Shop li
 - If the Merchant has no Shop, show the Create Shop flow after login.
 - If the Shop is active, Merchant can manage it.
 - If the Shop is deactivated, Merchant cannot access Shop data.
-- Merchant can create another Shop only after the prior Shop has been permanently deleted.
+- Merchant can create another Shop only after the prior Shop has been permanently deleted, using the same account and credentials. The replacement is a new Shop and receives a new identity and public QR/link; deleted Shop data is not carried over.
 
 ### Super Admin
 
@@ -201,7 +201,7 @@ The following implementation details remain open and must not be inferred from t
 - Exact time formats, time-zone handling, and schedule representation.
 - How Shop contact number reflects the Merchant mobile number.
 - API contracts, authentication, authorization implementation, and audit mechanics.
-- Physical handling of related records when Shop data is permanently deleted.
+- Physical handling of related records when Shop data is permanently deleted, including preventing deleted Shop data from being associated with a replacement Shop.
 
 These unresolved technical choices do not change the approved business behavior above.
 
