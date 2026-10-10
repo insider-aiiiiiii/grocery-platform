@@ -31,25 +31,24 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 - Shop is the primary tenant boundary.
 - Merchant-owned data belongs to a Shop and must remain isolated from other Shops.
 - Merchants must not access another Shop's tenant-owned data.
-- Super Admin cannot view or edit private Shop information in MVP. Super Admin can suspend a Shop, and can reactivate or unsuspend an inactive Shop.
+- Super Admin cannot browse or edit private Shop information in MVP. Super Admin can reactivate a Shop. Existing rules assign permanent Shop deletion to Super Admin; the exact operational permission boundary is flagged for approval in the Shops specification.
 - Every Customer profile belongs to one Shop, and customer history remains Shop-scoped.
-- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. Customers may use their WhatsApp number to access their Orders in the relevant Shop/customer context; OTP is not required for this MVP decision. This does not grant access to other customers' information or Orders in another context.
+- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. The approved repeat-customer and order-history experience must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose order history. The privacy-safe access mechanism remains unresolved and requires approval; do not implement or prescribe one by assumption.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This document does not define technical tenant-context implementation.
 
 ## 4. Merchant Account and Shop Setup Rules
 
-- Two Merchant onboarding paths are supported:
-  1. Super Admin creates the Merchant account directly.
-  2. Merchant applies to join; Super Admin reviews and approves the application to onboard the Merchant.
+- Super Admin creates Merchant accounts directly. Public Merchant applications and an application approval workflow are not part of the MVP.
 - The system generates an initial temporary password when the Merchant account is onboarded. Merchant must change it on first login.
 - Merchant logs in using a mobile number unique across Merchant accounts. Email is also unique across Merchant accounts, is used for contact/recovery, and is not the login identifier.
 - Merchant exists before Shop creation and may log in without a Shop.
 - If the Merchant has no Shop, show the Create Shop flow after login. Merchant creates their own Shop; Super Admin does not create it.
 - A newly created Shop becomes ACTIVE immediately.
-- A Merchant can have only one active Shop at a time. A Shop belongs to exactly one Merchant and cannot exist without a Merchant.
-- Merchant cannot have multiple active Shops. Only Super Admin can permanently delete a Shop; permanent deletion of a Shop removes the Shop and its associated Merchant login credentials.
+- A Merchant owns one Shop at a time. A Shop belongs to exactly one Merchant and cannot exist without a Merchant.
+- A Merchant can create another Shop only after the prior Shop is permanently deleted. The replacement is a new Shop with a new identity and public QR/link.
+- Only Super Admin can permanently delete a Shop, using the existing confirmation safeguards. Shop Products and Orders are permanently removed with it. Whether the Merchant's account and login credentials survive deletion is unresolved because existing Shop rules conflict; see the approval item in the Shops specification. No new deletion permission is introduced here.
 - Ownership transfer between Merchants is not supported in MVP.
 
 ## 5. Shop Profile Rules
@@ -57,7 +56,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 - Required Shop information: Shop name; structured address with address line, area, city, state, and pincode; Shop contact number equal to the Merchant's mobile number.
 - Shop name does not need to be unique. Shop description and Shop logo are optional.
 - Merchant can edit Shop details, but cannot change Shop contact number separately from the Merchant mobile number.
-- Merchant can manage Merchant personal information and Shop profile details. Merchant cannot alter platform lifecycle status (ACTIVE, DEACTIVATED, SUSPENDED) or regenerate the QR code.
+- Merchant can manage Merchant personal information and Shop profile details, and can deactivate their own Shop. Merchant cannot reactivate or suspend a Shop or regenerate the QR code. Super Admin may suspend and reactivate a Shop under existing rules.
 
 ## 6. QR / Public Shop Access Rules
 
@@ -114,7 +113,7 @@ Currency representation and price snapshot mechanics are **Not Finalized / Requi
 ## 11. Inventory and Availability Rules
 
 - Inventory is Shop-scoped and isolated; a Merchant may modify it only in the Merchant's authorized Shop. Client-provided Shop, Product, or Variant IDs cannot bypass tenant authorization. Super Admin does not modify Merchant inventory in MVP.
-- A Shop Product without variants has Product-level stock. A product with variants has independently tracked Variant stock and an overall/aggregate Product-level quantity. The Merchant may modify both levels. Aggregate recalculation behavior remains undefined.
+- A Shop Product without variants has Product-level stock. For a product with variants, Variant quantities are the authoritative stock balances and Product-level stock is an aggregate derived from them, not an independently maintained balance. Any existing rule permitting independent manual changes to aggregate Product stock is superseded. Exact aggregate derivation mechanics remain technical design work.
 - Decimal quantities are allowed and respect the Catalog Product/Variant sellable unit. No separate Unit-of-Measure system or fixed global unit list is introduced.
 - New Shop Products and Variants start with stock `0`. Stock cannot become negative; minimum quantity is `0`.
 - The Merchant may add stock, subtract stock, or set the exact quantity. No reason is required for a manual adjustment.
@@ -196,7 +195,7 @@ They also describe the alternative:
 PENDING → REJECTED
 ```
 
-`PENDING` Orders automatically expire after a configured timeout; the exact default value and expiry representation are not defined. No separate `CANCELLED` state is required. Rejection and cancellation use the existing `REJECTED` outcome/state, and rejected/cancelled Orders cannot be reopened.
+`PENDING` Orders expire automatically after a configurable timeout and cannot be accepted after expiry. Expiry releases reserved stock automatically and uses the existing `REJECTED` outcome/state; do not add a separate `EXPIRED` state without approval. The exact default timeout and expiry time/reason representation remain unresolved technical details. No separate `CANCELLED` state is required, and rejected/cancelled/expired Orders cannot be reopened.
 
 - The Customer may cancel before Merchant acceptance while the Order is `PENDING`.
 - The Merchant may cancel an accepted Order only before `PREPARING`.
@@ -205,7 +204,7 @@ PENDING → REJECTED
 - Merchant operates acceptance, rejection, fulfillment status, and completion through the ERP/web interface.
 - Merchant marks both Pickup and Home Delivery Orders `COMPLETED`.
 - An `UNPAID` Order may be accepted and prepared but cannot be marked `COMPLETED` until it is `PAID`.
-`PENDING` Orders automatically expire after a configured timeout; the exact default value and expiry representation are not defined. No separate `CANCELLED` state is required. Rejection and cancellation use the existing `REJECTED` outcome/state, and rejected/cancelled Orders cannot be reopened.
+`PENDING` Orders expire automatically after a configurable timeout and cannot be accepted after expiry. Expiry releases reserved stock automatically and uses the existing `REJECTED` outcome/state; do not add a separate `EXPIRED` state without approval. The default timeout and expiry time/reason representation remain unresolved. No separate `CANCELLED` state is required, and rejected/cancelled/expired Orders cannot be reopened.
 
 - The Customer may cancel before Merchant acceptance while the Order is `PENDING`.
 - The Merchant may cancel an accepted Order only before `PREPARING`.
@@ -227,8 +226,8 @@ Do not define exact UI behavior or API endpoints here.
 
 ## 18. Customer Order Rules
 
-Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
-Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision, and Customer login is not introduced. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
+The approved repeat-customer/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval; do not implement or prescribe one by assumption. Customer login is not introduced by this decision. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
+The approved repeat-customer/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval; do not implement or prescribe one by assumption. Customer login is not introduced by this decision. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
 
 ## 19. Payment Rules
 
@@ -278,7 +277,7 @@ Campaigns do not modify prices, inventory, product availability, checkout totals
 
 Merchant analytics must be shop-scoped. Conceptual merchant metrics may include orders, sales/revenue-related metrics, top products, rejected/completed orders, average order value, and customers. MVP does not define a low-stock threshold or low-stock metric/alert.
 
-Platform analytics may include shops, orders, sales, shop performance, product performance, customers, and campaigns. Do not define exact metric formulas unless they have been finalized.
+Campaign attribution and Notification delivery analytics are excluded from MVP. No unapproved Analytics formulas may be defined. Aggregates from permanently deleted Shops must not be retained unless a separate retention policy is approved. Notification-history retention must be decided before implementing Notifications.
 
 ## 24. Cross-Domain Business Invariants
 
@@ -308,13 +307,13 @@ The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders
 Shop lifecycle and deletion rules are approved:
 
 - Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
-- Only Super Admin can activate, deactivate, or suspend a Shop. Merchant cannot deactivate or suspend their Shop.
-- Merchant only controls operational open/closed status (temporary closure).
+- Merchant may deactivate their own Shop. Super Admin can reactivate a Shop; the authority to browse/edit private Shop information is not granted.
+- Merchant also controls operational open/closed status (temporary closure), which is distinct from Shop deactivation.
 - A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains preserved.
-- Merchant account deactivation automatically deactivates the Merchant's Shop.
+- Merchant account deactivation automatically deactivates the Merchant's Shop. This account-lifecycle rule is distinct from the Merchant's authority to deactivate their own Shop.
 - When Super Admin reactivates or unsuspends a Shop, a new QR code is assigned, and the old QR stops working. Existing data mapping (products, orders, customer history) remains completely intact.
-- Merchant can permanently delete the Shop, including when it has existing orders. Deletion requires confirmation and a clear warning that Shop data and orders will be deleted.
-- Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Merchant may then immediately create a new Shop.
+- Only Super Admin can permanently delete a Shop, including when it has existing orders. Keep the existing confirmation safeguard and clear warning that Shop data and orders will be deleted.
+- Shop deletion is permanent. Shop data, including Shop products and orders, is deleted, and the Shop QR/public link becomes unavailable immediately. The same Merchant may create a new Shop identity and public QR/link after deletion. Whether associated Merchant login credentials survive is unresolved; see the Shops domain approval item.
 
 Deletion and retention rules for other business entities remain unresolved. Do not infer physical database deletion mechanics from these business rules.
 ## 27. Business Rules vs Implementation

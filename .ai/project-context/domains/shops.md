@@ -29,9 +29,7 @@ A Merchant with no Shop sees the Create Shop flow after login. A deactivated Sho
 
 ## 4. Shop Creation and Required Information
 
-Two onboarding paths are supported:
-1. **Direct Creation**: Super Admin creates the Merchant account directly.
-2. **Merchant Application**: Merchant applies to join; Super Admin reviews and approves the application to onboard the Merchant.
+Super Admin creates Merchant accounts directly. There is no public Merchant application or approval workflow in MVP.
 
 Once onboarded, if no Shop exists, the Merchant creates their Shop and it becomes `ACTIVE` immediately.
 
@@ -77,16 +75,17 @@ The Shop contact number cannot be changed separately from the Merchant mobile nu
 - Merchant can edit Shop details (name, description, logo, structured address).
 - Merchant cannot change the Shop contact number separately because it is strictly linked to the Merchant's mobile number.
 - Merchant controls operational open/closed state (temporary closure / daily business hours) and delivery options.
-- Merchant cannot change platform lifecycle status (`ACTIVE`, `DEACTIVATED`, `SUSPENDED`).
-- Super Admin controls platform status and can suspend, deactivate, or activate any shop.
+- Merchant can deactivate their own Shop but cannot reactivate or suspend it.
+- Super Admin may suspend or reactivate a Shop under existing rules. This does not permit browsing or editing private Shop information.
 
 ## 6. Shop Status and Lifecycle
 
 Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 
-- **Super Admin Only**: Only Super Admin can activate, deactivate, or suspend a Shop. Merchant cannot deactivate or suspend their Shop.
+- **Merchant**: May deactivate their own Shop. This is distinct from platform suspension.
+- **Super Admin**: May suspend or reactivate a Shop under existing rules. Existing rules assign permanent deletion to Super Admin; this document does not add permission to browse or edit private Shop information.
 - **Merchant Controls Operations Only**: Merchant controls operational ON/OFF status (temporary closure outside business hours).
-- Deactivating a Merchant account automatically deactivates that Merchant's Shop.
+- Deactivating a Merchant account automatically deactivates that Merchant's Shop. This account-lifecycle rule is distinct from the Merchant's authority to deactivate their own Shop.
 - A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains preserved.
 - When Super Admin reactivates or unsuspends a Shop, a new QR code / public link is assigned; previous QR code does not work. Existing data mapping (products, previous orders, customer history) remains completely intact.
 
@@ -146,12 +145,11 @@ QR encoding, image format/storage, and link-generation implementation remain tec
 
 ## 11. Shop Deletion
 
-Only Super Admin can permanently delete a Shop (Merchants cannot delete a Shop).
+Only Super Admin can permanently delete a Shop (Merchants cannot permanently delete a Shop). Keep the existing Super Admin confirmation safeguards and warning of permanent Shop data deletion.
 
 - Deletion requires Super Admin confirmation with clear warnings that Shop data and associated merchant login will be permanently removed.
 - Deletion is permanent; a deleted Shop cannot be restored.
-- The Merchant is the login persona for that Shop; permanent deletion of a Shop deletes the associated Merchant profile and login credentials.
-- Conversely, deleting a Merchant cascades and deletes the Shop.
+- Existing text says permanent Shop deletion deletes the associated Merchant profile and login credentials. This conflicts with the approved rule that the same Merchant account may create a new Shop after deletion. Approval is required to decide whether credentials survive. Do not delete, retain, or recreate account credentials by assumption.
 - Shop products and Shop orders are deleted with the Shop.
 - The Shop QR and public link become unavailable immediately.
 
@@ -168,7 +166,7 @@ This approved deletion behavior strictly links the Merchant identity and Shop li
 
 ### Super Admin
 
-For MVP, Super Admin cannot view, edit, or deactivate Shop information. Super Admin can reactivate a deactivated Shop. No additional Shop-management capabilities are approved.
+For MVP, Super Admin cannot browse or edit private Shop information. Super Admin can reactivate a deactivated Shop. Existing Super Admin permanent-deletion authority and confirmation safeguards remain documented above; any operational interpretation that would require access to private Shop information is a remaining approval question. No new administrative permission is added.
 
 ## 13. Cross-Domain Relationships
 

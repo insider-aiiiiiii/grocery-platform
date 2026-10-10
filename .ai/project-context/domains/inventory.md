@@ -33,11 +33,10 @@ Catalog owns product and variant definitions. Inventory owns stock state and res
 Inventory represents current stock for a Shop's sellable Product or Variant:
 
 - A Shop Product without variants has Product-level stock.
-- A Shop Product with variants has independently tracked Variant stock and an overall/aggregate Product-level quantity.
-- Both Product-level and Variant-level quantities can be modified by the Merchant.
-- Product-level stock for a variant-based product represents the overall/aggregate quantity.
+- For a Shop Product with variants, Variant quantities are the authoritative stock balances. Product-level stock is an aggregate derived from those variant quantities, not an independent balance.
+- The Merchant may modify non-variant Product stock or individual Variant stock. Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted.
 
-The physical identifiers and database representation are technical design decisions. Do not invent rules for recalculating the aggregate Product-level quantity.
+The physical identifiers and database representation are technical design decisions. Exact aggregate derivation mechanics remain unresolved, but the aggregate must derive from Variant stock and cannot be independently maintained.
 
 ## 5. Quantity
 
@@ -105,7 +104,7 @@ Deducted Quantity Restored
 Quantity Immediately Available Again
 ```
 
-Reserved quantity must be visible to the Merchant. Rejected orders release reserved quantity. Cancelling an accepted Order restores the deducted quantity, and restored stock is immediately available again.
+Reserved quantity must be visible to the Merchant. Rejected or expired pending Orders release reserved quantity. Cancelling an accepted Order restores the deducted quantity, and restored stock is immediately available again.
 
 When requested quantity exceeds what can be fulfilled, the Merchant may manually reduce the fulfillable quantity before accepting the Order. The Customer is notified and the Order reflects the reduced quantity. The system does not automatically reduce quantities without Merchant action. The Order total is recalculated for the reduced quantity.
 
@@ -154,7 +153,7 @@ No low-stock threshold, low-stock alert/event, or persistent inventory history i
 The following remain unresolved and must not be decided in this document:
 
 - Exact technical/database representation of Product, Variant, and aggregate stock.
-- Aggregate Product-level stock recalculation behavior for products with variants.
+- Exact technical derivation of aggregate Product-level stock from authoritative Variant quantities.
 - Exact transaction, locking, and concurrency implementation.
 - Physical hard-delete or soft-delete mechanics when a Catalog Product or Variant is removed.
 

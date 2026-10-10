@@ -90,7 +90,7 @@ An order is associated with a shop-specific customer context. The Customers doma
 
 ## 10. Customer Contact Information
 
-The current checkout concept includes customer name and WhatsApp number. A customer may access their Order history using their WhatsApp number in the relevant Shop/customer context; OTP is not required by this MVP decision. Do not introduce Customer login/authentication. Limit exposed customer information to what is needed for the Order experience.
+The current checkout concept includes customer name and WhatsApp number. The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose Order history. The privacy-safe access mechanism remains unresolved pending approval. Do not implement or prescribe a new authentication mechanism or introduce Customer login/authentication by assumption. Limit exposed customer information to what is needed for the Order experience.
 
 Home delivery also requires a delivery address. Additional contact fields are not defined here.
 
@@ -133,11 +133,11 @@ PENDING
 REJECTED
 ```
 
-This is the approved MVP lifecycle. Rejection and cancellation use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. A `PENDING` Order automatically expires after a configured timeout; the timeout's default value remains a configuration/technical decision and no value is specified here.
+This is the approved MVP lifecycle. Rejection, cancellation, and pending expiry use the existing `REJECTED` outcome/state; no separate `CANCELLED` or `EXPIRED` state is added. Rejected/cancelled/expired Orders cannot be reopened. A `PENDING` Order expires after a configurable timeout, cannot be accepted after expiry, and automatically releases its reserved stock. The default timeout and technical representation of expiry time/reason remain unresolved.
 
 ## 14. PENDING
 
-The customer has submitted the Order and it is awaiting Merchant action. It automatically expires after a configured timeout. The exact default timeout value is not defined.
+The customer has submitted the Order and it is awaiting Merchant action. It automatically expires after a configured timeout and its reservation is released. Expiry moves the Order to the existing `REJECTED` outcome/state; it cannot be accepted or reopened afterward. The exact default timeout value and expiry reason/time representation are not defined.
 
 ## 15. ACCEPTED
 
@@ -167,7 +167,7 @@ Operations are scoped to shops the merchant is authorized to manage. Merchants d
 
 ## 21. Customer Order Visibility
 
-Customers can access all previous Orders available within their Shop/customer context using their WhatsApp number. OTP is not required for this MVP decision. No Customer login is introduced. Minimize customer information exposed through this access.
+The approved repeat-customer/order-history flow must not require OTP. Knowledge of a WhatsApp number alone must not expose Orders. A privacy-safe access mechanism consistent with no OTP remains unresolved and requires approval; no authentication mechanism is prescribed here. Minimize customer information exposed through this access.
 
 Do not assume a customer account/login or expose private order/customer information through a public access mechanism.
 
@@ -227,7 +227,7 @@ WhatsApp messages must never accept, reject, cancel, or otherwise change an Orde
 
 ## 29. Order History
 
-Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. Customers can view all their Orders available within the Shop/customer context using their WhatsApp number; OTP is not required for this MVP decision. Shop deletion removes its Orders. Minimize exposed customer information.
+Orders are historical business records. Merchants can view all historical Orders for their Shop while it exists. The approved customer repeat/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders; its privacy-safe access mechanism remains unresolved. Shop deletion removes its Orders. Minimize exposed customer information.
 
 ## 30. Order Data Visibility
 
@@ -264,7 +264,7 @@ The currently described transitions are:
 | `PREPARING` | `READY` | Merchant controls fulfillment status. |
 | `READY` | `COMPLETED` | Merchant completes Pickup or Home Delivery; Order must be `PAID`. |
 
-Rejected/cancelled Orders cannot be reopened. A pending timeout automatically expires the Order after a configured period; its resulting state representation remains a technical/design detail. Invalid transitions must be prevented by implementation according to these approved rules.
+Rejected/cancelled/expired Orders cannot be reopened. A pending timeout moves the Order to the existing `REJECTED` outcome/state, prevents acceptance, and releases reserved stock. No separate expiry state is added. Exact timeout and expiry reason/time representation are technical/design details. Invalid transitions must be prevented by implementation according to these approved rules.
 
 ## 34. Business Invariants
 
@@ -344,7 +344,7 @@ No decision below is finalized by this specification.
 | Exact order identifier, order number, and public reference. | No identifier or reference format is approved. | Order identification and customer access cannot be finalized. |
 | Order creation validation and transaction boundary. | Checkout dependencies exist, but exact validation and transaction behavior is not specified. | Order creation implementation remains open. |
 | Historical snapshot representation and Order item structure. | Historical meaning is required, but exact fields and snapshot approach are unresolved. | Data representation cannot be chosen. |
-| Configured pending timeout and expiry representation. | Pending Orders expire automatically, but the default duration and technical representation are not finalized. | Configuration and state persistence remain open. |
+| Configured pending timeout and expiry representation. | Pending Orders expire automatically to the existing `REJECTED` outcome/state, cannot be accepted or reopened, and release reserved stock. | Default duration and technical representation of expiry time/reason remain open. |
 | Delivery-charge change handling for an existing/pending Order. | Merchant controls the effect; no more specific mechanism is approved. | Do not assume automatic repricing or a particular workflow. |
 | Customer information and delivery-address snapshot. | Checkout requirements exist, but what Orders preserves historically is unresolved. | Historical customer/order context cannot be finalized. |
 | Inventory concurrency and transaction behavior. | Business stock effects are finalized; locking/error semantics are not. | Inventory/Order technical integration remains open. |

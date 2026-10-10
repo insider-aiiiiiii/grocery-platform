@@ -18,7 +18,7 @@ Shop B
    └── Customer Y
 ```
 
-Customer profiles and Order history are available within their Shop/customer context; the platform does not automatically link customer history across Shops. A WhatsApp number can be registered for at most one identity across the platform. Within the relevant Shop/customer context, the Customer can use the WhatsApp number to access all previous Orders. OTP is not required for this MVP decision.
+Customer profiles and Order history are Shop-scoped; the platform does not automatically link customer history across Shops. The repeat-customer/order-history experience must not require OTP, but a WhatsApp number alone is not proof of identity and must not expose Order history. The privacy-safe access mechanism remains unresolved pending approval.
 
 ## 3. Shop-Specific Customer Isolation
 
@@ -46,7 +46,7 @@ Do not automatically add email, date of birth, gender, profile photo, loyalty in
 
 The product uses a WhatsApp number as customer contact information and an order-communication destination. It is also the primary identifier for recognizing a returning Customer within the Customer's Shop. The number is globally unique across Customer and authenticated User identities.
 
-A globally unique WhatsApp number does not make the Customer profile global: every Customer profile still belongs to one Shop. The number provides the approved MVP customer Order-history access in the relevant Shop/customer context, without OTP. The same number cannot be registered as a Customer at a second Shop or as a Merchant/Super Admin identity. For example:
+A globally unique WhatsApp number does not make the Customer profile global: every Customer profile still belongs to one Shop. The number is used for contact and repeat-customer recognition, but is not by itself authorization to access Order history. The approved access flow must not require OTP; a privacy-safe mechanism is unresolved and requires approval. The same number cannot be registered as a Customer at a second Shop or as a Merchant/Super Admin identity. For example:
 
 ```text
 Shop A: Customer identity with name Rahul and WhatsApp number X
@@ -111,7 +111,7 @@ Final validation rules belong in the relevant Order/checkout specification and a
 
 ## 11. Customer History
 
-Customer Order history is Shop/customer-context scoped. Customers can view all their previous Orders available in that context by providing their WhatsApp number; OTP is not required for this MVP decision. Merchants can view all historical Orders belonging to their Shop while it exists. Shop deletion removes the Shop's Orders, while the Customer entity remains. Minimize exposed customer information.
+Customer Order history is Shop/customer-context scoped. The repeat-customer/order-history experience must not require OTP, and a WhatsApp number alone must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval. Merchants can view all historical Orders belonging to their Shop while it exists. Shop deletion removes the Shop's Orders, while the Customer entity remains. Minimize exposed customer information.
 
 Do not assume merchants should automatically see every customer detail. Merchant visibility and access must follow approved authorization and privacy rules. Analytics definitions belong to Analytics, not this domain.
 
@@ -166,11 +166,11 @@ Customer identity
 Customer authentication
 ```
 
-The current product does not establish a traditional customer login/account system. Do not assume JWT, sessions, passwords, OTP, OAuth, or social login. For this MVP decision, Customers access their Order history using their WhatsApp number in the relevant Shop/customer context; OTP is not required. Do not extend this into a general Customer login system.
+The current product does not establish a traditional customer login/account system. Do not assume JWT, sessions, passwords, OTP, OAuth, or social login. The repeat-customer/order-history flow must not require OTP, but the mechanism must not expose Orders based only on a WhatsApp number. Its privacy-safe design remains unresolved; do not implement or prescribe an authentication mechanism here.
 
 ## 17. Customer Identification and Security
 
-The customer's WhatsApp number is the approved identifier for accessing Order history available within the relevant Shop/customer context; OTP is not required for this MVP decision. Phone-number normalization and formatting remain unresolved. Minimize exposed customer information.
+The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and cannot by itself authorize access to Order history. The privacy-safe access mechanism remains unresolved pending approval. Phone-number normalization and formatting remain unresolved. Minimize exposed customer information.
 
 ## 18. Customer Access by Merchant
 
@@ -189,7 +189,7 @@ The following requirements are approved by the product and business-rule sources
 - Customer identity is shop-specific.
 - Customer profiles and accessible Order history remain in their Shop/customer context; history is not automatically linked across Shops.
 - A WhatsApp number is associated with at most one identity across all Shops and authenticated User accounts.
-- Customers can access all previous Orders available in their Shop/customer context using WhatsApp without OTP. Shop deletion removes those Orders, but the Customer entity remains.
+- The repeat-customer/order-history flow does not require OTP, but knowledge of a WhatsApp number alone must not expose Orders. Its privacy-safe access mechanism remains unresolved. Shop deletion removes those Orders, but the Customer entity remains.
 - Merchant access to customer information is limited to authorized shops.
 A returning customer may be recognized within the same Shop using the customer's WhatsApp number as the primary identifier. The intended experience may prefill a customer name or reuse previously known delivery information where appropriate.
 - Customer identity is separate from merchant identity.
@@ -203,7 +203,7 @@ These are conceptual domain relationships, not necessarily database foreign keys
 
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
 | Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
-| Returning-customer recognition details. | WhatsApp number identifies the Customer in the Shop/customer context. | Prefill and update behavior remain open; Order-history access is finalized. |
+| Order-history access mechanism. | Repeat-customer/order-history flow must not require OTP, and WhatsApp number alone is insufficient to authorize access. | A privacy-safe mechanism consistent with no OTP requires approval. |
 
 Determines who may access customer information, subject to approved authorization.
 

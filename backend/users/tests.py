@@ -265,6 +265,32 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertEqual(next_login.status_code, 200)
         self.assertFalse(next_login.data["must_change_password"])
 
+    def test_current_merchant_flag_restricts_tokens_with_a_stale_false_claim(self):
+        self.merchant.must_change_password = False
+        self.merchant.save(update_fields=["must_change_password"])
+        tokens = self.login().data
+        self.assertFalse(tokens["must_change_password"])
+
+        # The Merchant is put into the restricted state while this access token is
+        # still active. Authorization must follow the current account state, not
+        # the value captured when the JWT was issued.
+        self.merchant.must_change_password = True
+        self.merchant.save(update_fields=["must_change_password"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+
+        response = AuthenticatedProbe.as_view()(self._request("/api/probe/"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data, {
+            "detail": "Password change required.", "code": "PASSWORD_CHANGE_REQUIRED",
+        })
+
+        change_password = self.client.post(reverse("auth-change-password"), {
+            "current_password": "temporary-password",
+            "new_password": "A-longer-secure-password-2026!",
+        }, format="json")
+        self.assertEqual(change_password.status_code, 204)
+
     def test_password_change_rejects_wrong_current_password(self):
         self.merchant.must_change_password = False
         self.merchant.save(update_fields=["must_change_password"])

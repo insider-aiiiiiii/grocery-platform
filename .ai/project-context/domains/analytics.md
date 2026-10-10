@@ -6,7 +6,7 @@ The Analytics domain owns the business concern of deriving reporting and metrics
 
 Analytics does not own or redefine orders, products, inventory, customers, shops, campaigns, notifications, payments, or accounting. It provides an analytical view of those domains without becoming a competing source of truth.
 
-The product requirements explicitly require analytics at both merchant and platform levels. Exact metrics and calculation rules remain subject to the definitions in this document and later approved decisions.
+This reconciliation approves no new Analytics formulas. Do not define unapproved formulas or retain historical aggregates from permanently deleted Shops unless a separate retention policy is approved.
 
 ## 2. Analytics Ownership Boundary
 
@@ -107,7 +107,6 @@ The product explicitly supports the following broad reporting areas:
 - Platform sales- or revenue-related reporting.
 - Platform shop and product performance concepts.
 - Platform customer-related reporting.
-- Platform campaign performance concepts.
 
 These requirements establish reporting areas, not final formulas or guarantees that every example is an implemented metric.
 
@@ -163,7 +162,6 @@ Platform analytics may provide Super Admin reporting for approved platform opera
 - Shop performance comparisons or summaries.
 - Product performance summaries.
 - Customer-related metrics within approved privacy limits.
-- Campaign performance if campaign attribution is approved.
 
 A metric appearing in this list is not permission to invent a formula. The source domain, scope, time period, inclusion rules, and aggregation behavior must be approved for each metric.
 
@@ -200,8 +198,8 @@ Terms such as `sales`, `revenue`, `active shop`, `customer`, and `top product` m
 | Total shops | Shops | Platform reporting area | Requires definition of included shop lifecycle/status states. |
 | Active shops | Shops | Platform reporting area, definition unresolved | Must not assume an `ACTIVE` state or activity window. |
 | Product performance | Orders and Catalog | Platform/merchant reporting area | Requires units, value, state, and historical product identity rules. |
-| Campaign performance | Campaigns and Analytics | Platform reporting area, attribution unresolved | Cannot be calculated without approved exposure/attribution facts. |
-| Notification performance | Notifications | Future/conditional | Notifications owns delivery state; Analytics may consume approved facts. |
+| Campaign performance | Campaigns and Analytics | Excluded from MVP | Any future attribution and retention requires separate approval. |
+| Notification performance | Notifications | Excluded from MVP | Delivery analytics require separate approval; retention must be decided before Notifications implementation. |
 
 ## 10. Sales, Revenue, and Monetary Metrics
 
@@ -221,13 +219,7 @@ Before implementation, the business must approve the numerator, qualifying order
 
 ## 11. Average Order Value
 
-Average Order Value is a derived metric, not a source fact. A possible conceptual formula is:
-
-```text
-AOV = qualifying order value / qualifying order count
-```
-
-The formula is not finalized until the business defines:
+Average Order Value is a derived metric, not a source fact. No formula is approved here. Before implementation, the business must define:
 
 - Which value is used.
 - Which order states qualify.
@@ -249,9 +241,9 @@ PENDING → ACCEPTED → PREPARING → READY → COMPLETED
 PENDING → REJECTED
 ```
 
-Customer cancellation while `PENDING` and eligible Merchant cancellation after acceptance use the existing `REJECTED` Order outcome/state; there is no separate `CANCELLED` Order state. Orders also have `PAID` / `UNPAID` status, and inventory effects are defined in the Orders and Inventory specifications. The default pending timeout and its technical expiry representation remain unresolved.
+Customer cancellation while `PENDING`, eligible Merchant cancellation after acceptance, and pending timeout expiry use the existing `REJECTED` Order outcome/state; there is no separate `CANCELLED` or `EXPIRED` Order state. Orders also have `PAID` / `UNPAID` status, and inventory effects are defined in the Orders and Inventory specifications. The default pending timeout and expiry time/reason representation remain unresolved.
 
-For each Order-based metric, the approved design must specify whether `PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `COMPLETED`, and `REJECTED` contribute. Do not treat cancellation as a separate Order status. Do not assume an expiry status value; pending timeout behavior is approved, but its technical representation is open.
+For each Order-based metric, the approved design must specify whether `PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `COMPLETED`, and `REJECTED` contribute. Do not treat cancellation or expiry as separate Order statuses. Pending expiry uses `REJECTED`; its time/reason representation remains open.
 
 ## 13. Historical Accuracy
 
@@ -308,17 +300,17 @@ Analytics must not:
 
 Historical inventory trends are future or unresolved unless Inventory approves the required facts and retention.
 
-## 17. Campaign Analytics
+## 17. Campaign Analytics (Excluded from MVP)
 
-Campaigns owns campaign identity, configuration, targeting, scheduling, and lifecycle concepts. Analytics may report campaign performance only if Campaigns and the product requirements define the necessary exposure, interaction, attribution, or order-association facts.
+Campaign attribution and campaign performance analytics are excluded from the MVP. Campaigns owns campaign identity, configuration, targeting, scheduling, and lifecycle concepts. Do not add attribution formulas or retain campaign aggregates without separate approval.
 
 Possible metrics such as campaign views, interactions, campaign-associated orders, sales attribution, and conversion are not finalized. Analytics must not infer campaign influence from temporal coincidence or campaign visibility alone.
 
 Campaign analytics must not change campaign configuration, pricing, targeting, or lifecycle.
 
-## 18. Notification Analytics
+## 18. Notification Analytics (Excluded from MVP)
 
-Notifications owns message creation, channel delivery, delivery status, and failure concepts. Analytics may consume notification facts for reporting if this is approved.
+Notification delivery analytics are excluded from the MVP. Notifications owns message creation, channel delivery, delivery status, and failure concepts. Any later analytics use requires separate approval and a notification-history retention decision before Notifications is implemented.
 
 Possible metrics include:
 
@@ -328,7 +320,7 @@ Possible metrics include:
 - Event-type frequency.
 - Delivery success ratio.
 
-The Notifications specification leaves lifecycle states, provider confirmation, retries, and retention unresolved. Analytics must not equate provider acceptance with delivery or invent delivery metrics from incomplete status information.
+The Notifications specification leaves lifecycle states, provider confirmation, retries, and retention unresolved. Analytics must not equate provider acceptance with delivery or invent delivery metrics from incomplete status information. Do not retain historical aggregates from a permanently deleted Shop unless a separate approved retention policy explicitly permits it.
 
 ## 19. Time-Based Reporting
 
@@ -584,8 +576,8 @@ The following decisions require explicit product, domain, or architecture approv
 | Product vs variant grouping | Catalog identity and variant relationships are unresolved. | Product-performance dimensions remain open. |
 | Low-stock metric behavior | Inventory threshold and availability rules are unresolved. | Merchant low-stock reporting remains open. |
 | Inventory history availability | Inventory does not finalize a historical ledger. | Trend reporting may not be possible. |
-| Campaign attribution | Campaign exposure and order association are not defined. | Campaign performance cannot be calculated reliably. |
-| Notification analytics | Delivery states and provider confirmation are unresolved. | Delivery metrics remain conditional. |
+| Campaign attribution | Excluded from MVP. | Future campaign analytics require separate approval. |
+| Notification analytics | Excluded from MVP. | Future delivery metrics require separate approval and a retention decision before Notifications implementation. |
 | Supported time ranges | Product does not approve every period type. | Filtering contract remains open. |
 | Timezone and date boundaries | No reporting timezone is selected. | Period totals may differ. |
 | Freshness requirement | Real-time versus aggregated behavior is not defined. | Architecture and latency remain open. |
