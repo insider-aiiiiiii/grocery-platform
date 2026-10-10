@@ -50,7 +50,7 @@ The exact order-creation transaction, validation implementation, duplicate-submi
 
 An order represents what the customer actually ordered at the time it was created. Later changes to product name or information, variant information, catalog price, shop catalog, inventory, or customer profile must not silently rewrite the historical meaning or purchase price of an already-created order. The delivery charge used for the Order is also preserved.
 
-The exact snapshot implementation is unresolved. Do not choose whether to copy fields, reference immutable records, store snapshots, or use another approach. The required historical meaning is a business boundary; its representation belongs in later design. Merchant-controlled quantity reductions before acceptance are an approved adjustment and recalculate the Order total.
+The required historical meaning is approved. AUTH-018 recommends immutable checkout-time snapshots for product/variant names and identifiers, quantities/prices/totals, delivery charge, customer name/contact, fulfillment, and (for delivery) the address used. Do not render current Customer profile/address fields as the past Order values. Exact fields, types, currency, address structure, and retention remain in the centralized decision register `.ai/project-context/customer-order-history-access.md` §12; no extra PII or retention period is implied. Merchant-controlled quantity reductions before acceptance are an approved adjustment and recalculate the Order total under the documented lifecycle rules.
 
 ## 6. Order Items
 
@@ -86,7 +86,7 @@ Do not add unapproved fees or discount calculations. The MVP has no centralized 
 
 ## 9. Customer Information
 
-An order is associated with a shop-specific customer context. The Customers domain owns current customer identity; Orders owns the historical transaction. The order should retain information necessary to understand the transaction historically, but the exact copied, referenced, or snapshot representation is unresolved.
+An Order is associated with one `ShopCustomerProfile`; the profile is its single source of Shop scope in the AUTH-018 technical recommendation. The Customers domain owns current profile/contact context; Orders owns the historical transaction and immutable checkout snapshots. This proposed FK avoids independently supplied Customer and Shop references that could disagree. Cross-Shop identity semantics and schema approval remain open in `.ai/project-context/customer-order-history-access.md` §12.
 
 ## 10. Customer Contact Information
 
@@ -107,7 +107,7 @@ Fulfillment choice is part of the order context. The MVP does not include centra
 
 For Home Delivery, an address is required. At checkout, the customer may select a saved address or enter a new address. Pickup does not require a delivery address.
 
-The address may need to remain meaningful for the order, but its exact structure and snapshot behavior are unresolved. Free-form versus structured address, pincode, landmark, coordinates, and saved customer addresses are not decided here.
+The address used for delivery must remain meaningful for the Order through an immutable Order-time snapshot, independent of later profile/address changes. Free-form versus structured fields, pincode/landmark, optional coordinates, saved-address support, and snapshot retention remain unresolved in `.ai/project-context/customer-order-history-access.md` §12. Pickup has no delivery-address snapshot.
 
 ## 13. Order Lifecycle
 
@@ -171,7 +171,7 @@ The approved repeat-customer/order-history flow must not require OTP. Knowledge 
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
-The scoped Customer session is the approved proof for the Customer's own `PENDING` Order cancellation. AUTH-017 proposes its exact API and transaction contract in `.ai/project-context/customer-order-history-access.md`; no Order or Customer API is implemented.
+The scoped Customer session is the approved proof for the Customer's own `PENDING` Order cancellation. AUTH-017/018 propose its API and transaction contract in `.ai/project-context/customer-order-history-access.md`; these are pending review and no Order or Customer API is implemented.
 
 ## 22. Order Cancellation
 
@@ -245,7 +245,7 @@ Minimize exposed customer data. Exact fields and permissions remain for approved
 
 Orders represent historical business transactions. Consider preservation of product/variant meaning, order-time pricing, customer/order context, fulfillment choice, and relevant order status history. This specification requires that later Catalog or Cart changes do not silently rewrite an existing order's historical meaning or purchase price.
 
-Order history is retained while the Shop exists. Deleting the Shop deletes its Orders. The Customer entity remains after Shop deletion; customer data is not globally deleted solely because a Shop is deleted. The exact snapshot representation remains a technical decision. Customer entities that remain after Shop deletion are not automatically associated with a replacement Shop.
+Order history is retained while the Shop exists. Deleting the Shop deletes its Orders. The Customer entity remains after Shop deletion; customer data is not globally deleted solely because a Shop is deleted. AUTH-018 recommends immutable checkout-time snapshot fields; exact fields and retention remain in the decision register `.ai/project-context/customer-order-history-access.md` §12. Customer entities that remain after Shop deletion are not automatically associated with a replacement Shop.
 
 ## 32. Concurrency and Idempotency
 
@@ -348,7 +348,7 @@ No decision below is finalized by this specification.
 | Historical snapshot representation and Order item structure. | Historical meaning is required, but exact fields and snapshot approach are unresolved. | Data representation cannot be chosen. |
 | Configured pending timeout and expiry representation. | Pending Orders expire automatically to the existing `REJECTED` outcome/state, cannot be accepted or reopened, and release reserved stock. | Default duration and technical representation of expiry time/reason remain open. |
 | Delivery-charge change handling for an existing/pending Order. | Merchant controls the effect; no more specific mechanism is approved. | Do not assume automatic repricing or a particular workflow. |
-| Customer information and delivery-address snapshot. | Checkout requirements exist, but what Orders preserves historically is unresolved. | Historical customer/order context cannot be finalized. |
+| Customer information and delivery-address snapshot fields/retention. | AUTH-018 recommends immutable checkout-time snapshots; exact fields and retention need Product Owner/Privacy review. | The recommendation and approval owner are in `.ai/project-context/customer-order-history-access.md` §12. |
 | Inventory concurrency and transaction behavior. | Business stock effects are finalized; locking/error semantics are not. | Inventory/Order technical integration remains open. |
 | Duplicate checkout and repeated state-transition behavior. | No idempotency/concurrency business behavior is approved. | Duplicate orders or operations cannot be handled by an assumed rule. |
 | Exact Customer/merchant authorization implementation and data minimization details. | Business access is defined; implementation and field-level privacy controls remain open. | Access-control and response design remain open. |

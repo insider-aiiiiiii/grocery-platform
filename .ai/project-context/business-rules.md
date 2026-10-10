@@ -142,7 +142,7 @@ Exact database representation, Product aggregate recalculation, and transaction/
 - A WhatsApp number must not expose another shop's customer history.
 - Traditional customer username/password accounts are not required by the current MVP concept.
 
-Phone-number normalization and formatting, detailed prefill behavior, and privacy implementation are **Not Finalized / Require Decision**. Customer Order-history access is finalized as the AUTH-015 scoped link/session flow; other Customer verification mechanisms remain outside the approved MVP. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
+Phone-number normalization and formatting, detailed prefill behavior, and privacy implementation are **Not Finalized / Require Decision**. Customer Order-history access is finalized as the AUTH-015 scoped link/session flow; other Customer verification mechanisms remain outside the approved MVP. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved. AUTH-018 recommends a minimal shared contact identity with separate Shop profiles to reconcile uniqueness and Shop isolation; whether to link a contact across Shops is not determined by these rules and requires Product Owner/Privacy approval. The authoritative options and approval gate are in `.ai/project-context/customer-order-history-access.md` §12.
 
 ## 13. Cart Rules
 
@@ -227,7 +227,7 @@ Do not define exact UI behavior or API endpoints here.
 
 ## 18. Customer Order Rules
 
-AUTH-015 fixes the no-OTP Customer access behavior: WhatsApp number alone is not authorization; a single-use link expires after 15 minutes and exchanges for one Customer + Shop-scoped session with a 30-day maximum absolute lifetime and one active session per scope. A scoped session may cancel only its Customer's own `PENDING` Order with explicit confirmation and CSRF protection, using the existing `REJECTED` outcome and atomic inventory release. AUTH-017 records proposed API/schema details and remaining technical choices in `.ai/project-context/customer-order-history-access.md`. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
+AUTH-015 fixes the no-OTP Customer access behavior: WhatsApp number alone is not authorization; a single-use link expires after 15 minutes and exchanges for one Customer + Shop-scoped session with a 30-day maximum absolute lifetime and one active session per scope. A scoped session may cancel only its Customer's own `PENDING` Order with explicit confirmation and CSRF protection, using the existing `REJECTED` outcome and atomic inventory release. AUTH-017/018 technical recommendations and approval gates are maintained in `.ai/project-context/customer-order-history-access.md`; they do not change these approved rules. Minimize exposed customer information. Customer chooses Pickup or Home Delivery during checkout; Home Delivery requires an address, and the Customer may choose a saved address or enter a new one. Pickup does not require an address.
 
 ## 19. Payment Rules
 

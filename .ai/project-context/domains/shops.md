@@ -184,6 +184,8 @@ Only Super Admin can permanently delete a Shop (Merchants cannot permanently del
 
 Physical deletion, relationship cleanup, and tenant isolation mechanics remain technical decisions; they must preserve these approved outcomes.
 
+AUTH-018 recommends setting the deleted Shop relation on its Customer profiles to null and anonymizing the profile into an inaccessible tombstone, deleting addresses and grants/sessions, and never reusing the old profile/history. This technical default and the fields retained, identity-claim release, phone-number reuse, and retention period require Product Owner/Privacy approval; it does not add deletion authority or a legal retention period. See the authoritative decision register in `.ai/project-context/customer-order-history-access.md` §12.
+
 ## 12. Super Admin and Merchant Access
 
 ### Merchant
