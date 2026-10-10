@@ -205,6 +205,25 @@ class MerchantAuthenticationAPITests(TestCase):
         self.assertNotIn("password", response.data)
         self.assertNotIn("password_hash", response.data)
 
+    def test_super_admin_is_denied_merchant_password_change_before_validation(self):
+        super_admin = User.objects.create_user(
+            username="password-change-admin",
+            email="password-change-admin@example.com",
+            mobile_number="+919876543200",
+            password="admin-password",
+            role=User.Role.SUPER_ADMIN,
+        )
+        login = self.client.post(reverse("auth-super-admin-login"), {
+            "identifier": super_admin.email,
+            "password": "admin-password",
+        }, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+        response = self.client.post(reverse("auth-change-password"), {}, format="json")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(super_admin.check_password("admin-password"))
+
     def test_missing_or_invalid_bearer_token_returns_401(self):
         from rest_framework.test import APIRequestFactory
         factory = APIRequestFactory()
@@ -656,6 +675,29 @@ class SuperAdminRecoveryAPITests(TestCase):
         )
         self.assertEqual(challenge.initiated_by, self.admin)
         self.assertIsNotNone(challenge.requested_at)
+
+    def test_merchant_is_denied_super_admin_administrative_reset(self):
+        merchant_user = User.objects.create_user(
+            username="merchant-admin-reset-denied",
+            mobile_number="+913333333333",
+            password="merchant-password",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=merchant_user, must_change_password=False)
+        login = self.client.post(reverse("auth-login"), {
+            "mobile_number": merchant_user.mobile_number,
+            "password": "merchant-password",
+        }, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+        response = self.client.post(
+            reverse("auth-super-admin-reset-request"), {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(SuperAdminRecoveryChallenge.objects.filter(
+            purpose=SuperAdminRecoveryChallenge.Purpose.ADMIN_RESET,
+        ).exists())
 
     def test_administrative_reset_target_sets_password_and_sessions_are_revoked(self):
         initiator_tokens = self.login(self.admin).data

@@ -104,9 +104,9 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 
 ## 9. Roles and Access
 
-The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. The User stores globally unique email and mobile identifiers. Each Merchant has a separate Merchant profile linked one-to-one to its `MERCHANT` User. The profile stores account status and whether the initial password must be changed; it contains no Shop fields. A User with the `SUPER_ADMIN` role has no automatic Shop ownership. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts. Role-based authorization and the permission implementation are not defined.
+The authenticated platform roles are `SUPER_ADMIN` and `MERCHANT`, represented on one custom Django `User` model. The User stores globally unique email and mobile identifiers. Each Merchant has a separate Merchant profile linked one-to-one to its `MERCHANT` User. The profile stores account status and whether the initial password must be changed; it contains no Shop fields. A User with the `SUPER_ADMIN` role has no automatic Shop ownership. Customer identities remain shop-specific records in the Customers domain and are not authenticated `User` records. This does not create separate employee or staff accounts.
 
-Merchant access is limited to the Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization.
+API authorization is enforced separately from authentication through explicit role permissions. `SUPER_ADMIN` may call only platform operations allowed by finalized business rules; the role alone does not permit browsing or editing private Shop or Merchant information. `MERCHANT` may call only documented Merchant operations and access data scoped to that Merchant's Shop. Server-side authorization must preserve Shop-level tenant isolation. Client-provided Shop identifiers are not proof of authorization. MVP does not define employee/staff roles or granular staff permissions.
 
 ## 10. Authentication and Technical Boundaries
 
