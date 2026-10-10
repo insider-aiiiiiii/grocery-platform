@@ -22,6 +22,8 @@ Customer profiles and Order history are Shop-scoped; the platform does not autom
 
 See `.ai/project-context/customer-order-history-access.md` for the finalized AUTH-015 security design. Provider, deployment, phone-normalization, API, schema, and retention details remain open; this does not change the approved no-OTP and no-phone-number-only-access rules.
 
+See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal. Its suggested link/session flow and settings remain proposals pending review; it does not change the approved no-OTP and no-phone-number-only-access rules.
+
 ## 3. Shop-Specific Customer Isolation
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` as the governing engineering rule.
@@ -205,7 +207,7 @@ These are conceptual domain relationships, not necessarily database foreign keys
 
 | Phone-number normalization and formatting. | WhatsApp number is the primary identifier within a Shop, but accepted formats and normalization are not defined. | Comparisons and accepted input formats cannot be specified. |
 | Physical uniqueness enforcement for WhatsApp numbers. | WhatsApp numbers are globally unique across Customer, Merchant, and Super Admin identities. | The shared database representation that enforces uniqueness across domains remains open. |
-| Order-history link delivery and deployment details. | A one-use 15-minute link exchanges for one active Customer + Shop-scoped session with a 30-day maximum absolute lifetime. Pending cancellation is authorized through that session for the Customer's own `PENDING` Order. | The security design is finalized in `.ai/project-context/customer-order-history-access.md`. Provider/failure handling, origin/cookie settings, phone normalization/throttling details, API/schema, and Customer retention remain open. |
+| Order-history access link/token design. | A customer-specific link/token scoped to the Customer and Shop is approved; WhatsApp number alone is insufficient to authorize access and OTP is not required. | See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 proposal. Delivery, lifetimes, session count, cancellation authority, origin, and revocation choices require review before implementation. |
 
 Determines who may access customer information, subject to approved authorization.
 

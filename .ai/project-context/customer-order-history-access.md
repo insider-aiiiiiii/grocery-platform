@@ -1,18 +1,18 @@
-# Customer Order-History Access Design
+# Customer Order-History Access Design Proposal
 
 ## 1. Status and scope
 
-This document records the finalized AUTH-015 Customer Order-history access design. It does not implement a Customer model, an Order API, a delivery provider, a URL domain, or a new Customer account. Customer access remains separate from Merchant and Super Admin JWT authentication. No OTP or Customer username/password account is introduced.
+This is the AUTH-015 security design proposal for the already-approved customer-specific access link. It does not implement or finalize a Customer model, an Order API, a delivery provider, a URL domain, or a new Customer account. Customer access remains separate from Merchant and Super Admin JWT authentication. No OTP or Customer username/password account is introduced.
 
-The no-OTP requirement, the rule that a WhatsApp number alone is not authorization, Customer + Shop scoping, the 15-minute one-use link, 30-day maximum session lifetime, one active session per Customer + Shop, and pending Order cancellation through that scoped session are approved. Section 8 lists only unresolved deployment and technical details. Exact routes and schema remain for later API/database design.
+The no-OTP requirement, the rule that a WhatsApp number alone is not authorization, and Customer + Shop scoping are approved. The concrete flow and values below are recommendations for review; where product or deployment behavior is not decided, it is called out in Section 8. Do not implement them as approved behavior until reviewed.
 
-## 2. MVP flow
+## 2. Recommended MVP flow
 
 1. A customer places an order using the existing checkout concept. The server resolves or creates the Shop-specific Customer according to the approved Customer rules; it does not grant access merely because a submitted phone number matches.
-2. After successful Order creation, the server creates a 15-minute, single-use history-link grant for that exact Customer and Shop. The link is delivered to the Customer's WhatsApp number using the Order-received message flow. The message must say the Order was received, not accepted, and must not contain private Order details beyond reviewed minimal notification content. Delivery is reported as successful only when the WhatsApp provider confirms it.
+2. After successful Order creation, the server creates a short-lived, single-use history-link grant for that exact Customer and Shop. The link is delivered to the Customer's WhatsApp number using the Order-received message flow. Delivery must not contain private Order details beyond the reviewed minimal notification content.
 3. A returning customer can request a replacement link from the customer-facing Shop context by submitting the Shop's public identifier and WhatsApp number. The response is the same whether or not a matching Customer exists. If one exists, the service may deliver a link to its recorded number; it must never return the link or a Customer/Order identifier in the API response. A number-only request does not create a Customer, reveal order history, or authenticate the requester.
 4. The customer opens the link. The link carries a random bearer secret in the URL fragment (after `#`), so browsers do not send it automatically in the HTTP request or `Referer` header. A minimal first-party page reads it, immediately removes it from browser history with `history.replaceState`, and submits it once in a POST body to exchange it for a restricted Customer session. A GET, preview, crawler, or link scanner must not consume a grant or perform a state change.
-5. The exchange endpoint validates and atomically consumes the grant, then creates a server-side session bound to the exact Customer and Shop. The browser receives only that session credential in a Secure, HttpOnly cookie, with SameSite and cookie scope selected for the reviewed deployment. The session opens the Shop-specific Order history page. It is not a platform User login and cannot call Merchant or Super Admin APIs.
+5. The exchange endpoint validates and atomically consumes the grant, then creates a server-side session bound to the exact Customer and Shop. The browser receives only that session credential in a Secure, HttpOnly cookie under the approved same-site deployment arrangement. The session opens the Shop-specific Order history page. It is not a platform User login and cannot call Merchant or Super Admin APIs.
 6. For repeat ordering, the history page may offer a reorder action that creates a new cart/order attempt using the same Customer + Shop context. The server re-reads current product visibility, price, availability, and fulfillment rules; it never clones an old Order as a new purchase or trusts its historical line data as current catalog data.
 
 ## 3. Token and session lifecycle
@@ -22,22 +22,22 @@ The no-OTP requirement, the rule that a WhatsApp number alone is not authorizati
 - Generate at least 32 cryptographically random bytes with the platform language's secure random source and encode them as URL-safe text. This gives 256 bits of entropy and makes online guessing infeasible; never derive the secret from a phone number, Shop ID, Customer ID, Order ID, timestamp, or ordinary Django/JWT identifiers.
 - Store only a one-way digest of the secret, never the plaintext. A plain SHA-256 digest is suitable for a uniformly random 256-bit value; use constant-time digest comparison where application comparison is needed. Do not reuse Merchant/Super Admin JWT signing or refresh-token mechanisms.
 - Bind each grant server-side to purpose=`order_history`, one Customer, one Shop, creation time, expiry, and used/revoked state. Resolve the Customer and Shop from database relationships; do not trust IDs or claims supplied by the client.
-- Initial-link lifetime is 15 minutes from issuance; each grant is single use. On link reissue, invalidate earlier unused history grants for that same Customer + Shop so old unredeemed links cannot linger.
+- Recommended initial-link lifetime: 15 minutes, single use. The exact lifetime is a proposal for approval. On link reissue, invalidate earlier unused history grants for that same Customer + Shop so old unredeemed links cannot linger.
 - Consume the grant transactionally (for example, lock the matching row and mark it used before issuing a session) so simultaneous requests cannot exchange the same link twice. Used, expired, revoked, malformed, and unknown grants receive indistinguishable external errors.
 
 ### Restricted Customer session
 
 - Issue a separate random session secret; persist only its digest and the Customer, Shop, issue time, expiry, and revocation state. Check the current server-side session and its Customer/Shop relationships for every history or mutation request. Do not treat decoded client claims as the source of tenant scope.
-- A Customer session has a maximum absolute lifetime of 30 days, with no silent indefinite renewal. After expiry, the customer requests a new link.
-- Allow one active session per Customer + Shop. Successful redemption of a new link revokes/replaces the previous active session for that scope.
-- Provide an explicit logout/revoke operation that invalidates the current session. Shop deletion revokes every outstanding grant and Customer session scoped to that Shop before or as part of deletion. A Customer retained after Shop deletion is not rebound to a replacement Shop and cannot retain a usable credential for the deleted Shop. Any future Customer deletion must also invalidate that Customer's grants and sessions; Customer retention/deletion policy remains unresolved.
+- Recommended session lifetime: 30 days absolute, with no silent indefinite renewal. After expiry, the customer requests a new link. These durations are proposals, not finalized product policy.
+- Recommend one active session per Customer + Shop in MVP: successful exchange replaces the prior session. This gives a simple lost-device recovery path but constrains multiple-device use; product approval is required. If multiple sessions are preferred, provide a way to revoke all sessions before release.
+- Provide an explicit logout/revoke operation that invalidates the current session. Shop deletion invalidates every grant and session scoped to that Shop before or as part of deletion. Customer deletion, if later approved, must invalidate that Customer's grants and sessions. A retained Customer row after Shop deletion must never be rebound to a replacement Shop or keep a usable credential for the old context.
 - A session authorizes only the Customer's minimized history and the explicitly approved customer actions for the same Shop. It never grants Merchant/admin access or another Customer's data.
 
 ## 4. Browser and transport protections
 
 - Put the link secret in the URL fragment rather than the path or query string; fragments are not sent in HTTP requests or referrers. Exchange it promptly through HTTPS POST and remove it from browser history before loading other resources.
 - Serve a minimal first-party landing page with no third-party scripts, pixels, fonts, or analytics. Set `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, a restrictive Content Security Policy, and appropriate transport security. Redact link/session values from app, proxy, provider, tracing, error, and analytics logs. Never include secrets in exception text or support tooling.
-- Set the session cookie `Secure` and `HttpOnly`, with narrow path/host scope and a SameSite policy selected for the reviewed deployment. Require CSRF protection for state-changing cookie-authenticated requests, including logout and Order cancellation. Do not store session secrets in localStorage or return them to general JavaScript if the deployment can use a same-site HttpOnly cookie.
+- Set the session cookie `Secure`, `HttpOnly`, `SameSite=Lax` (or stricter where compatible), and narrow its path/host scope. Require CSRF protection for state-changing cookie-authenticated requests, including Order cancellation. Do not store session secrets in localStorage or return them to general JavaScript if the deployment can use a same-site HttpOnly cookie.
 - The repository does not define the storefront domain or frontend/API origin relationship. If a same-site cookie cannot be used, select and review an alternative transport, CORS policy, and CSRF threat model before implementation; do not silently broaden cookie or origin settings.
 - Never mutate state on link GET. The customer must take an explicit action in the first-party page before grant exchange; destructive or Order-changing actions require a separate confirmation POST.
 
@@ -67,7 +67,7 @@ Do not put bearer secrets in route paths or query parameters. Customer endpoints
 
 ## 7. Data-model implications (conceptual only)
 
-The Customers domain will need persisted one-time grants and restricted sessions. Conceptual records contain:
+The Customers domain will need persisted one-time grants and restricted sessions if this proposal is approved. Conceptual records contain:
 
 - Secret digest (unique), purpose, Customer reference, Shop reference, created/expiry/used/revoked timestamps for link grants.
 - Secret digest (unique), Customer reference, Shop reference, created/expiry/last-used/revoked timestamps for Customer sessions.
@@ -79,16 +79,17 @@ The records are credentials, not User accounts. They must not point at or create
 
 | Decision | Recommended starting point | Why approval is still needed |
 |---|---|---|
-| WhatsApp provider and delivery integration | Use the selected provider and report delivery only after provider confirmation. | Provider choice, integration, failure handling, and operational retry policy are not selected. |
-| Frontend/API origin and cookie deployment | Use HTTPS, Secure/HttpOnly cookies with narrow scope and CSRF protection. | Hosting architecture, origin relationship, cookie domain/path, and final SameSite policy depend on deployment. |
-| Phone normalization and throttling details | Apply IP, Shop, and normalized-number-based controls. | Phone normalization/validation and rate-limit implementation details and thresholds remain open. |
-| Additional revocation and abuse controls | Enforce approved link/session expiry, one active session, replacement, and logout. | Any deployment-specific controls beyond these approved behaviors require technical review. |
-| Customer retention and deletion | Revoke access grants and sessions when their Shop is deleted; preserve Customer entity behavior under existing rules. | Broader Customer retention/deletion policy and legal or operational requirements remain unresolved. |
-| Exact API and data contract | Keep all routes, request/response contracts, schema, indexes, and transaction mechanics within the documented Customer + Shop boundary. | Exact API routes/contracts, database schema, and implementation details require later design. |
-| Delivery failure and customer recovery | Do not claim delivery succeeded without provider confirmation; retain the generic link-request response. | Customer-facing recovery when delivery fails is not defined. |
-| Other deployment-dependent controls | Preserve least privilege, no enumeration, secret redaction, and tenant isolation. | Any remaining choice that depends on hosting, provider, or operational capability requires review. |
+| Delivery point and message content | Send a one-time history link after successful Order creation in the Order-received WhatsApp message; allow generic link reissue from the relevant Shop context. | The link's exact delivery timing/content and behavior when the provider fails are not specified. |
+| Link/session lifetimes | Link: 15 minutes, one use. Session: 30 days absolute. | These are security/product tradeoffs and have no approved values today. |
+| Session count and renewal | One active session per Customer + Shop; redeeming a new link replaces it; renew only by requesting another link. | Multi-device access and lost-device/session revocation UX are not defined. |
+| Pending cancellation authority | Allow the authenticated Customer session to cancel only that Customer's `PENDING` Order in the same Shop, with explicit confirmation and CSRF protection. | The business operation is approved, but the Customer's technical proof/context for cancellation is not. Confirm that the history link is sufficient for this write permission or require a separate order-scoped cancellation capability. |
+| Cookie/origin deployment | Same-site HTTPS storefront/API with Secure HttpOnly cookie and CSRF protection. | Frontend origin, domain, and cross-origin deployment are not documented. |
+| Phone normalization and throttles | Normalize according to an approved phone-format rule; throttle per normalized-number digest, Shop, and IP/network. | Phone normalization remains unresolved; outbound delivery/provider limits and abuse thresholds need configuration. |
+| Customer deletion/retention | Any approved Customer deletion must first revoke credentials; do not delete or retain Customer data beyond current domain rules. | Customer deletion/anonymization and historical data policy remain unresolved. |
+| Revocation controls | Logout current session; replacement exchange revokes prior active session under the single-session recommendation. | A customer-wide revoke control, compromise response, and operator support flow are not specified. |
+| Storefront technology and delivery adapter | Use the approved web/WhatsApp delivery integration once selected; no new infrastructure is assumed here. | Neither the frontend implementation nor WhatsApp provider/delivery architecture is present in the repository. |
 
-The 15-minute link lifetime, 30-day maximum session lifetime, one-session-per-Customer-per-Shop policy, and pending cancellation authorization are finalized and must not be reopened as deployment choices. Provider/delivery, frontend/API origin, phone normalization, retention, exact API/schema, and other deployment-dependent details remain open. No design choice turns a WhatsApp number into a credential.
+The token/session controls above are a recommended technical security design. The listed delivery, duration, session-count, cancellation, origin, retention, and recovery choices must be reviewed before implementation. No choice here changes the approved no-OTP requirement or turns a WhatsApp number into a credential.
 
 ## 9. Required tests before release
 
@@ -105,4 +106,4 @@ The 15-minute link lifetime, 30-day maximum session lifetime, one-session-per-Cu
 
 ## 10. Repository implementation status
 
-At review time, `backend/customers/models.py`, `backend/customers/views.py`, `backend/orders/models.py`, and `backend/orders/views.py` are empty Django scaffolds. `backend/config/urls.py` has no Customer or Order routes. There are no Customer profiles, Order records, access-link grants, Customer sessions, or WhatsApp delivery integration to reuse for this design. Merchant/Super Admin JWT and session code exists under `backend/users`; Customer credentials remain separate. AUTH-015 design is finalized, but feature implementation remains pending the deployment/API/database decisions documented above.
+At review time, `backend/customers/models.py`, `backend/customers/views.py`, `backend/orders/models.py`, and `backend/orders/views.py` are empty Django scaffolds. `backend/config/urls.py` has no Customer or Order routes. There are no Customer profiles, Order records, access-link grants, Customer sessions, or WhatsApp delivery integration to reuse for this design. Merchant/Super Admin JWT and session code exists under `backend/users`; this proposal keeps customer credentials separate. The design remains unimplemented pending approval and domain/database/API implementation work.

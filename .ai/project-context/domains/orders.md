@@ -171,7 +171,7 @@ The approved repeat-customer/order-history flow must not require OTP. Knowledge 
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
-The authenticated Customer + Shop-scoped session authorizes cancellation only for that Customer's own `PENDING` Order. Require explicit confirmation and CSRF protection, revalidate Customer ownership, Shop association, and current Order state on every request, and use the existing `REJECTED` outcome. The session cannot cancel another Customer's Order, another Shop's Order, or an Order no longer `PENDING`. See `.ai/project-context/customer-order-history-access.md` for security controls. Exact API contracts remain for later design.
+See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal, including the proposed restricted session and the unresolved question of whether it authorizes pending Order cancellation. The proposal does not authorize implementation before review.
 
 ## 22. Order Cancellation
 

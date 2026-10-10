@@ -307,6 +307,8 @@ Each Customer profile belongs to one Shop, and Order history remains Shop-scoped
 
 The finalized credential lifecycle and conceptual grant/session implications are documented in `.ai/project-context/customer-order-history-access.md`. Implementations must preserve those security constraints; physical schema and API details remain for later design.
 
+The proposed credential lifecycle and conceptual grant/session data implications are documented in `.ai/project-context/customer-order-history-access.md`; those proposals require review before schema or implementation work.
+
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
 **## 12. Shop → Cart**
