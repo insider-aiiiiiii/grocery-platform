@@ -37,9 +37,9 @@ Merchant 1 ─── 1 Shop
 ```
 
 - Meaning: the Merchant owns and operates their Shop.
-- Each Merchant may create and own exactly one Shop in MVP; a Merchant with no Shop may log in and create one.
+- Each Merchant may own one Shop at a time; a Merchant with no Shop may log in and create one. After permanent deletion of the prior Shop, the same Merchant may create a replacement with a new Shop identity and public QR/link.
 - Each Shop belongs to exactly one Merchant.
-- A Merchant cannot create or own multiple Shops. If another Shop is required, a separate Merchant account is created.
+- A Merchant cannot own multiple Shops simultaneously. A separate Merchant account is not required to replace a permanently deleted Shop.
 - Ownership transfer between Merchants is not supported in MVP.
 - Merchant and Shop remain separate business concepts. Shop remains the primary tenant boundary for merchant-owned business data; Merchant is not the tenant boundary.
 
@@ -99,7 +99,7 @@ Merchant status is `ACTIVE` or `DEACTIVATED`.
 - A deactivated Merchant cannot log in or access the platform through that account, effective immediately.
 - Merchant data is not permanently deleted in MVP when the account is deactivated.
 - A deactivated Merchant cannot be reactivated in MVP. No reactivation workflow is defined.
-- If the same business owner needs access again, a new Merchant account or application process would be required under future approved onboarding rules; this does not establish a current reactivation flow.
+- Permanent Shop deletion and Merchant account deletion are not the same approved decision. Existing Shop rules say deletion removes associated Merchant credentials, which conflicts with the approved ability for the same Merchant account to create a replacement Shop. This conflict requires approval; do not infer account deletion or retention behavior.
 - If the Merchant's Shop is deactivated, Merchant login immediately stops working.
 
 ## 9. Roles and Access
@@ -145,7 +145,7 @@ Super Admin self-recovery and administrative reset are separate approved flows:
 - Merchant is the Shop Owner / business entity, separate from User and Shop.
 - One Merchant owns exactly one Shop in MVP; one Shop belongs to exactly one Merchant.
 - Shop is the primary tenant boundary.
-- Only Super Admin creates a Merchant account; the Merchant creates their own Shop.
+- Super Admin creates Merchant accounts directly; there is no public Merchant application or approval workflow. The Merchant creates their own Shop.
 - Merchant may log in before creating a Shop.
 - The system generates a temporary password and the Merchant changes it on first login.
 - Merchant may share credentials with staff in MVP; individual staff accounts, roles, and permissions are not required.
@@ -153,6 +153,7 @@ Super Admin self-recovery and administrative reset are separate approved flows:
 - Shop deactivation immediately stops Merchant login.
 - Merchant may manage Merchant personal information and Shop profile; Super Admin cannot edit either after creation.
 - Merchant application flow and ownership transfer are not supported in MVP.
+- A Merchant may create a new Shop after permanent deletion of the prior Shop. The Shop deletion effect on Merchant account credentials remains unresolved as described above.
 
 ## 12. Unresolved Technical Decisions
 

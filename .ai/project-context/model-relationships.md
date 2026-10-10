@@ -148,7 +148,7 @@ No additional application is introduced by this relationship specification.
 
 ```text
 Merchant
-   ↓ may have only one active Shop at a time
+   ↓ may own only one Shop at a time
 Merchant login credentials
    ↓ provide access to Merchant's Shop; credentials may be shared with staff
 Shop (primary tenant boundary)
@@ -194,7 +194,7 @@ Shop
     = store/tenant operated by a Merchant
 ```
 
-These concepts must not be collapsed into one entity. Merchant means the Shop Owner / business owner and is separate from User and Shop. In MVP, one Merchant may have only one active Shop at a time, and each Shop belongs to exactly one Merchant. Merchant can create another Shop only after permanently deleting the previous one. Merchant login credentials provide access to the Merchant's one active Shop and may be shared with employees/staff. Individual employee accounts, Merchant memberships, roles, and staff permissions are not required in MVP; individual users and roles may be introduced later.
+These concepts must not be collapsed into one entity. Merchant means the Shop Owner / business owner and is separate from User and Shop. In MVP, one Merchant may own only one Shop at a time, and each Shop belongs to exactly one Merchant. After permanent deletion, the same Merchant may create a new Shop with a new identity and public QR/link. Merchant login credentials provide access to that Merchant's Shop and may be shared with employees/staff. Individual employee accounts, Merchant memberships, roles, and staff permissions are not required in MVP; individual users and roles may be introduced later.
 
 ### User / Merchant login representation
 
@@ -216,24 +216,24 @@ These concepts must not be collapsed into one entity. Merchant means the Shop Ow
 
 - Meaning: Merchant owns and operates their Shop.
 - Classification: Business ownership/association.
-- Cardinality: `1 → 1 active Shop`.
-- Ownership: A Merchant may have only one active Shop at a time; each Shop belongs to exactly one Merchant and cannot exist without a Merchant. Merchant may create another Shop only after permanently deleting the previous Shop; the new Shop is a new entity. Ownership transfer is not supported in MVP.
+- Cardinality: `1 → 1 Shop at a time`.
+- Ownership: A Merchant may own only one Shop at a time; each Shop belongs to exactly one Merchant and cannot exist without a Merchant. After permanent deletion, the same Merchant may create another Shop with a new identity and public QR/link. Ownership transfer is not supported in MVP. The effect of Shop deletion on Merchant credentials remains unresolved.
 - Status: **APPROVED**.
 
 ### Merchant credentials → Shop
 
 - Meaning: Merchant login credentials grant access to the Merchant's Shop.
 - Classification: Authorization/access relationship.
-- Cardinality: One Merchant login/account and one Merchant profile per Merchant in MVP.
+- Cardinality: One Merchant login/account and one Merchant profile per Merchant in MVP; one Shop at a time.
 - Ownership: Credentials may be shared with employees/staff. No separate employee User or Merchant membership is required in MVP. Access is limited to the Merchant's Shop and does not make User the Shop owner.
 - Status: **APPROVED** for the business access rule; profile lifecycle and Shop access enforcement remain unresolved.
 
 ### Shop lifecycle and public access
 
-- Shop status is `ACTIVE` or `DEACTIVATED`. Merchant can deactivate a Shop; only Super Admin can reactivate it. Super Admin cannot view, edit, or deactivate Shop information.
-- Deactivating the Merchant account automatically deactivates its Shop. Deactivated Shop data remains until deletion; customers and Merchant cannot access the deactivated Shop.
+- Merchant can deactivate their own Shop; Super Admin may suspend or reactivate it under existing rules. Super Admin cannot browse or edit private Shop information. Existing permanent deletion authority belongs to Super Admin, with the confirmation safeguards already documented.
+- Merchant account deactivation automatically deactivates the Shop; this does not remove the Merchant's separate authority to deactivate their own Shop. Deactivated Shop data remains until deletion; customers and Merchant cannot access the deactivated Shop.
 - Shop QR/public access uses a system-generated public link, not the Shop ID. A deactivated Shop QR remains valid and shows the Shop as unavailable. Reactivation requires a newly generated QR; the old QR does not work.
-- Merchant may permanently delete the Shop, including when it has Orders. Shop data, including Shop products and Orders, is deleted; the public link and QR become unavailable immediately. Merchant may then create a new Shop entity.
+- Super Admin may permanently delete the Shop, including when it has Orders, using the existing confirmation safeguards. Shop products and Orders are deleted; the public link and QR become unavailable immediately. The same Merchant may then create a new Shop with a new identity and QR/link. Whether deletion removes the Merchant login conflicts with existing Shop rules and requires approval; see `.ai/project-context/domains/shops.md`.
 - Shop remains the primary tenant boundary.
 
 
@@ -301,7 +301,7 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 \- Status: **\*\*APPROVED\*\*** as a business concept.
 
-Each Customer profile belongs to one Shop, and Order history remains within the Shop/customer context. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. Customers may access their Orders in the relevant context using their WhatsApp number; OTP is not required for this MVP decision. This does not grant access to another customer's information or Orders outside that context.
+Each Customer profile belongs to one Shop, and Order history remains Shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. The approved repeat-customer/order-history flow must not require OTP, but a WhatsApp number alone is not proof of identity and must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval.
 
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
@@ -450,11 +450,11 @@ Campaign → Category: **NOT APPLICABLE** as a required relationship in MVP.
 
 - Meaning: Inventory stores stock state for a Shop's sellable Product or Variant.
 - Classification: Shop-scoped stock state associated with Catalog definitions.
-- Cardinality: A non-variant Shop Product has Product-level stock. A variant product has independently tracked Variant stock and an overall/aggregate Product-level quantity. Physical representation remains a database-design decision.
+- Cardinality: A non-variant Shop Product has Product-level stock. For a variant product, Variant quantities are authoritative and Product-level quantity is a derived aggregate. Physical representation remains a database-design decision.
 - Tenant scope: Tenant-owned.
 - Status: **APPROVED** as business behavior.
 
-The Merchant may modify both Product-level and Variant-level stock. Inventory respects the Catalog sellable unit, permits decimal quantities, starts at `0` for a new Shop Product or Variant, and cannot fall below `0`. Product aggregate recalculation behavior is not specified. Removing a Product or Variant from the Shop Catalog removes its Inventory record; hard-delete/soft-delete mechanics remain technical details.
+The Merchant may modify non-variant Product stock and individual Variant stock; independent manual changes to aggregate Product stock for a variant-based product are superseded. Inventory respects the Catalog sellable unit, permits decimal quantities, starts at `0` for a new Shop Product or Variant, and cannot fall below `0`. Exact aggregate derivation remains a technical decision. Removing a Product or Variant from the Shop Catalog removes its Inventory record; hard-delete/soft-delete mechanics remain technical details.
 **## 23. Customer → Cart**
 
 - Meaning: A Cart represents current shopping state within a Shop.
@@ -533,7 +533,7 @@ There is one current Customer record per customer at a Shop. When the same custo
 
 Orders are retained as historical transactions while the Shop exists. Deleting the Shop also deletes its Orders. The Customer entity remains and is not globally deleted because of Shop deletion. The full Customer profile is not copied into every Order. An Order preserves its historical purchase price and delivery charge, plus order-time information required for historical accuracy.
 
-Customers may view all previous Orders available within their Shop/customer context using their WhatsApp number; OTP is not required for this MVP decision. Merchant can view all historical Orders for the Shop while it exists.
+The repeat-customer/order-history flow does not require OTP, but a WhatsApp number alone must not expose Orders; a privacy-safe access mechanism remains unresolved. Merchant can view all historical Orders for the Shop while it exists.
 
 **## 28. Order → OrderItem**
 
@@ -714,8 +714,8 @@ Analytics may report current stock facts. MVP defines no low-stock threshold, me
 
 ### Campaigns / Notifications → Analytics
 
-- Campaign attribution analytics are excluded from the MVP; notification reporting remains subject to its own approved requirements.
-- Status: Campaign attribution is **EXCLUDED FROM MVP**; notification analytics remain separate.
+- MVP analytics queries approved source-domain data directly; this does not approve metric formulas or change source-domain ownership.
+- Campaign attribution and Notification delivery analytics are **EXCLUDED FROM MVP**; future reporting requires separate approval. Do not retain aggregates from permanently deleted Shops without a separately approved retention policy.
 
 No separate analytics database or duplicated fact tables is required for MVP.
 
@@ -723,8 +723,8 @@ No separate analytics database or duplicated fact tables is required for MVP.
 
 | From | To | Relationship meaning | Cardinality | Tenant scope | Classification | Status |
 |---|---|---|---|---|---|---|
-| Merchant | Shop | Merchant may have one active Shop at a time and may create another after permanent deletion | `1 → 1 active Shop` | Shop | Business ownership | **APPROVED** |
-| Merchant credentials | Merchant's active Shop | Merchant login grants access; credentials may be shared with staff | `1 → 1 active Shop` | Shop access | Authorization | **APPROVED** |
+| Merchant | Shop | Merchant owns one Shop at a time; may create a new Shop after permanent deletion | `1 → 1 Shop at a time` | Shop | Business ownership | **APPROVED** |
+| Merchant credentials | Merchant's Shop | Merchant login grants access; credentials may be shared with staff | `1 → 1 Shop at a time` | Shop access | Authorization | **APPROVED** |
 | User | Merchant | One-to-one Merchant profile; contact login identifiers live on User | 1-to-1 | Platform/access | Identity | **IMPLEMENTED** |
 | User | Super Admin | Platform identity accepts globally unique email or mobile login | Multiple Users | Platform | Identity | **APPROVED** |
 | Shop | Shop Catalog | Shop owns catalog context | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
@@ -732,7 +732,7 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Shop Product | Variant | Optional Shop-specific variants; product may also be directly sellable | Optional / potentially many; exact schema unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
 | Shop Product | Category, Brand, Attributes | Shop-specific product information managed by Merchant | Multiple categories supported; remaining physical cardinalities unresolved | Tenant | Ownership/configuration | **APPROVED business rule** |
 | Shop | Inventory | Shop owns stock context | `1 → many` | Tenant | Ownership | **APPROVED** |
-| Shop Product/Variant | Inventory | Product/Variant and aggregate stock as defined by Catalog and Inventory rules | Product without variants: Product stock; with variants: Variant plus aggregate Product stock | Tenant | Business association | **APPROVED business rule** |
+| Shop Product/Variant | Inventory | Product/Variant and aggregate stock as defined by Catalog and Inventory rules | Product without variants: Product stock; with variants: authoritative Variant stock plus derived Product aggregate | Tenant | Business association | **APPROVED business rule** |
 | Shop | Customer | Customer identity is scoped to Shop | `1 → many` | Tenant | Ownership | **APPROVED** |
 | Customer | Cart | Cart is current customer/shop state | `TBD` | Tenant | Ownership/scoping | **CONCEPTUAL** |
 | Shop | Cart | Cart cannot cross Shop | `1 → many` possible | Tenant | Scoping | **APPROVED** |
@@ -743,7 +743,7 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Cart | Order | Cart supplies checkout intent; no persistent link | `TBD` persistent | Tenant | Business interaction | **APPROVED** |
 | Order | OrderItem | Order contains historical lines | `1 → many` | Tenant | Ownership | **CONCEPTUAL** |
 | OrderItem | Product/Variant | Historical purchase references item meaning | `many → 1` possible | Tenant/global reference | Historical/reference | **CONCEPTUAL** |
-| Order | Inventory | Creation reserves; acceptance deducts; rejection or pending Customer cancellation releases; eligible Merchant cancellation restores/releases; Merchant manually adjusts insufficient quantity | Physical mapping TBD | Tenant | Business interaction | **APPROVED business behavior** |
+| Order | Inventory | Creation reserves; acceptance deducts; rejection, pending Customer cancellation, or pending expiry releases; expiry uses `REJECTED`; eligible Merchant cancellation restores/releases; Merchant manually adjusts insufficient quantity | Physical mapping TBD | Tenant | Business interaction | **APPROVED business behavior** |
 | Order | Payment status | Order has `PAID` / `UNPAID` status; only Merchant updates it | Order context; physical representation TBD | Tenant | Business state | **APPROVED business rule** |
 | Order | Notification | Seven approved Order events may trigger notifications: new Order, received acknowledgement, accepted, rejected, quantity reduced, Customer cancellation, Merchant cancellation | `1 → many` possible | Tenant | Business interaction | **APPROVED business behavior** |
 | Notification | Recipient | Merchant messages resolve to the Shop's configured merchant WhatsApp number; customer messages resolve to the relevant Shop-specific Customer WhatsApp number | `TBD` | Tenant | Delivery/tenant-scoping | **APPROVED** |
@@ -756,7 +756,7 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Inventory | Analytics | Current stock facts may be reported; no low-stock threshold or movement ledger | Reporting relationship | Tenant/platform | Reporting dependency | **CONCEPTUAL** |
 | Customers | Analytics | Analytics derives customer metrics | `many → analytics` | Tenant/platform | Reporting dependency | **CONCEPTUAL** |
 | Campaigns | Analytics | Campaign attribution analytics excluded from MVP | `many → analytics` | N/A | Reporting dependency | **EXCLUDED FROM MVP** |
-| Notifications | Analytics | Notification analytics not finalized | `many → analytics` | Tenant/platform | Reporting dependency | **UNRESOLVED** |
+| Notifications | Analytics | Notification delivery analytics excluded from MVP | N/A in MVP | N/A | Reporting dependency | **EXCLUDED FROM MVP** |
 | Shops | Analytics | Analytics scopes merchant/platform reporting | `1 → many` conceptual | Tenant/platform | Reporting dependency | **CONCEPTUAL** |
 
 The table intentionally includes conceptual interactions as well as likely database relationships. Only relationships marked APPROVED should be treated as settled business decisions; physical representation remains a later database-design task.
@@ -900,7 +900,7 @@ This is not approved. Identity, business/operator context, tenant context, and a
 
 **### Keep Customer profiles shop-scoped**
 
-Each Customer profile belongs to one Shop. Customers can access all their Orders available within their Shop/customer context using their globally unique WhatsApp number; OTP is not required for this MVP decision. Do not expose Orders across Shop/customer contexts, and minimize customer information. WhatsApp/mobile identity values are globally unique across Customer, Merchant, and Super Admin accounts. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
+Each Customer profile belongs to one Shop. The approved repeat-customer/order-history flow must not require OTP, but a WhatsApp number alone is not proof of identity and must not expose Orders. The privacy-safe access mechanism remains unresolved pending approval. Do not expose Orders across Shop/customer contexts, and minimize customer information. WhatsApp/mobile identity values are globally unique across Customer, Merchant, and Super Admin accounts. Enforcing this across domains requires a shared technical representation; independent table constraints are insufficient.
 
 **### Do not make Merchant the tenant**
 
@@ -976,8 +976,8 @@ Cross-domain relationships are expected, but business ownership and dependency d
 
 ### Notifications ↔ Analytics
 
-- Notifications owns delivery facts; Analytics may report them if required later.
-- Status: Delivery metric requirements unresolved.
+- Notification delivery analytics are excluded from the MVP; future reporting requires separate approval.
+- Status: **EXCLUDED FROM MVP**.
 
 Avoid adding abstractions merely to remove a theoretical circular dependency. Identify the actual business owner and minimum required reference or interaction.
 
@@ -985,20 +985,20 @@ Avoid adding abstractions merely to remove a theoretical circular dependency. Id
 
 The following business decisions have been explicitly resolved during relationship review and supersede earlier unresolved wording in this document:
 
-1. **Merchant is the Shop Owner / business entity, separate from User and Shop.** One Merchant may have only one active Shop at a time; each Shop belongs to exactly one Merchant. Another Shop may be created only after permanent deletion of the prior Shop. Ownership transfer is not supported in MVP.
-2. **MVP Merchant access uses Merchant login credentials for the Merchant's one active Shop.** Credentials may be shared with staff; individual employee accounts, memberships, roles, and permissions are not required. Individual users and roles may be introduced later.
+1. **Merchant is the Shop Owner / business entity, separate from User and Shop.** One Merchant owns one Shop at a time; each Shop belongs to exactly one Merchant. After permanent deletion, the same Merchant may create a new Shop with a new identity and public QR/link. Ownership transfer is not supported in MVP.
+2. **MVP Merchant access uses Merchant login credentials for the Merchant's Shop.** Credentials may be shared with staff; individual employee accounts, memberships, roles, and permissions are not required. Individual users and roles may be introduced later.
 3. **Products may have multiple variants.** Variant-level price and inventory are supported; non-variant Products may themselves be sellable.
 4. **Master and Shop Catalogs are independent.** Merchant-created Shop Products require no Super Admin approval. Super Admin may promote a product into the Master Catalog without automatically linking or changing the existing Shop Product.
-5. **Inventory is Shop-specific.** Products without variants have Product stock; products with variants have independently tracked Variant stock plus aggregate Product stock. Both levels can be modified by the Merchant.
+5. **Inventory is Shop-specific.** Non-variant products have Product stock. For variant-based products, Variant quantities are authoritative and Product stock is a derived aggregate; independent manual changes to the aggregate are superseded.
 6. **Customer records are Shop-specific.** Within a Shop, the WhatsApp number is the primary identifier for recognizing a returning Customer. A permanent Customer record is created when the customer first provides that WhatsApp number, including before checkout; abandoned carts may therefore be associated with permanent Customer records.
 7. **Cart has direct Shop context and cannot mix Shops.** Checkout creates the Order, but no persistent Cart → Order relationship is required.
 8. **One current Customer record per customer per Shop.** Repeat orders may update the current Customer details. Orders remain complete historical transaction records.
-9. **Order history remains available while the Shop exists.** Merchant can view all historical Shop Orders. Customers can view all their Orders available within the Shop/customer context. Shop deletion removes the Shop's Orders; there is no history-count limit while they exist.
+9. **Order history remains available while the Shop exists.** Merchant can view all historical Shop Orders. Customer repeat-customer/order-history flow must not require OTP, but a WhatsApp number alone must not expose Orders; its privacy-safe mechanism remains unresolved. Shop deletion removes the Shop's Orders; there is no history-count limit while they exist.
 10. **Order preserves order-time delivery information.** The complete current Customer profile is not duplicated into every Order.
-11. **Order creation reserves required stock; Merchant acceptance deducts it.** Reserved quantity is visible to the Merchant. Rejection and pending Customer cancellation release it; eligible Merchant cancellation after acceptance restores/releases it. When stock is insufficient, Merchant may manually reduce the fulfillable quantity before acceptance, the Customer is notified, and the Order total reflects the reduced quantity. No automatic reduction is allowed.
+11. **Order creation reserves required stock; Merchant acceptance deducts it.** Reserved quantity is visible to the Merchant. Rejection, pending Customer cancellation, and pending timeout expiry release it; expiry moves the Order to the existing `REJECTED` outcome/state, and it cannot be accepted or reopened. No separate `EXPIRED` state is added. Eligible Merchant cancellation after acceptance restores/releases stock. When stock is insufficient, Merchant may manually reduce the fulfillable quantity before acceptance, the Customer is notified, and the Order total reflects the reduced quantity. No automatic reduction is allowed.
 12. **MVP campaigns are platform advertising content.** Super Admin manages them; they may display to all or selected Shops; mentions of products, categories, brands, or Shops are content only, not persistent targets. The lifecycle is Draft, Active, and Ended; start/end times are optional; visibility requires Active status, in-schedule time, and matching Shop scope. Super Admin can deactivate Active campaigns; Ended campaigns cannot be reactivated. MVP excludes merchant campaigns, discounts/coupons, customer segmentation/personalization, campaign notifications, and campaign attribution analytics.
 13. **MVP WhatsApp notifications use seven approved event/recipient mappings:** successful Order creation → Shop's configured merchant number and Customer received acknowledgement; Merchant acceptance → Customer; rejection → Customer; Merchant manual quantity reduction before acceptance → Customer; pending Customer cancellation → Shop's configured merchant number; and accepted Merchant cancellation before PREPARING → Customer. Received acknowledgement must not imply acceptance. Customer/Merchant cancellations and Merchant rejection use the existing `REJECTED` outcome; no new Order state is added. No notifications are required for PREPARING, READY, or COMPLETED. WhatsApp is notification-only; delivery failure does not change Order state and delivery is not reported without provider confirmation. Prevent duplicates for the same event and recipient; use bounded retries for transient failures and no retries for permanent failures, subject to provider capabilities. Fixed reviewed templates, minimal content, and minimal history are required; retention period remains undecided.
-14. **MVP Analytics queries source domain data directly.** No separate analytics database or duplicated fact tables are required initially.
+14. **Analytics must use only approved formulas.** Campaign attribution and Notification delivery analytics are excluded from MVP. Do not retain aggregates from permanently deleted Shops unless a separate retention policy is approved. Notification-history retention must be decided before Notifications implementation.
 15. **Shop deletion removes the Shop and its Orders, but does not globally delete Customer entities.** Physical deletion mechanics remain for database design; other entities follow their own approved deletion rules.
 
 These decisions are business-level relationship decisions. They do not finalize Django fields, authentication technology, API contracts, database constraints, indexes, or transaction implementation.
