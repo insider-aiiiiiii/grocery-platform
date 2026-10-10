@@ -18,12 +18,23 @@ from .serializers import (
     MerchantPasswordRecoveryConfirmSerializer,
     MerchantPasswordRecoveryRequestSerializer,
     RefreshSerializer,
+    SuperAdminAdministrativeResetConfirmSerializer,
+    SuperAdminAdministrativeResetRequestSerializer,
+    SuperAdminRecoveryConfirmSerializer,
+    SuperAdminRecoveryContactSerializer,
     SuperAdminLoginSerializer,
 )
 from .recovery import (
     INVALID_CODE_MESSAGE,
     confirm_merchant_password_recovery,
     request_merchant_password_recovery,
+)
+from .super_admin_recovery import (
+    GENERIC_REQUEST_MESSAGE as SUPER_ADMIN_RECOVERY_MESSAGE,
+    INVALID_CODE_MESSAGE as SUPER_ADMIN_INVALID_CODE_MESSAGE,
+    confirm_super_admin_password_reset,
+    request_super_admin_administrative_reset,
+    request_super_admin_self_recovery,
 )
 
 
@@ -243,4 +254,71 @@ class MerchantPasswordRecoveryConfirmView(APIView):
             )
         except ValueError:
             raise ValidationError({"otp": INVALID_CODE_MESSAGE})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SuperAdminSelfRecoveryRequestView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = SuperAdminRecoveryContactSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request_super_admin_self_recovery(
+            serializer.validated_data["channel"],
+            serializer.validated_data["contact"],
+            request.META.get("REMOTE_ADDR", ""),
+        )
+        return Response({"detail": SUPER_ADMIN_RECOVERY_MESSAGE}, status=status.HTTP_202_ACCEPTED)
+
+
+class SuperAdminSelfRecoveryConfirmView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = SuperAdminRecoveryConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            confirm_super_admin_password_reset(
+                purpose="SELF_RECOVERY",
+                **serializer.validated_data,
+            )
+        except ValueError:
+            raise ValidationError({"code": SUPER_ADMIN_INVALID_CODE_MESSAGE})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SuperAdminAdministrativeResetRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.role != User.Role.SUPER_ADMIN:
+            raise PermissionDenied("Super Admin authorization is required.")
+        serializer = SuperAdminAdministrativeResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request_super_admin_administrative_reset(
+            initiator=request.user,
+            target_user_id=serializer.validated_data["target_user_id"],
+            channel=serializer.validated_data["channel"],
+            current_password=serializer.validated_data["current_password"],
+            remote_addr=request.META.get("REMOTE_ADDR", ""),
+        )
+        return Response({"detail": SUPER_ADMIN_RECOVERY_MESSAGE}, status=status.HTTP_202_ACCEPTED)
+
+
+class SuperAdminAdministrativeResetConfirmView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = SuperAdminAdministrativeResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            confirm_super_admin_password_reset(
+                purpose="ADMIN_RESET",
+                **serializer.validated_data,
+            )
+        except ValueError:
+            raise ValidationError({"code": SUPER_ADMIN_INVALID_CODE_MESSAGE})
         return Response(status=status.HTTP_204_NO_CONTENT)

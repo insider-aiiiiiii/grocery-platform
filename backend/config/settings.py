@@ -159,6 +159,39 @@ MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER = os.environ.get(
     'MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER', ''
 )
 
+# Super Admin recovery has independent secrets and configurable delivery
+# adapters. Empty adapter/pepper settings disable recovery safely.
+SUPER_ADMIN_RECOVERY_SECRET_PEPPER = os.environ.get(
+    'SUPER_ADMIN_RECOVERY_SECRET_PEPPER', ''
+)
+SUPER_ADMIN_RECOVERY_EMAIL_SENDER = os.environ.get(
+    'SUPER_ADMIN_RECOVERY_EMAIL_SENDER', ''
+)
+SUPER_ADMIN_RECOVERY_SMS_SENDER = os.environ.get(
+    'SUPER_ADMIN_RECOVERY_SMS_SENDER', ''
+)
+SUPER_ADMIN_RECOVERY_CODE_TTL_SECONDS = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_CODE_TTL_SECONDS', '300'
+))
+SUPER_ADMIN_RECOVERY_REQUEST_LIMIT = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_REQUEST_LIMIT', '3'
+))
+SUPER_ADMIN_RECOVERY_REQUEST_WINDOW_SECONDS = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_REQUEST_WINDOW_SECONDS', '3600'
+))
+SUPER_ADMIN_RECOVERY_ATTEMPT_LIMIT = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_ATTEMPT_LIMIT', '5'
+))
+SUPER_ADMIN_RECOVERY_REAUTH_ATTEMPT_LIMIT = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_REAUTH_ATTEMPT_LIMIT', '5'
+))
+SUPER_ADMIN_RECOVERY_IP_REQUEST_LIMIT = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_IP_REQUEST_LIMIT', '10'
+))
+SUPER_ADMIN_RECOVERY_IP_WINDOW_SECONDS = int(os.environ.get(
+    'SUPER_ADMIN_RECOVERY_IP_WINDOW_SECONDS', '900'
+))
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
