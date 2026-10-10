@@ -55,6 +55,20 @@ The Shop contact number cannot be changed separately from the Merchant mobile nu
 - **One-Shop-Per-Merchant**: If the merchant already has a shop, returns `400 Bad Request` with `{"detail": "Merchant already has a shop.", "code": "SHOP_ALREADY_EXISTS"}`.
 - **Response**: `201 Created` with complete Shop profile details.
 
+### Merchant Shop Retrieval API Contract (`GET /api/v1/shops/me/`)
+
+- **Endpoints**: `GET /api/v1/shops/me/` (alias: `GET /api/v1/shops/`)
+- **Authentication**: JWT Bearer token required (`PlatformJWTAuthentication`). Role must be `MERCHANT` with active status. If merchant has not changed their initial temporary password, returns `403` (`PASSWORD_CHANGE_REQUIRED`).
+- **Permissions**: `IsActiveMerchant`. Super Admins and unauthenticated requests cannot call this endpoint.
+- **Tenant Context**: Derived strictly from server authentication (`request.user.merchant.shop`). Arbitrary client-provided Shop IDs (in query parameters or payload) are ignored.
+- **Lifecycle Invariants**:
+  - If the merchant has no shop yet: returns `404 Not Found` with `{"detail": "Merchant does not have a shop.", "code": "SHOP_NOT_FOUND"}`.
+  - If the shop is `DEACTIVATED` or `SUSPENDED`: returns `403 Forbidden` with `{"detail": "Shop is deactivated or suspended.", "code": "SHOP_INACTIVE"}`.
+- **Response**: `200 OK` returning only approved fields:
+  `id`, `name`, `description`, `logo`, `address_line`, `area`, `city`, `state`, `pincode`, `contact_number`, `status`, `is_temporarily_closed`, `opening_time`, `closing_time`, `is_home_delivery_enabled`, `is_pickup_enabled`, `delivery_fee_type`, `delivery_charge`, `public_slug`, `created_at`, `updated_at`.
+  Internal `merchant` foreign key is omitted.
+
+
 
 ## 5. Shop Profile Editing & Operational Controls
 

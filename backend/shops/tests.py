@@ -476,3 +476,201 @@ class ShopCreateAPITests(TestCase):
         self.assertEqual(login_res_2.data["user"]["shop_id"], created_shop_id)
 
 
+class MerchantShopRetrievalAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="merchant_retriever",
+            email="retriever@example.com",
+            mobile_number="+919876543201",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.url_me = reverse("shops:shop-me")
+        self.url_root = reverse("shops:shop-create")
+
+    def authenticate_user(self, user):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def create_shop(self, merchant, name="Retriever Shop", status_val=Shop.Status.ACTIVE):
+        return Shop.objects.create(
+            merchant=merchant,
+            name=name,
+            description="High quality groceries",
+            address_line="101 MG Road",
+            area="Camp",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=merchant.user.mobile_number,
+            status=status_val,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("20.00"),
+        )
+
+    def test_unauthenticated_request_returns_401(self):
+        """Unauthenticated requests must return 401 Unauthorized."""
+        res_me = self.client.get(self.url_me)
+        self.assertEqual(res_me.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        res_root = self.client.get(self.url_root)
+        self.assertEqual(res_root.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_super_admin_cannot_retrieve_merchant_shop_returns_403(self):
+        """Super Admin cannot access merchant shop retrieval API."""
+        admin_user = User.objects.create_user(
+            username="admin_retriever",
+            email="admin_retriever@example.com",
+            mobile_number="+919876543202",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_retriever@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_merchant_with_temporary_password_returns_403_password_change_required(self):
+        """Merchant who hasn't changed initial password receives 403 PasswordChangeRequired."""
+        self.merchant.must_change_password = True
+        self.merchant.save()
+
+        self.authenticate_user(self.user)
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data.get("code"), "PASSWORD_CHANGE_REQUIRED")
+
+    def test_merchant_without_shop_returns_404(self):
+        """Merchant without a shop receives 404 SHOP_NOT_FOUND."""
+        self.authenticate_user(self.user)
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_merchant_retrieves_active_shop_successfully(self):
+        """Active merchant retrieves their shop successfully with all approved fields."""
+        shop = self.create_shop(self.merchant)
+        self.authenticate_user(self.user)
+
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Validate approved fields
+        self.assertEqual(response.data["id"], shop.id)
+        self.assertEqual(response.data["name"], shop.name)
+        self.assertEqual(response.data["description"], shop.description)
+        self.assertEqual(response.data["address_line"], shop.address_line)
+        self.assertEqual(response.data["area"], shop.area)
+        self.assertEqual(response.data["city"], shop.city)
+        self.assertEqual(response.data["state"], shop.state)
+        self.assertEqual(response.data["pincode"], shop.pincode)
+        self.assertEqual(response.data["contact_number"], shop.contact_number)
+        self.assertEqual(response.data["status"], "ACTIVE")
+        self.assertEqual(response.data["delivery_fee_type"], "FIXED")
+        self.assertEqual(Decimal(str(response.data["delivery_charge"])), Decimal("20.00"))
+        self.assertEqual(response.data["public_slug"], shop.public_slug)
+        self.assertIn("created_at", response.data)
+        self.assertIn("updated_at", response.data)
+
+        # Internal merchant foreign key must not be exposed
+        self.assertNotIn("merchant", response.data)
+        self.assertNotIn("merchant_id", response.data)
+
+        # Also verify GET /api/v1/shops/ alias returns the identical data
+        res_alias = self.client.get(self.url_root)
+        self.assertEqual(res_alias.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_alias.data["id"], shop.id)
+
+    def test_deactivated_shop_returns_403_forbidden(self):
+        """Deactivated shop cannot be accessed by the merchant."""
+        self.create_shop(self.merchant, status_val=Shop.Status.DEACTIVATED)
+        self.authenticate_user(self.user)
+
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data.get("code"), "SHOP_INACTIVE")
+
+    def test_suspended_shop_returns_403_forbidden(self):
+        """Suspended shop cannot be accessed by the merchant."""
+        self.create_shop(self.merchant, status_val=Shop.Status.SUSPENDED)
+        self.authenticate_user(self.user)
+
+        response = self.client.get(self.url_me)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data.get("code"), "SHOP_INACTIVE")
+
+    def test_merchant_cannot_query_arbitrary_shop_id_via_params(self):
+        """Passing arbitrary shop_id in query parameters is ignored; server derives context."""
+        shop = self.create_shop(self.merchant)
+
+        # Another merchant and shop exist
+        other_user = User.objects.create_user(
+            username="other_merchant",
+            email="other@example.com",
+            mobile_number="+919876543203",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        other_merchant = Merchant.objects.create(user=other_user, status=Merchant.Status.ACTIVE)
+        other_shop = self.create_shop(other_merchant, name="Other Shop")
+
+        self.authenticate_user(self.user)
+
+        # Attempt to supply other_shop.id in query params
+        response = self.client.get(f"{self.url_me}?shop_id={other_shop.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], shop.id)
+        self.assertNotEqual(response.data["id"], other_shop.id)
+
+    def test_cross_merchant_isolation(self):
+        """Ensures complete tenant isolation between two active merchants."""
+        shop1 = self.create_shop(self.merchant, name="Merchant 1 Shop")
+
+        user2 = User.objects.create_user(
+            username="merchant_2",
+            email="merchant2@example.com",
+            mobile_number="+919876543204",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        merchant2 = Merchant.objects.create(
+            user=user2,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        shop2 = self.create_shop(merchant2, name="Merchant 2 Shop")
+
+        # Authenticate as user 1
+        self.authenticate_user(self.user)
+        res1 = self.client.get(self.url_me)
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(res1.data["id"], shop1.id)
+        self.assertEqual(res1.data["name"], "Merchant 1 Shop")
+
+        # Authenticate as user 2
+        self.authenticate_user(user2)
+        res2 = self.client.get(self.url_me)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.data["id"], shop2.id)
+        self.assertEqual(res2.data["name"], "Merchant 2 Shop")
+
+
+
