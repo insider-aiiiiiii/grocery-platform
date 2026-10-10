@@ -171,6 +171,8 @@ The approved repeat-customer/order-history flow must not require OTP. Knowledge 
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
+See `.ai/project-context/customer-order-history-access.md` for the AUTH-015 security design proposal, including the proposed restricted session and the unresolved question of whether it authorizes pending Order cancellation. The proposal does not authorize implementation before review.
+
 ## 22. Order Cancellation
 
 The Customer may cancel while an Order is `PENDING`, before Merchant acceptance. The Merchant may cancel an accepted Order only before `PREPARING`. Both use the existing `REJECTED` outcome/state; no separate `CANCELLED` state is required. Rejected/cancelled Orders cannot be reopened. Customer cancellation releases reserved stock immediately; Merchant cancellation after acceptance restores/releases reserved stock automatically. No centralized refund workflow is included in MVP.

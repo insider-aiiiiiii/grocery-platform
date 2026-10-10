@@ -305,6 +305,8 @@ A Merchant may modify inventory only in the Merchant's authorized Shop. One Shop
 
 Each Customer profile belongs to one Shop, and Order history remains Shop-scoped. WhatsApp numbers are globally unique across Customers, Merchants, and Super Admins; a number cannot identify profiles at multiple Shops or overlap an authenticated User's mobile number. The approved repeat-customer/order-history flow must not require OTP, but a WhatsApp number alone is not proof of identity and must not expose Orders. The approved mechanism is a customer-specific access link/token scoped to the relevant Customer and Shop. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse are technical design requirements to settle before implementation.
 
+The proposed credential lifecycle and conceptual grant/session data implications are documented in `.ai/project-context/customer-order-history-access.md`; those proposals require review before schema or implementation work.
+
 The physical identity key, matching behavior, and database representation remain later design decisions.
 
 **## 12. Shop → Cart**
