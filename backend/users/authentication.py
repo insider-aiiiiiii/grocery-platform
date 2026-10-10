@@ -21,7 +21,9 @@ class PlatformJWTAuthentication(JWTAuthentication):
         if user.role not in (User.Role.MERCHANT, User.Role.SUPER_ADMIN):
             raise AuthenticationFailed("Invalid authentication credentials.")
         if user.role == User.Role.MERCHANT:
-            merchant = Merchant.objects.filter(user=user).only("status").first()
+            merchant = Merchant.objects.filter(user=user).only(
+                "status", "must_change_password"
+            ).first()
             if merchant is None or merchant.status != Merchant.Status.ACTIVE:
                 raise AuthenticationFailed("Invalid authentication credentials.")
         elif not user.is_active:
@@ -33,7 +35,7 @@ class PlatformJWTAuthentication(JWTAuthentication):
             raise AuthenticationFailed("Invalid authentication credentials.")
         if (
             user.role == User.Role.MERCHANT
-            and token.get("must_change_password")
+            and merchant.must_change_password
             and request.path not in ALLOWED_RESTRICTED_PATHS
         ):
             raise PasswordChangeRequired()
