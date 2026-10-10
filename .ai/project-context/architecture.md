@@ -46,11 +46,11 @@ Each current Django app represents a business domain. The responsibilities below
 
 ### `users`
 
-Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles and globally unique email/mobile identifiers. Merchant account state lives in a separate Merchant profile. Django's configured backend supports the approved role-specific login identifiers; session/token behavior, Merchant/Shop relationships, and authorization remain to be finalized.
+Actor identity is represented by one custom Django `User` model with `SUPER_ADMIN` and `MERCHANT` roles and globally unique email/mobile identifiers. Merchant account state lives in a separate Merchant profile. Django's configured backend supports the approved role-specific login identifiers. JWT/session behavior is documented in §10; Merchant/Shop relationships and actor/resource boundaries are documented in the domain specifications and `.ai/project-context/authorization-matrix.md`.
 
 ### `shops`
 
-Shop and merchant business context, shop profile, lifecycle support, and the shop-level tenant boundary. Membership and authorization implementation are not finalized.
+Shop and Merchant business context, Shop profile, lifecycle, and the shop-level tenant boundary. Merchant access is derived from the authenticated User's Merchant and Shop relationship; full resource enforcement remains partial as recorded in `.ai/project-context/authorization-matrix.md`.
 
 ### `catalog`
 
@@ -137,11 +137,11 @@ Response serialization
 Client
 ```
 
-Email/mobile plus password credential authentication is configured. Session/token behavior and authorization are not finalized.
+Email/mobile plus password credential authentication is configured. See §10 and `.ai/project-context/authorization-matrix.md` for the approved identity/session boundary and current authorization coverage.
 
 ## 8. Tenant Architecture
 
-The shop is the primary tenant boundary. Merchant-owned data is shop-scoped, and merchants must not access another shop's data. Super Admin has platform-level access according to the final authorization design. Customer identity is shop-specific. Keep platform-global data distinct from tenant-owned data.
+The Shop is the primary tenant boundary. Merchant-owned data is Shop-scoped, and Merchants must not access another Shop's data. Super Admin platform operations are limited to the explicit permissions in `.ai/project-context/authorization-matrix.md`; a platform role does not grant access to private Shop information. Customer identity is Shop-specific. Keep platform-global data distinct from tenant-owned data.
 
 Follow `.ai/skills/multi-tenancy/SKILL.md`. This architecture states the high-level boundary only; it does not finalize how tenant context is established or enforced.
 
@@ -166,6 +166,8 @@ Authentication identifies the actor.
 Authorization determines what the actor may access.
 Tenant isolation determines which shop-scoped data is accessible.
 ```
+
+The current role/resource boundaries and implementation coverage are recorded in `.ai/project-context/authorization-matrix.md`. That matrix distinguishes approved policy from implemented APIs; it does not imply that authorization for every domain is implemented.
 
 ## 11. API Architecture
 
@@ -295,13 +297,13 @@ Record significant architectural decisions with meaningful long-term consequence
 - Three primary actors: Super Admin, Merchant / Shopkeeper, and Customer.
 - Current application boundaries documented in this file.
 - Core security and testing principles documented in the project skills.
+- Current actor/resource boundaries documented in `.ai/project-context/authorization-matrix.md`; implementation remains partial as stated in §10 and `development-status.md`.
 
 ### Not finalized
 
-- Session/token authentication transport.
-- Exact authorization model.
-- Merchant profile and Shop relationship model.
-- Shop/Membership model.
+- Detailed session/token implementation decisions beyond the approved JWT/session behavior in §10.
+- Detailed enforcement design for domain APIs not yet implemented.
+- Shop/Membership model (MVP does not require separate staff memberships).
 - Exact database and catalog schemas.
 - Exact order state machine.
 - Exact inventory behavior.

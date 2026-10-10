@@ -1,5 +1,7 @@
 **# Cross-Domain Model Relationships Specification**
 
+Authorization actors, permitted resource operations, and current enforcement status are summarized in `.ai/project-context/authorization-matrix.md`. Relationships below describe data and business boundaries; a relationship alone does not grant access.
+
 **## 1. Purpose**
 
 This document defines the conceptual relationships between business entities owned by the Grocery Platform's Django domain applications. It is the bridge between domain specifications and a future Database Design Specification.
