@@ -418,6 +418,37 @@ class ShopCreateAPITests(TestCase):
         self.assertEqual(shop.status, Shop.Status.ACTIVE)
         self.assertEqual(shop.contact_number, self.user.mobile_number)
 
+    def test_shop_creation_ignores_client_supplied_shop_id_for_ownership(self):
+        """A forged tenant identifier cannot select or assign the created Shop's owner."""
+        other_user = User.objects.create_user(
+            username="other_shop_owner",
+            email="other_shop_owner@example.com",
+            mobile_number="+919876543217",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        other_merchant = Merchant.objects.create(user=other_user, status=Merchant.Status.ACTIVE)
+        other_shop = Shop.objects.create(
+            merchant=other_merchant,
+            name="Other Shop",
+            address_line="1 Other Street",
+            area="Camp",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=other_user.mobile_number,
+        )
+
+        self.authenticate_user(self.user)
+        payload = self.valid_shop_data()
+        payload["shop_id"] = other_shop.pk
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_shop = Shop.objects.get(pk=response.data["id"])
+        self.assertEqual(created_shop.merchant_id, self.merchant.pk)
+        self.assertNotEqual(created_shop.pk, other_shop.pk)
+
     def test_merchant_cannot_create_second_shop(self):
         """Enforces one-Shop-per-Merchant invariant: second creation returns 400 SHOP_ALREADY_EXISTS."""
         self.authenticate_user(self.user)

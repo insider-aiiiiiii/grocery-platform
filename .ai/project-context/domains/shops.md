@@ -60,13 +60,15 @@ The Shop contact number cannot be changed separately from the Merchant mobile nu
 - **Endpoints**: `GET /api/v1/shops/me/` (alias: `GET /api/v1/shops/`)
 - **Authentication**: JWT Bearer token required (`PlatformJWTAuthentication`). Role must be `MERCHANT` with active status. If merchant has not changed their initial temporary password, returns `403` (`PASSWORD_CHANGE_REQUIRED`).
 - **Permissions**: `IsActiveMerchant`. Super Admins and unauthenticated requests cannot call this endpoint.
-- **Tenant Context**: Derived strictly from server authentication (`request.user.merchant.shop`). Arbitrary client-provided Shop IDs (in query parameters or payload) are ignored.
+- **Tenant Context**: The API resolves the Shop with a database query constrained by the authenticated user's Merchant relationship. Arbitrary client-provided Shop IDs (in query parameters or payload) never select the Shop or prove access. Creation binds the Shop to the authenticated user's Merchant.
 - **Lifecycle Invariants**:
   - If the merchant has no shop yet: returns `404 Not Found` with `{"detail": "Merchant does not have a shop.", "code": "SHOP_NOT_FOUND"}`.
   - If the shop is `DEACTIVATED` or `SUSPENDED`: returns `403 Forbidden` with `{"detail": "Shop is deactivated or suspended.", "code": "SHOP_INACTIVE"}`.
 - **Response**: `200 OK` returning only approved fields:
   `id`, `name`, `description`, `logo`, `address_line`, `area`, `city`, `state`, `pincode`, `contact_number`, `status`, `is_temporarily_closed`, `opening_time`, `closing_time`, `is_home_delivery_enabled`, `is_pickup_enabled`, `delivery_fee_type`, `delivery_charge`, `public_slug`, `created_at`, `updated_at`.
   Internal `merchant` foreign key is omitted.
+
+These Merchant endpoints are protected APIs. Any future public/customer-facing Shop API must be routed separately and expose only approved customer-facing information; public access does not grant Merchant access.
 
 
 
