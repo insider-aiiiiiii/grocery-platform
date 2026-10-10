@@ -35,7 +35,7 @@ A Customer interacts with a specific shop through its QR/public shop URL, shop c
 - Merchants must not access another Shop's tenant-owned data.
 - Super Admin cannot browse or edit private Shop information in MVP. Super Admin can reactivate a Shop. Existing rules assign permanent Shop deletion to Super Admin; the exact operational permission boundary is flagged for approval in the Shops specification.
 - Every Customer profile belongs to one Shop, and customer history remains Shop-scoped.
-- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. The approved repeat-customer and order-history experience must not require OTP. A WhatsApp number alone is not proof of identity and must not by itself expose order history. The approved mechanism is a customer-specific access link/token scoped to the relevant Customer and Shop. Its expiry, revocation, generation, delivery, storage, and protections against unauthorized reuse are technical design requirements to settle before implementation; do not implement it in this task.
+- WhatsApp numbers are globally unique across the platform's Customers, Merchants, and Super Admins. Order-history access does not require OTP, and a WhatsApp number alone never authorizes access. A customer-specific link expires 15 minutes after issuance, can be redeemed once, and exchanges for a Customer + Shop-scoped session with a maximum absolute lifetime of 30 days and one active session per Customer + Shop. The AUTH-015 security design is documented in `.ai/project-context/customer-order-history-access.md`; provider/deployment details remain technical decisions.
 - A customer ordering from Shop A must not gain access to Shop B's customer history.
 
 Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This document does not define technical tenant-context implementation.
@@ -142,8 +142,8 @@ Exact database representation, Product aggregate recalculation, and transaction/
 - A WhatsApp number must not expose another shop's customer history.
 - Traditional customer username/password accounts are not required by the current MVP concept.
 
-Phone-number normalization and formatting, detailed prefill behavior, privacy implementation, and authentication mechanism are **Not Finalized / Require Decision**. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
-Phone-number normalization and formatting, detailed prefill behavior, privacy implementation, and authentication mechanism are **Not Finalized / Require Decision**. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
+Phone-number normalization and formatting, detailed prefill behavior, and privacy implementation are **Not Finalized / Require Decision**. Customer Order-history access is finalized as the AUTH-015 scoped link/session flow; other Customer verification mechanisms remain outside the approved MVP. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
+Phone-number normalization and formatting, detailed prefill behavior, and privacy implementation are **Not Finalized / Require Decision**. Customer Order-history access is finalized as the AUTH-015 scoped link/session flow; other Customer verification mechanisms remain outside the approved MVP. Shop-scoped Customer profiles, platform-wide WhatsApp uniqueness, and pre-order Customer creation are approved.
 
 ## 13. Cart Rules
 

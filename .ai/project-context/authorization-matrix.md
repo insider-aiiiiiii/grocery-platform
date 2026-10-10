@@ -10,7 +10,7 @@ Actors:
 - **Merchant:** authenticated `MERCHANT` User linked to a Merchant profile. In MVP the Merchant login may be shared with staff; there are no separate staff identities or permissions.
 - **Customer:** shop-scoped customer profile; not an authenticated User role and has no general account login in MVP.
 - **Anonymous visitor:** unauthenticated person using public shop browsing and checkout flows.
-- **Customer access-link holder:** person presenting the approved customer-specific history link/token. Possession of a WhatsApp number alone does not qualify.
+- **Customer using a scoped session:** a Customer who exchanged a valid one-use access link for the approved session bound to the exact Customer and Shop. Possession of a WhatsApp number alone does not qualify.
 
 `Implemented` means a routed API and server-side authorization are present. `Partial` means only the described portion exists. `Policy only` means the rule is documented but no corresponding workflow/API was found. `Not applicable` means the actor has no approved capability.
 
@@ -52,7 +52,7 @@ Actors:
 | Cart: create/read/change | Anonymous visitor / Customer | One cart in one Shop context | Anonymous cart may associate with that Shop's Customer when details are provided. No mixing Shops; no access to another customer's cart. Session/ownership mechanism remains a technical design requirement. **Policy only**; no API/model found. |
 | Checkout / create Order | Anonymous visitor / Customer | Selected Shop and that cart/customer context | Must validate selected Shop's catalog, prices, fulfillment and required delivery address. Submission creates business transaction; it grants no later history access by phone number. **Policy only**; no API found. |
 | Orders: list/detail/history for operations | Merchant | All Orders belonging to own Shop while it exists | No other Shop orders. **Policy only**; no Order model/API found. |
-| Orders: customer history/detail | Customer access-link holder | Only the linked Customer + Shop context | WhatsApp number alone is insufficient. Minimize exposed fields. Token lifecycle/replay defenses unresolved and access flow unimplemented. |
+| Orders: customer history/detail | Customer using a scoped session | Only the session's Customer + Shop context | One-use 15-minute link; session maximum absolute lifetime 30 days; one active session per Customer + Shop. WhatsApp number alone is insufficient. Minimize exposed fields. Access flow unimplemented. |
 | Order status: accept, reject, prepare, ready, complete; payment status | Merchant | Own Shop's Orders | Apply documented state/payment rules; only Merchant updates payment status. **Policy only**; no workflow/API found. |
 | Order cancellation | Customer | Own `PENDING` Order before Merchant acceptance | Uses existing `REJECTED` outcome; no separate `CANCELLED` state. The customer proof/context is not finalized; AUTH-015 proposes a Customer + Shop-scoped session and explicit confirmation, pending review. **Policy only**. |
 | Order cancellation after acceptance | Merchant | Own Shop's accepted Order before `PREPARING` | Uses existing `REJECTED` outcome. **Policy only**. |
@@ -80,7 +80,7 @@ These are requirements for future implementation; this documentation task does n
 - Shop context comes from authenticated identity; no-Shop and inactive-Shop behavior retains current Shop API `404` / `403` contracts.
 - Super Admin-only platform operations reject Merchants. Super Admin cannot use platform role to read or edit private Shop data absent an explicitly approved operation.
 - Anonymous/public routes expose only intended customer-facing data for the requested active Shop and cannot access merchant, customer, order, or administrative resources.
-- Customer-scoped actions cannot cross Shop boundaries. A WhatsApp number alone cannot retrieve Order history. An access link/token is constrained to its Customer and Shop, with expiry, revocation, replay/reuse, and disclosure tests once technical design is approved.
+- Customer-scoped actions cannot cross Shop boundaries. A WhatsApp number alone cannot retrieve Order history. Test the finalized 15-minute single-use grant, 30-day scoped session, one-session replacement, Shop-deletion revocation, enumeration resistance, and secret disclosure protections.
 - Cart and checkout ownership/context tests cover cross-Shop product/cart injection, address requirements, and attempts to access another customer's cart or Order.
 - Order action tests enforce actor, Shop ownership, allowed state transitions, cancellation windows, and payment-status authority.
 - Campaign, notification/history, and analytics tests cover role restrictions, Shop scope, privacy, export/filter bypass, and prevent notification actions from mutating Orders.
@@ -88,7 +88,7 @@ These are requirements for future implementation; this documentation task does n
 
 ## 6. Conflicts and unresolved boundaries
 
-1. `product.md` §15 describes Merchant applications and review, while current business and Merchant-account rules state Super Admin directly creates Merchant accounts and there is no public application/approval workflow. `product.md` §10 says a WhatsApp number provides Order-history access, while current business, Customer, and Orders rules require a Customer-specific link/token and explicitly say the number alone is insufficient. The later domain/business rules are reflected here; the stale product statements require documentation reconciliation.
+1. `product.md` §15 describes Merchant applications and review, while current business and Merchant-account rules state Super Admin directly creates Merchant accounts and there is no public application/approval workflow. The stale Order-history statement in `product.md` §10 has been reconciled to the approved scoped-link/session design; the Merchant-application conflict remains unresolved.
 2. `architecture.md` has older statements that authentication transport, Merchant/Shop relationship, and authorization are not finalized, while later architecture sections and current code define JWT/session behavior, role identity, and partial resource authorization. This matrix resolves documented role/resource boundaries for current approved rules; it does not claim full implementation.
 3. AUTH-014 corrected `Shop.delete()` to preserve the Merchant profile and User credentials. Shop deletion APIs and invalidation of any future customer access grants/sessions are still unimplemented.
 4. Customer cancellation is approved while an Order is pending, but no complete customer authentication/session mechanism for authorizing that cancellation is specified. The matrix does not equate a WhatsApp number with authorization. Define the proof/context in the Order/API technical design before implementation.
