@@ -267,34 +267,29 @@ class ShopModelTests(TestCase):
         self.assertEqual(shop.opening_time, datetime.time(9, 0))
         self.assertEqual(shop.closing_time, datetime.time(21, 0))
 
-    def test_shop_deletion_removes_merchant_and_user(self):
-        """Verify permanent deletion of Shop removes the Merchant profile and User credentials."""
-        user = User.objects.create_user(
-            username="delete_merchant",
-            mobile_number="+919988776655",
-            password="testpassword123",
-            role=User.Role.MERCHANT,
-        )
-        merchant = Merchant.objects.create(user=user)
+    def test_shop_deletion_preserves_merchant_and_user_credentials(self):
+        """Deleting a Shop removes only the Shop and retains its Merchant login."""
         shop = Shop.objects.create(
-            merchant=merchant,
+            merchant=self.merchant,
             name="Delete Shop",
             address_line="Line 1",
             area="Area 1",
             city="City 1",
             state="State 1",
             pincode="123456",
-            contact_number=user.mobile_number,
+            contact_number=self.user.mobile_number,
         )
-        shop_id = shop.id
-        merchant_id = merchant.id
-        user_id = user.id
+        shop_id = shop.pk
+        merchant_id = self.merchant.pk
+        user_id = self.user.pk
 
         shop.delete()
 
-        self.assertFalse(Shop.objects.filter(id=shop_id).exists())
-        self.assertFalse(Merchant.objects.filter(id=merchant_id).exists())
-        self.assertFalse(User.objects.filter(id=user_id).exists())
+        self.assertFalse(Shop.objects.filter(pk=shop_id).exists())
+        self.assertTrue(Merchant.objects.filter(pk=merchant_id).exists())
+        self.assertTrue(User.objects.filter(pk=user_id).exists())
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("testpassword123"))
 
     def test_merchant_deletion_cascades_to_shop(self):
         """Verify deleting Merchant cascades and deletes the associated Shop."""
@@ -458,6 +453,32 @@ class ShopCreateAPITests(TestCase):
         response = self.client.post(self.url, self.valid_shop_data(), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data.get("code"), "SHOP_ALREADY_EXISTS")
+
+    def test_merchant_can_create_replacement_shop_after_deletion(self):
+        """Deleting a Shop preserves the login and permits a fresh Shop identity."""
+        self.authenticate_user(self.user)
+        original_response = self.client.post(self.url, self.valid_shop_data(), format="json")
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_shop_id = original_response.data["id"]
+        original_public_slug = original_response.data["public_slug"]
+
+        Shop.objects.get(pk=original_shop_id).delete()
+
+        self.assertTrue(Merchant.objects.filter(pk=self.merchant.pk).exists())
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+        self.assertTrue(self.user.check_password("securepassword123"))
+
+        replacement_data = self.valid_shop_data()
+        replacement_data["name"] = "Replacement Grocery"
+        replacement_response = self.client.post(self.url, replacement_data, format="json")
+
+        self.assertEqual(replacement_response.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(replacement_response.data["id"], original_shop_id)
+        self.assertNotEqual(replacement_response.data["public_slug"], original_public_slug)
+        self.assertFalse(Shop.objects.filter(pk=original_shop_id).exists())
+        replacement_shop = Shop.objects.get(pk=replacement_response.data["id"])
+        self.assertEqual(replacement_shop.merchant_id, self.merchant.pk)
+        self.assertEqual(Shop.objects.filter(merchant=self.merchant).count(), 1)
 
     def test_missing_required_fields_rejected(self):
         """Missing required address or name fields return 400 with validation errors."""
