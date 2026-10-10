@@ -131,6 +131,15 @@ The application uses a custom Django `User` model derived from `AbstractUser`. I
 - OTP hashes and pseudonymous mobile/IP rate-limit keys use a dedicated `MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER`. Plaintext codes and provider errors are not logged.
 - SMS delivery is delegated to the callable configured by `MERCHANT_PASSWORD_RECOVERY_OTP_SENDER`. The adapter must enqueue delivery and return promptly so provider latency does not reveal whether the number belongs to a Merchant. Recovery returns `503` for all numbers until both settings are configured; deployment must supply an approved SMS adapter.
 
+### Super Admin Password Recovery and Administrative Reset
+
+Super Admin self-recovery and administrative reset are separate approved flows:
+
+- **Self-recovery:** A Super Admin may request recovery using their registered email address or mobile number and must verify control of the selected channel with a one-time code. The code is single-use and expires after a configurable period. After verification, the Super Admin chooses a new password. Recovery responses must not reveal whether an email address or mobile number belongs to an account. Apply rate limits to requests and verification attempts.
+- **Administrative reset:** Only an authenticated Super Admin may initiate a reset for another Super Admin. The initiator cannot reset their own password through this flow and must use self-recovery instead. The initiator re-enters their own password to confirm. Record the initiating Super Admin and reset-request time. Send the affected Super Admin a time-limited, single-use reset link or verification code through a registered contact channel. The affected Super Admin chooses their own new password; the initiator must not choose or receive it.
+- **Session invalidation:** Once either flow successfully changes the password, invalidate all sessions and refresh tokens belonging to the affected Super Admin, including their associated access-token sessions. Apply the configured platform password validators. Do not change Merchant temporary-password or `must_change_password` behavior, add roles, or add another administrator approval step.
+- **Delivery and security:** Use the configured email delivery provider for email recovery and the configured SMS/OTP provider for mobile recovery. Do not hardcode a provider. Keep provider credentials outside source code; protect verification/reset secrets, avoid logging credentials or codes, and apply server-side authentication, authorization, throttling, and appropriate audit logging.
+
 ## 11. Approved Business Invariants
 
 - Merchant is the Shop Owner / business entity, separate from User and Shop.
@@ -157,7 +166,8 @@ The following remain unresolved because they concern technical representation or
 | Session/token implementation and exact logout mechanics | JWT sessions, refresh rotation/blacklisting, and current-session logout are implemented. Logout invalidates only the presented active session; a global logout-all-devices operation is not defined. |
 | API contracts and database fields/constraints | Not specified. |
 | Phone/email normalization | Not specified. |
+| Super Admin recovery/reset implementation details | The approved flows are described above. The verification-code lifetime, rate-limit thresholds, reset-link/code format, delivery/provider configuration, secure persistence, and audit-record implementation remain technical decisions. Both reset links and verification codes are allowed for administrative reset. |
 
 ## 13. Explicit Non-Goals
 
-This specification does not define non-authentication APIs, serializers, views, authorization implementation, frontend screens, OTP, or other technical mechanisms. The JWT authentication contract above is approved.
+This specification does not define unrelated domain APIs, frontend screens, or provider-specific integration details. Super Admin recovery and reset behavior and the existing JWT contract are approved; their detailed endpoint and implementation contracts remain technical work.
