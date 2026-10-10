@@ -2,13 +2,13 @@
 
 ## 1. Domain Purpose
 
-The Customers domain owns Shop-specific customer profiles and ordering context, customer contact information, repeat-customer recognition, customer information needed for approved checkout behavior, shop-specific history access context, and delivery-related customer information where applicable. Whether a minimal global CustomerIdentity should sit beneath multiple Shop profiles is an AUTH-018 recommendation pending Product Owner approval; see the single decision register in `.ai/project-context/customer-order-history-access.md`.
+The Customers domain owns Shop-specific customer profiles and ordering context, customer contact information, repeat-customer recognition, customer information needed for approved checkout behavior, shop-specific history access context, and delivery-related customer information where applicable. AUTH-004 recommends a minimal global contact identity and claim boundary alongside Shop-specific Customer profiles; whether identities link across Shops is pending Product Owner/Privacy approval; see the single decision register in `.ai/project-context/customer-order-history-access.md`.
 
 It does not own merchant users or authentication, shop identity, products, inventory, carts, orders, payments, WhatsApp provider/integration, delivery-partner management, or analytics implementation. Those belong to their respective domains.
 
 ## 2. Customer Identity Model
 
-The current product does not require traditional customer accounts with usernames/passwords or customer login. A Customer profile belongs to one Shop and remains separate from authenticated User accounts. A WhatsApp identity is globally unique across the platform, including Customer, Merchant, and Super Admin identities. The AUTH-018 recommended representation separates a minimal global contact identity/claim from each Shop-specific Customer profile, but this cross-Shop linkage is **pending Product Owner and Privacy approval**; it is not an approved data-sharing rule.
+The current product does not require traditional customer accounts with usernames/passwords or customer login. A Customer profile belongs to one Shop and remains separate from authenticated User accounts. A WhatsApp identity is globally unique across the platform, including Customer, Merchant, and Super Admin identities. AUTH-004 recommends a minimal global contact identity/claim separate from each Shop-specific Customer profile, but this cross-Shop linkage is **pending Product Owner and Privacy approval**; it is not an approved data-sharing rule.
 
 ```text
 Contact identity X (proposed; no login or history access)
@@ -46,7 +46,7 @@ Do not automatically add email, date of birth, gender, profile photo, loyalty in
 
 The product uses a WhatsApp number as customer contact information and an order-communication destination. It is also the primary identifier for recognizing a returning Customer within that Shop. The number is globally unique across Customer and authenticated User identities.
 
-A globally unique WhatsApp number does not make Customer profiles or history global: each profile belongs to one Shop. Whether one contact identity may be linked to separate profiles at multiple Shops is the pending AUTH-018 product decision. Under the recommended model this can support recognition without sharing profile fields or history; a number-only request still never authorizes access. The approved no-OTP access flow uses a single-use link valid for 15 minutes and a resulting Customer session scoped to that profile and Shop, with a maximum absolute lifetime of 30 days and one active session per profile + Shop. See `.ai/project-context/customer-order-history-access.md` for the security requirements and sole decision register. The same canonical number cannot be claimed by another Customer identity or a Merchant/Super Admin identity.
+A globally unique WhatsApp number does not make Customer profiles or history global: each profile belongs to one Shop. Whether one contact identity may be linked to separate profiles at multiple Shops is the pending AUTH-004 product decision. Under the recommended model this can support recognition without sharing profile fields or history; a number-only request still never authorizes access. The approved no-OTP access flow uses a single-use link valid for 15 minutes and a resulting Customer session scoped to that profile and Shop, with a maximum absolute lifetime of 30 days and one active session per profile + Shop. See `.ai/project-context/customer-order-history-access.md` for the security requirements and sole decision register. The same canonical number cannot be claimed by another Customer identity or a Merchant/Super Admin identity.
 
 ```text
 Shop A: Profile A (name/contact context and history only for Shop A)
@@ -184,11 +184,11 @@ Super Admin may require platform-level operational visibility according to appro
 
 ## 20. Business Invariants
 
-The permanent Shop-specific Customer profile is created when the customer first provides their WhatsApp number for that Shop. Successful Order creation is not required; an abandoned Cart may therefore be associated with a Customer. A separate global identity record/linkage is only an AUTH-018 recommendation pending approval.
+The permanent Shop-specific Customer profile is created when the customer first provides their WhatsApp number for that Shop. Successful Order creation is not required; an abandoned Cart may therefore be associated with a Customer. A separate minimal global contact identity/claim is only an AUTH-004 recommendation pending approval.
 
 The following requirements are approved by the product and business-rule sources:
 
-- Customer profile, contact context, and history are Shop-specific. AUTH-018's proposed minimal cross-Shop contact identity does not make profile data/history global and remains pending approval.
+- Customer profile, contact context, and history are Shop-specific. AUTH-004's proposed minimal cross-Shop contact identity does not make profile data/history global and remains pending approval.
 - Customer profiles and accessible Order history remain in their Shop/customer context; history is not automatically linked across Shops.
 - A WhatsApp number is associated with at most one identity across all Shops and authenticated User accounts.
 - The repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone never exposes Orders or customer details. A one-use access link expires after 15 minutes and exchanges for one active Customer + Shop-scoped session with a maximum absolute lifetime of 30 days. Shop deletion revokes grants and sessions for that Shop and removes its Orders, while Customer retention follows existing Customer rules; no retained Customer or access credential transfers to a replacement Shop. The finalized security design is in `.ai/project-context/customer-order-history-access.md`; delivery, deployment, and retention details remain open.
