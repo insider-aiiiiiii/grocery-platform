@@ -150,6 +150,15 @@ SIMPLE_JWT = {
 if not SIMPLE_JWT['SIGNING_KEY']:
     raise ImproperlyConfigured('JWT_SIGNING_KEY must be set in the environment.')
 
+# Set by the deployment to an SMS-provider adapter. Recovery stays unavailable
+# until both this callback and a dedicated OTP hashing secret are configured.
+MERCHANT_PASSWORD_RECOVERY_OTP_SENDER = os.environ.get(
+    'MERCHANT_PASSWORD_RECOVERY_OTP_SENDER', ''
+)
+MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER = os.environ.get(
+    'MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER', ''
+)
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/

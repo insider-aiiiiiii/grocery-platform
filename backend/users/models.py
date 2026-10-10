@@ -96,3 +96,31 @@ class UserAuthSession(models.Model):
         on_delete=models.CASCADE,
         related_name="auth_session",
     )
+
+
+class MerchantPasswordRecoveryChallenge(models.Model):
+    """Single-use recovery state; the submitted mobile and OTP are never stored raw."""
+
+    mobile_hash = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="password_recovery_challenges",
+    )
+    otp_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    request_window_started_at = models.DateTimeField()
+    request_count = models.PositiveSmallIntegerField(default=0)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+
+
+class MerchantPasswordRecoveryIPThrottle(models.Model):
+    """Short-lived request counter keyed by an HMAC of the source IP address."""
+
+    ip_hash = models.CharField(max_length=64, unique=True)
+    window_started_at = models.DateTimeField()
+    request_count = models.PositiveSmallIntegerField(default=0)

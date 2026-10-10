@@ -1,5 +1,6 @@
 import os
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import authenticate
@@ -8,11 +9,18 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Merchant, User, UserAuthSession
+from .models import (
+    Merchant,
+    MerchantPasswordRecoveryChallenge,
+    User,
+    UserAuthSession,
+)
+from . import recovery
 
 
 class AuthenticatedProbe(APIView):
@@ -44,6 +52,141 @@ class MerchantAuthenticationAPITests(TestCase):
             password="temporary-password", role=User.Role.MERCHANT,
         )
         self.merchant = Merchant.objects.create(user=self.user)
+
+    def _configure_recovery_sender(self):
+        from django.test import override_settings
+        self.sent_codes = []
+        def sender(mobile_number, otp):
+            self.sent_codes.append((mobile_number, otp))
+        self.sender_settings = override_settings(
+            MERCHANT_PASSWORD_RECOVERY_OTP_PEPPER="test-only-recovery-pepper-with-at-least-32-bytes",
+            MERCHANT_PASSWORD_RECOVERY_OTP_SENDER="test.sender",
+        )
+        self.sender_settings.enable()
+        self.sender_patch = patch("users.recovery._configured_sender", return_value=sender)
+        self.sender_patch.start()
+
+    def tearDown(self):
+        if hasattr(self, "sender_settings"):
+            self.sender_patch.stop()
+            self.sender_settings.disable()
+        super().tearDown()
+
+    def test_recovery_request_is_generic_and_delivery_only_targets_active_merchants(self):
+        self._configure_recovery_sender()
+        known = self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": self.user.mobile_number,
+        }, format="json")
+        unknown = self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": "+919999999999",
+        }, format="json")
+        self.assertEqual(known.status_code, 202)
+        self.assertEqual(unknown.status_code, 202)
+        self.assertEqual(known.data, unknown.data)
+        self.assertEqual(len(self.sent_codes), 1)
+        self.assertEqual(self.sent_codes[0][0], self.user.mobile_number)
+        self.assertEqual(len(self.sent_codes[0][1]), 7)
+        self.assertTrue(self.sent_codes[0][1].isdigit())
+        challenge = MerchantPasswordRecoveryChallenge.objects.get(user=self.user)
+        self.assertNotEqual(self.sent_codes[0][1], challenge.otp_hash)
+
+    def test_recovery_request_rate_limits_without_revealing_account_existence(self):
+        self._configure_recovery_sender()
+        url = reverse("auth-merchant-password-recovery-request")
+        responses = [self.client.post(url, {"mobile_number": self.user.mobile_number}, format="json")]
+        for _ in range(3):
+            with self.subTest(request_number=_):
+                responses.append(self.client.post(url, {
+                    "mobile_number": self.user.mobile_number,
+                }, format="json", REMOTE_ADDR="192.0.2.2"))
+        self.assertEqual(len({response.status_code for response in responses}), 1)
+        self.assertEqual(len({response.data["detail"] for response in responses}), 1)
+
+    def test_recovery_wrong_code_attempts_are_limited_and_code_is_single_use(self):
+        self._configure_recovery_sender()
+        self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": self.user.mobile_number,
+        }, format="json")
+        url = reverse("auth-merchant-password-recovery-confirm")
+        for _ in range(recovery.OTP_ATTEMPT_LIMIT):
+            response = self.client.post(url, {
+                "mobile_number": self.user.mobile_number,
+                "otp": "0000000",
+                "new_password": "A-longer-secure-password-2026!",
+            }, format="json")
+            self.assertEqual(response.status_code, 400)
+        challenge = MerchantPasswordRecoveryChallenge.objects.get()
+        self.assertEqual(challenge.failed_attempts, recovery.OTP_ATTEMPT_LIMIT)
+        self.assertIsNone(challenge.user)
+        self.assertFalse(self.user.check_password("A-longer-secure-password-2026!"))
+
+    def test_recovery_code_expires_after_five_minutes(self):
+        self._configure_recovery_sender()
+        self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": self.user.mobile_number,
+        }, format="json")
+        challenge = MerchantPasswordRecoveryChallenge.objects.get(user=self.user)
+        challenge.expires_at = timezone.now() - timedelta(seconds=1)
+        challenge.save(update_fields=["expires_at"])
+        expired = self.client.post(reverse("auth-merchant-password-recovery-confirm"), {
+            "mobile_number": self.user.mobile_number,
+            "otp": self.sent_codes[0][1],
+            "new_password": "A-longer-secure-password-2026!",
+        }, format="json")
+        self.assertEqual(expired.status_code, 400)
+        self.assertFalse(self.user.check_password("A-longer-secure-password-2026!"))
+
+    def test_successful_recovery_resets_password_and_invalidates_every_session(self):
+        self._configure_recovery_sender()
+        first = self.login().data
+        second = self.login().data
+        self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": self.user.mobile_number,
+        }, format="json")
+        otp = self.sent_codes[0][1]
+        response = self.client.post(reverse("auth-merchant-password-recovery-confirm"), {
+            "mobile_number": self.user.mobile_number,
+            "otp": otp,
+            "new_password": "A-longer-secure-password-2026!",
+        }, format="json")
+        self.assertEqual(response.status_code, 204)
+        self.user.refresh_from_db()
+        self.merchant.refresh_from_db()
+        self.assertTrue(self.user.check_password("A-longer-secure-password-2026!"))
+        self.assertFalse(self.merchant.must_change_password)
+        self.assertEqual(UserAuthSession.objects.filter(user=self.user).count(), 0)
+        from rest_framework.test import APIRequestFactory
+        revoked_access = AuthenticatedProbe.as_view()(APIRequestFactory().get(
+            "/api/probe/", HTTP_AUTHORIZATION=f"Bearer {first['access']}"
+        ))
+        self.assertEqual(revoked_access.status_code, 401)
+        self.assertEqual(self.client.post(reverse("auth-refresh"), {
+            "refresh": first["refresh"],
+        }, format="json").status_code, 401)
+        self.assertEqual(self.client.post(reverse("auth-refresh"), {
+            "refresh": second["refresh"],
+        }, format="json").status_code, 401)
+        reuse = self.client.post(reverse("auth-merchant-password-recovery-confirm"), {
+            "mobile_number": self.user.mobile_number,
+            "otp": otp,
+            "new_password": "Another-secure-password-2026!",
+        }, format="json")
+        self.assertEqual(reuse.status_code, 400)
+
+    def test_invalid_new_password_does_not_consume_recovery_code(self):
+        self._configure_recovery_sender()
+        self.client.post(reverse("auth-merchant-password-recovery-request"), {
+            "mobile_number": self.user.mobile_number,
+        }, format="json")
+        otp = self.sent_codes[0][1]
+        invalid = self.client.post(reverse("auth-merchant-password-recovery-confirm"), {
+            "mobile_number": self.user.mobile_number,
+            "otp": otp,
+            "new_password": "short",
+        }, format="json")
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("new_password", invalid.data)
+        self.assertEqual(MerchantPasswordRecoveryChallenge.objects.get().failed_attempts, 0)
 
     def login(self, password="temporary-password"):
         return self.client.post(reverse("auth-login"), {
