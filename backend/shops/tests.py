@@ -1817,6 +1817,1401 @@ class ShopQRAndPublicLinkTests(TestCase):
         self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
 
 
+class ShopDomainE2EAndCrossTenantAuthorizationTests(TestCase):
+    """End-to-End integration and multi-tenant cross-Shop authorization suite (SHOP-011)."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant A Setup
+        self.user_a = User.objects.create_user(
+            username="merchant_tenant_a",
+            email="tenant_a@example.com",
+            mobile_number="+919876543701",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
+            name="Tenant A Supermarket",
+            description="First merchant tenant",
+            address_line="100 MG Road",
+            area="Camp",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=self.user_a.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("15.00"),
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(22, 0),
+        )
+
+        # Merchant B Setup
+        self.user_b = User.objects.create_user(
+            username="merchant_tenant_b",
+            email="tenant_b@example.com",
+            mobile_number="+919876543702",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Tenant B Grocery",
+            description="Second merchant tenant",
+            address_line="200 FC Road",
+            area="Deccan",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411004",
+            contact_number=self.user_b.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_fee_type=Shop.DeliveryFeeType.CONFIRMED_ON_WHATSAPP,
+            delivery_charge=Decimal("0.00"),
+            opening_time=datetime.time(9, 0),
+            closing_time=datetime.time(21, 0),
+        )
+
+        # Super Admin Setup
+        self.admin_user = User.objects.create_user(
+            username="admin_e2e_tenant",
+            email="admin_tenant@example.com",
+            mobile_number="+919876543703",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def auth_merchant_a(self):
+        res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def auth_merchant_b(self):
+        res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_b.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def auth_admin(self):
+        res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_tenant@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    # --- 1. Shop Creation & One-to-One Ownership ---
+    def test_e2e_merchant_creates_shop_with_all_valid_fields(self):
+        """Merchant without a shop creates shop: verifies all fields, phone mirroring, status defaults, and public slug."""
+        new_user = User.objects.create_user(
+            username="merchant_e2e_new",
+            email="e2e_new@example.com",
+            mobile_number="+919876543704",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=new_user, status=Merchant.Status.ACTIVE, must_change_password=False)
+        auth_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": new_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_res.data['access']}")
+
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "E2E Fresh Store",
+                "description": "Comprehensive test store",
+                "address_line": "50 Senapati Bapat Road",
+                "area": "Shivajinagar",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411016",
+                "opening_time": "08:30:00",
+                "closing_time": "21:30:00",
+                "is_home_delivery_enabled": True,
+                "is_pickup_enabled": True,
+                "delivery_fee_type": "FIXED",
+                "delivery_charge": "25.00",
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        data = create_res.data
+        self.assertEqual(data["name"], "E2E Fresh Store")
+        self.assertEqual(data["contact_number"], new_user.mobile_number)
+        self.assertEqual(data["status"], "ACTIVE")
+        self.assertEqual(len(data["public_slug"]), 12)
+        self.assertNotEqual(str(data["id"]), data["public_slug"])
+        self.assertIn("public_url", data)
+
+        # Duplicate creation attempt rejected
+        dup_res = self.client.post(reverse("shops:shop-create"), {"name": "Second Store"}, format="json")
+        self.assertEqual(dup_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(dup_res.data.get("code"), "SHOP_ALREADY_EXISTS")
+
+    def test_e2e_creation_ignores_client_provided_merchant_id(self):
+        """Creation server-side binds authenticated merchant; client provided merchant_id is ignored."""
+        new_user = User.objects.create_user(
+            username="merchant_e2e_attacker",
+            email="e2e_attacker@example.com",
+            mobile_number="+919876543705",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        m_attacker = Merchant.objects.create(user=new_user, status=Merchant.Status.ACTIVE, must_change_password=False)
+        auth_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": new_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_res.data['access']}")
+
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "merchant": self.merchant_b.pk,
+                "merchant_id": self.merchant_b.pk,
+                "name": "Attacker Shop",
+                "address_line": "1 Road",
+                "area": "Area",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411001",
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        new_shop = Shop.objects.get(name="Attacker Shop")
+        self.assertEqual(new_shop.merchant, m_attacker)
+        self.assertNotEqual(new_shop.merchant, self.merchant_b)
+
+    # --- 2. Profile Updates & Validation ---
+    def test_e2e_merchant_updates_profile_and_read_only_fields_immutable(self):
+        """Merchant updates profile via PATCH and PUT; read-only fields remain immutable."""
+        self.auth_merchant_a()
+        me_url = reverse("shops:shop-me")
+
+        old_status = self.shop_a.status
+        old_slug = self.shop_a.public_slug
+        old_contact = self.shop_a.contact_number
+        old_id = self.shop_a.pk
+
+        # Attempt to mutate mutable fields and read-only fields
+        patch_res = self.client.patch(
+            me_url,
+            {
+                "name": "Updated Tenant A Market",
+                "description": "Updated Description",
+                "status": "DEACTIVATED",
+                "public_slug": "tamperedslug12",
+                "contact_number": "+910000000000",
+                "id": 999999,
+            },
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["name"], "Updated Tenant A Market")
+        self.assertEqual(patch_res.data["description"], "Updated Description")
+        self.assertEqual(patch_res.data["status"], old_status)
+        self.assertEqual(patch_res.data["public_slug"], old_slug)
+        self.assertEqual(patch_res.data["contact_number"], old_contact)
+        self.assertEqual(patch_res.data["id"], old_id)
+
+        self.shop_a.refresh_from_db()
+        self.assertEqual(self.shop_a.name, "Updated Tenant A Market")
+        self.assertEqual(self.shop_a.status, old_status)
+        self.assertEqual(self.shop_a.public_slug, old_slug)
+        self.assertEqual(self.shop_a.contact_number, old_contact)
+        self.assertEqual(self.shop_a.pk, old_id)
+
+    # --- 3. Delivery & Pickup Settings ---
+    def test_e2e_delivery_and_pickup_policy_transitions(self):
+        """Test transitions between FIXED fee and CONFIRMED_ON_WHATSAPP fee types."""
+        self.auth_merchant_a()
+        me_url = reverse("shops:shop-me")
+
+        # Switch to CONFIRMED_ON_WHATSAPP
+        res1 = self.client.patch(
+            me_url,
+            {"delivery_fee_type": "CONFIRMED_ON_WHATSAPP", "delivery_charge": "0.00"},
+            format="json",
+        )
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(res1.data["delivery_fee_type"], "CONFIRMED_ON_WHATSAPP")
+        self.assertEqual(Decimal(str(res1.data["delivery_charge"])), Decimal("0.00"))
+
+        # Negative fee rejected
+        res2 = self.client.patch(
+            me_url,
+            {"delivery_fee_type": "FIXED", "delivery_charge": "-10.00"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # --- 4. Business Hours & Operational Closure ---
+    def test_e2e_business_hours_and_temporary_closure_visibility(self):
+        """Operational closure marks is_temporarily_closed without deactivating shop; visible to customers."""
+        self.auth_merchant_a()
+        me_url = reverse("shops:shop-me")
+
+        close_res = self.client.patch(me_url, {"is_temporarily_closed": True}, format="json")
+        self.assertEqual(close_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(close_res.data["is_temporarily_closed"])
+        self.assertEqual(close_res.data["status"], "ACTIVE")
+
+        # Customer public endpoint returns 200 OK with closure flag
+        self.client.credentials()
+        pub_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop_a.public_slug})
+        pub_res = self.client.get(pub_url)
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(pub_res.data["is_temporarily_closed"])
+
+    # --- 5. Lifecycle Activation, Deactivation, & Suspension ---
+    def test_e2e_lifecycle_deactivate_reactivate_and_unsuspend(self):
+        """Super Admin controls lifecycle status transitions; inactive shop blocks merchant access."""
+        self.auth_admin()
+        deact_url = reverse("shops:shop-admin-deactivate", kwargs={"pk": self.shop_a.pk})
+        react_url = reverse("shops:shop-admin-reactivate", kwargs={"pk": self.shop_a.pk})
+
+        # Deactivate
+        res_deact = self.client.post(deact_url)
+        self.assertEqual(res_deact.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_deact.data["status"], "DEACTIVATED")
+
+        # Merchant locked out
+        self.auth_merchant_a()
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(me_res.data.get("code"), "SHOP_INACTIVE")
+
+        # Public access returns SHOP_UNAVAILABLE
+        self.client.credentials()
+        pub_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop_a.public_slug})
+        pub_res = self.client.get(pub_url)
+        self.assertEqual(pub_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(pub_res.data.get("code"), "SHOP_UNAVAILABLE")
+
+        # Reactivate
+        self.auth_admin()
+        old_slug = self.shop_a.public_slug
+        res_react = self.client.post(react_url)
+        self.assertEqual(res_react.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_react.data["status"], "ACTIVE")
+        new_slug = res_react.data["public_slug"]
+        self.assertNotEqual(new_slug, old_slug)
+
+        # Merchant access restored
+        self.auth_merchant_a()
+        me_restored = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_restored.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_restored.data["status"], "ACTIVE")
+
+    # --- 6. Deletion & Replacement Shop Creation ---
+    def test_e2e_permanent_deletion_and_replacement_shop_creation(self):
+        """Super Admin permanently deletes shop with confirmation; merchant creates replacement shop."""
+        self.auth_admin()
+        del_url = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_a.pk})
+
+        # Deletion without confirmation fails
+        fail_res = self.client.delete(del_url)
+        self.assertEqual(fail_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(fail_res.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # Confirmed deletion succeeds
+        ok_res = self.client.delete(f"{del_url}?confirm=true")
+        self.assertEqual(ok_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Shop.objects.filter(pk=self.shop_a.pk).exists())
+
+        # Merchant credentials and account preserved
+        self.user_a.refresh_from_db()
+        self.merchant_a.refresh_from_db()
+        self.assertTrue(self.user_a.is_active)
+
+        # Merchant creates replacement shop
+        self.auth_merchant_a()
+        repl_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Tenant A Replacement Shop",
+                "description": "New replacement shop identity",
+                "address_line": "300 MG Road",
+                "area": "Camp",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411001",
+            },
+            format="json",
+        )
+        self.assertEqual(repl_res.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(repl_res.data["public_slug"], self.shop_a.public_slug)
+
+    # --- 7. Public Access Data Minimization & ID Isolation ---
+    def test_e2e_public_shop_strictly_omits_private_fields(self):
+        """Customer accessing public endpoint receives only public store fields, no private DB fields."""
+        pub_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop_a.public_slug})
+        res = self.client.get(pub_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Public fields present
+        self.assertIn("name", res.data)
+        self.assertIn("public_slug", res.data)
+        self.assertIn("public_url", res.data)
+        self.assertIn("address_line", res.data)
+        self.assertIn("contact_number", res.data)
+
+        # Private internal fields strictly omitted
+        self.assertNotIn("id", res.data)
+        self.assertNotIn("merchant", res.data)
+        self.assertNotIn("merchant_id", res.data)
+        self.assertNotIn("status", res.data)
+        self.assertNotIn("created_at", res.data)
+        self.assertNotIn("updated_at", res.data)
+
+    # --- 8. QR Behavior ---
+    def test_e2e_qr_retrieval_and_regeneration_flow(self):
+        """Merchant retrieves QR details; Super Admin regenerates QR and rotates public slug."""
+        self.auth_merchant_a()
+        qr_res = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(qr_res.data["public_slug"], self.shop_a.public_slug)
+        self.assertEqual(qr_res.data["qr_data"], qr_res.data["public_url"])
+
+        # Super Admin regenerates QR
+        self.auth_admin()
+        regen_url = reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": self.shop_a.pk})
+        regen_res = self.client.post(regen_url)
+        self.assertEqual(regen_res.status_code, status.HTTP_200_OK)
+        new_slug = regen_res.data["public_slug"]
+        self.assertNotEqual(new_slug, self.shop_a.public_slug)
+
+        # Old QR link returns 404 SHOP_NOT_FOUND
+        self.client.credentials()
+        old_pub_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop_a.public_slug})
+        self.assertEqual(self.client.get(old_pub_url).status_code, status.HTTP_404_NOT_FOUND)
+
+        # New QR link returns 200 OK
+        new_pub_url = reverse("shops:shop-public-detail", kwargs={"public_slug": new_slug})
+        self.assertEqual(self.client.get(new_pub_url).status_code, status.HTTP_200_OK)
+
+    # --- 9. Multi-Tenant Cross-Shop Isolation (CRITICAL) ---
+    def test_cross_shop_merchant_a_cannot_view_or_update_merchant_b_shop(self):
+        """Merchant A operations resolve only Merchant A's shop; cannot access or mutate Merchant B's shop."""
+        self.auth_merchant_a()
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_res.data["id"], self.shop_a.pk)
+        self.assertNotEqual(me_res.data["id"], self.shop_b.pk)
+
+        # Updating /me/ updates only Shop A
+        patch_res = self.client.patch(reverse("shops:shop-me"), {"name": "Tenant A Exclusive"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.shop_a.refresh_from_db()
+        self.shop_b.refresh_from_db()
+        self.assertEqual(self.shop_a.name, "Tenant A Exclusive")
+        self.assertEqual(self.shop_b.name, "Tenant B Grocery")
+
+    def test_cross_shop_body_injection_cannot_reassign_or_compromise_shop(self):
+        """Injecting target shop_id or merchant_id in payload cannot reassign or compromise other tenant."""
+        self.auth_merchant_a()
+        patch_res = self.client.patch(
+            reverse("shops:shop-me"),
+            {
+                "shop_id": self.shop_b.pk,
+                "merchant_id": self.merchant_b.pk,
+                "merchant": self.merchant_b.pk,
+                "name": "Injection Attempt",
+            },
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.shop_a.refresh_from_db()
+        self.shop_b.refresh_from_db()
+        self.assertEqual(self.shop_a.name, "Injection Attempt")
+        self.assertEqual(self.shop_a.merchant, self.merchant_a)
+        self.assertEqual(self.shop_b.name, "Tenant B Grocery")
+        self.assertEqual(self.shop_b.merchant, self.merchant_b)
+
+    def test_cross_shop_merchant_cannot_call_admin_lifecycle_on_other_shop(self):
+        """Merchant A calling Super Admin lifecycle or delete endpoints on Shop B is rejected with 403."""
+        self.auth_merchant_a()
+
+        deact_b = reverse("shops:shop-admin-deactivate", kwargs={"pk": self.shop_b.pk})
+        self.assertEqual(self.client.post(deact_b).status_code, status.HTTP_403_FORBIDDEN)
+
+        react_b = reverse("shops:shop-admin-reactivate", kwargs={"pk": self.shop_b.pk})
+        self.assertEqual(self.client.post(react_b).status_code, status.HTTP_403_FORBIDDEN)
+
+        regen_b = reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": self.shop_b.pk})
+        self.assertEqual(self.client.post(regen_b).status_code, status.HTTP_403_FORBIDDEN)
+
+        del_b = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk})
+        self.assertEqual(self.client.delete(f"{del_b}?confirm=true").status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cross_shop_super_admin_cannot_browse_or_edit_private_shop_profile(self):
+        """Super Admin cannot browse or edit private shop profile directly via API."""
+        self.auth_admin()
+        shop_url = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk})
+
+        self.assertEqual(self.client.get(shop_url).status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(self.client.patch(shop_url, {"name": "Admin Hack"}, format="json").status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(self.client.put(shop_url, {"name": "Admin Hack"}, format="json").status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cross_shop_anonymous_user_blocked_from_all_private_endpoints(self):
+        """Unauthenticated client cannot access private merchant endpoints."""
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.patch(reverse("shops:shop-me"), {"name": "Anon"}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(reverse("shops:shop-create"), {"name": "Anon"}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.get(reverse("shops:shop-me-qr")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(reverse("shops:shop-me-deactivate")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(reverse("shops:shop-me-reactivate")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(reverse("shops:shop-me-regenerate-qr")).status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class ShopLifecycleStatePermutationTests(TestCase):
+    """Exhaustive state-machine and multi-actor permutation test suite.
+
+    Tests every combination of actor (Merchant, Super Admin, Customer/Anon, Cross-Tenant)
+    against every Shop state (Pre-creation, Active, Deactivated, Suspended, Reactivated,
+    Deleted, Re-created, Inactive User).
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Tenant A
+        self.user_a = User.objects.create_user(
+            username="perm_merchant_a",
+            email="perm_a@example.com",
+            mobile_number="+919876543801",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+
+        # Tenant B (independent comparison tenant)
+        self.user_b = User.objects.create_user(
+            username="perm_merchant_b",
+            email="perm_b@example.com",
+            mobile_number="+919876543802",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Perm Tenant B Grocery",
+            address_line="200 FC Road",
+            area="Deccan",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411004",
+            contact_number=self.user_b.mobile_number,
+            status=Shop.Status.ACTIVE,
+        )
+
+        # Super Admin
+        self.admin_user = User.objects.create_user(
+            username="perm_admin",
+            email="perm_admin@example.com",
+            mobile_number="+919876543803",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def auth_merchant_a(self):
+        res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def auth_merchant_b(self):
+        res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_b.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def auth_admin(self):
+        res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "perm_admin@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def test_permutation_complete_lifecycle_step_by_step_multi_actor(self):
+        """End-to-end multi-actor state transitions:
+        Pre-creation -> Creation -> Active -> Deactivated -> Reactivated -> QR Regenerated -> Deleted -> Re-created.
+        At every stage, checks Merchant, Super Admin, and Public visitor permissions.
+        """
+        # =========================================================================
+        # STAGE 1: PRE-CREATION (Merchant A logged in, has NO shop)
+        # =========================================================================
+        self.auth_merchant_a()
+
+        # Merchant A attempts reads and updates on non-existent shop -> 404 NO_SHOP
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.patch(reverse("shops:shop-me"), {"name": "X"}).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.put(reverse("shops:shop-me"), {"name": "X"}).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(reverse("shops:shop-me-qr")).status_code, status.HTTP_404_NOT_FOUND)
+
+        # Merchant A attempts self-lifecycle actions -> 403 Forbidden
+        self.assertEqual(self.client.post(reverse("shops:shop-me-deactivate")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(reverse("shops:shop-me-reactivate")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(reverse("shops:shop-me-regenerate-qr")).status_code, status.HTTP_403_FORBIDDEN)
+
+        # =========================================================================
+        # STAGE 2: SHOP CREATION (Merchant A creates shop)
+        # =========================================================================
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Permutation Shop A",
+                "description": "Lifecycle testing shop",
+                "address_line": "100 MG Road",
+                "area": "Camp",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411001",
+                "is_home_delivery_enabled": True,
+                "is_pickup_enabled": True,
+                "delivery_charge": "30.00",
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        shop_a_id = create_res.data["id"]
+        slug_v1 = create_res.data["public_slug"]
+
+        # Duplicate creation rejected
+        dup_res = self.client.post(reverse("shops:shop-create"), {"name": "Dup Shop"}, format="json")
+        self.assertEqual(dup_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(dup_res.data.get("code"), "SHOP_ALREADY_EXISTS")
+
+        # =========================================================================
+        # STAGE 3: SHOP IS ACTIVE
+        # =========================================================================
+        # Merchant A can read, patch, put, and view QR
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_res.data["status"], "ACTIVE")
+
+        patch_res = self.client.patch(reverse("shops:shop-me"), {"name": "Permutation Shop A (Updated)"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["name"], "Permutation Shop A (Updated)")
+
+        qr_res = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(qr_res.data["public_slug"], slug_v1)
+
+        # Merchant A cannot call admin operations on own shop
+        deact_url = reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_a_id})
+        react_url = reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_a_id})
+        regen_url = reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": shop_a_id})
+        del_url = reverse("shops:shop-admin-delete", kwargs={"pk": shop_a_id})
+
+        self.assertEqual(self.client.post(deact_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(react_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(regen_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.delete(f"{del_url}?confirm=true").status_code, status.HTTP_403_FORBIDDEN)
+
+        # Super Admin cannot browse private merchant endpoints
+        self.auth_admin()
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.patch(reverse("shops:shop-me"), {"name": "Admin"}).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(reverse("shops:shop-me-qr")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(reverse("shops:shop-create"), {"name": "Admin"}).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(deact_url).status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # Public customer can access slug_v1
+        self.client.credentials()
+        pub_res = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v1}))
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(pub_res.data["name"], "Permutation Shop A (Updated)")
+
+        # =========================================================================
+        # STAGE 4: SUPER ADMIN DEACTIVATES SHOP
+        # =========================================================================
+        self.auth_admin()
+        admin_deact = self.client.post(deact_url)
+        self.assertEqual(admin_deact.status_code, status.HTTP_200_OK)
+        self.assertEqual(admin_deact.data["status"], "DEACTIVATED")
+
+        # Super Admin deactivating already deactivated shop -> 400 SHOP_ALREADY_DEACTIVATED
+        admin_deact_repeat = self.client.post(deact_url)
+        self.assertEqual(admin_deact_repeat.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(admin_deact_repeat.data.get("code"), "SHOP_ALREADY_DEACTIVATED")
+
+        # Merchant A is locked out of active operations
+        self.auth_merchant_a()
+        me_locked = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_locked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(me_locked.data.get("code"), "SHOP_INACTIVE")
+
+        patch_locked = self.client.patch(reverse("shops:shop-me"), {"name": "Bypass"})
+        self.assertEqual(patch_locked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(patch_locked.data.get("code"), "SHOP_INACTIVE")
+
+        qr_locked = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_locked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(qr_locked.data.get("code"), "SHOP_INACTIVE")
+
+        # Merchant A cannot create another shop while current shop is deactivated
+        create_while_deact = self.client.post(reverse("shops:shop-create"), {"name": "Replacement Attempt"}, format="json")
+        self.assertEqual(create_while_deact.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(create_while_deact.data.get("code"), "SHOP_ALREADY_EXISTS")
+
+        # Public customer accessing deactivated shop receives 404 SHOP_UNAVAILABLE
+        self.client.credentials()
+        pub_deact = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v1}))
+        self.assertEqual(pub_deact.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(pub_deact.data.get("code"), "SHOP_UNAVAILABLE")
+
+        # =========================================================================
+        # STAGE 5: SUPER ADMIN REACTIVATES SHOP
+        # =========================================================================
+        self.auth_admin()
+        admin_react = self.client.post(react_url)
+        self.assertEqual(admin_react.status_code, status.HTTP_200_OK)
+        self.assertEqual(admin_react.data["status"], "ACTIVE")
+        slug_v2 = admin_react.data["public_slug"]
+        self.assertNotEqual(slug_v2, slug_v1)
+
+        # Super Admin reactivating already active shop -> 400 SHOP_ALREADY_ACTIVE
+        admin_react_repeat = self.client.post(react_url)
+        self.assertEqual(admin_react_repeat.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(admin_react_repeat.data.get("code"), "SHOP_ALREADY_ACTIVE")
+
+        # Old slug remains 404 SHOP_NOT_FOUND
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v1})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # New slug is accessible 200 OK
+        pub_v2 = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v2}))
+        self.assertEqual(pub_v2.status_code, status.HTTP_200_OK)
+
+        # Merchant A access fully restored
+        self.auth_merchant_a()
+        me_restored = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_restored.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_restored.data["status"], "ACTIVE")
+
+        patch_restored = self.client.patch(reverse("shops:shop-me"), {"description": "Restored shop"}, format="json")
+        self.assertEqual(patch_restored.status_code, status.HTTP_200_OK)
+
+        qr_restored = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_restored.status_code, status.HTTP_200_OK)
+        self.assertEqual(qr_restored.data["public_slug"], slug_v2)
+
+        # =========================================================================
+        # STAGE 6: SUPER ADMIN REGENERATES QR / LINK ON ACTIVE SHOP
+        # =========================================================================
+        self.auth_admin()
+        admin_regen = self.client.post(regen_url)
+        self.assertEqual(admin_regen.status_code, status.HTTP_200_OK)
+        slug_v3 = admin_regen.data["public_slug"]
+        self.assertNotEqual(slug_v3, slug_v2)
+
+        # slug_v2 invalidated
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v2})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # slug_v3 active
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v3})).status_code,
+            status.HTTP_200_OK,
+        )
+
+        # Merchant A sees slug_v3
+        self.auth_merchant_a()
+        qr_v3 = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_v3.data["public_slug"], slug_v3)
+
+        # =========================================================================
+        # STAGE 7: SUPER ADMIN PERMANENT DELETION
+        # =========================================================================
+        self.auth_admin()
+
+        # Delete without confirm fails
+        fail_del = self.client.delete(del_url)
+        self.assertEqual(fail_del.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(fail_del.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # Delete with confirm=false fails
+        fail_del2 = self.client.delete(f"{del_url}?confirm=false")
+        self.assertEqual(fail_del2.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Confirmed deletion succeeds
+        ok_del = self.client.delete(f"{del_url}?confirm=true")
+        self.assertEqual(ok_del.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Shop.objects.filter(pk=shop_a_id).exists())
+
+        # Public access to deleted shop is 404
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v3})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # Super Admin operating on deleted shop ID -> 404
+        self.auth_admin()
+        self.assertEqual(self.client.post(deact_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.post(react_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.post(regen_url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.delete(f"{del_url}?confirm=true").status_code, status.HTTP_404_NOT_FOUND)
+
+        # Merchant A credentials remain active
+        self.user_a.refresh_from_db()
+        self.merchant_a.refresh_from_db()
+        self.assertTrue(self.user_a.is_active)
+        self.assertEqual(self.merchant_a.status, Merchant.Status.ACTIVE)
+
+        # Merchant A calls me -> 404 NO_SHOP
+        self.auth_merchant_a()
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_404_NOT_FOUND)
+
+        # =========================================================================
+        # STAGE 8: REPLACEMENT SHOP CREATION
+        # =========================================================================
+        repl_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Permutation Shop A (Replacement)",
+                "address_line": "500 FC Road",
+                "area": "Shivajinagar",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411005",
+            },
+            format="json",
+        )
+        self.assertEqual(repl_res.status_code, status.HTTP_201_CREATED)
+        slug_replacement = repl_res.data["public_slug"]
+        self.assertNotEqual(slug_replacement, slug_v3)
+        self.assertNotEqual(repl_res.data["id"], shop_a_id)
+
+        # Merchant A immediately manages replacement shop
+        me_repl = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_repl.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_repl.data["name"], "Permutation Shop A (Replacement)")
+
+        # Public customer can access replacement shop
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_replacement})).status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_permutation_suspended_state_and_unsuspend_flow(self):
+        """Shop in SUSPENDED state blocks merchant and customer; Super Admin unsuspend restores both."""
+        # Create shop for Merchant A
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Suspended Test Store",
+                "address_line": "12 Law College Road",
+                "area": "Erandwane",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411004",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+        slug_v1 = create_res.data["public_slug"]
+
+        # Directly set to SUSPENDED to simulate platform suspension
+        shop = Shop.objects.get(pk=shop_id)
+        shop.status = Shop.Status.SUSPENDED
+        shop.save()
+
+        # Merchant is blocked from reading or mutating suspended shop
+        self.auth_merchant_a()
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(me_res.data.get("code"), "SHOP_INACTIVE")
+
+        patch_res = self.client.patch(reverse("shops:shop-me"), {"name": "Hack"})
+        self.assertEqual(patch_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(patch_res.data.get("code"), "SHOP_INACTIVE")
+
+        qr_res = self.client.get(reverse("shops:shop-me-qr"))
+        self.assertEqual(qr_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(qr_res.data.get("code"), "SHOP_INACTIVE")
+
+        # Public access is blocked
+        self.client.credentials()
+        pub_res = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v1}))
+        self.assertEqual(pub_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(pub_res.data.get("code"), "SHOP_UNAVAILABLE")
+
+        # Super Admin calls unsuspend endpoint
+        self.auth_admin()
+        unsuspend_url = reverse("shops:shop-admin-unsuspend", kwargs={"pk": shop_id})
+        unsuspend_res = self.client.post(unsuspend_url)
+        self.assertEqual(unsuspend_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(unsuspend_res.data["status"], "ACTIVE")
+        slug_v2 = unsuspend_res.data["public_slug"]
+        self.assertNotEqual(slug_v2, slug_v1)
+
+        # Merchant access is restored
+        self.auth_merchant_a()
+        me_restored = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_restored.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_restored.data["status"], "ACTIVE")
+
+        # Public access restored on new slug
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_v2})).status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_permutation_inactive_merchant_user_account_lifecycle(self):
+        """When merchant user account is deactivated, existing token calls fail 401; login fails 401; admin lifecycle still functions."""
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Inactive User Store",
+                "address_line": "1 Karve Road",
+                "area": "Kothrud",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411038",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+
+        # Deactivate user account while client already holds an issued JWT token
+        self.user_a.is_active = False
+        self.user_a.save()
+
+        # Existing JWT token is now rejected with 401 Unauthorized across all endpoints
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.patch(reverse("shops:shop-me"), {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.get(reverse("shops:shop-me-qr")).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(reverse("shops:shop-create"), {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # New login attempt also rejected
+        self.client.credentials()
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Super Admin can still manage shop even if merchant user account is inactive
+        self.auth_admin()
+        deact_res = self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_id}))
+        self.assertEqual(deact_res.status_code, status.HTTP_200_OK)
+
+        react_res = self.client.post(reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_id}))
+        self.assertEqual(react_res.status_code, status.HTTP_200_OK)
+
+        del_res = self.client.delete(f"{reverse('shops:shop-admin-delete', kwargs={'pk': shop_id})}?confirm=true")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_permutation_asymmetric_cross_tenant_isolation(self):
+        """Tenant A in DEACTIVATED state and Tenant B in ACTIVE state.
+        Ensures strict tenant isolation even under different status levels.
+        """
+        # Create shop for Tenant A and deactivate it
+        self.auth_merchant_a()
+        create_a = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Tenant A Asymmetric",
+                "address_line": "10 Bund Garden",
+                "area": "Camp",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411001",
+            },
+            format="json",
+        )
+        shop_a_id = create_a.data["id"]
+
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_a_id}))
+
+        # Tenant A is DEACTIVATED; Tenant B is ACTIVE
+        # 1. Tenant A cannot read Tenant B's active shop
+        self.auth_merchant_a()
+        me_a = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_a.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(me_a.data.get("code"), "SHOP_INACTIVE")
+
+        # 2. Tenant A cannot mutate Tenant B via payload injection
+        patch_attempt = self.client.patch(
+            reverse("shops:shop-me"),
+            {"shop_id": self.shop_b.pk, "name": "Tenant B Overwrite Attempt"},
+            format="json",
+        )
+        self.assertEqual(patch_attempt.status_code, status.HTTP_403_FORBIDDEN)
+        self.shop_b.refresh_from_db()
+        self.assertEqual(self.shop_b.name, "Perm Tenant B Grocery")
+
+        # 3. Tenant A cannot call lifecycle endpoints on Tenant B
+        deact_b = reverse("shops:shop-admin-deactivate", kwargs={"pk": self.shop_b.pk})
+        self.assertEqual(self.client.post(deact_b).status_code, status.HTTP_403_FORBIDDEN)
+
+        # 4. Tenant B operations are completely undisturbed by Tenant A's deactivation
+        self.auth_merchant_b()
+        me_b = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_b.data["name"], "Perm Tenant B Grocery")
+
+        patch_b = self.client.patch(reverse("shops:shop-me"), {"name": "Perm Tenant B Grocery (Updated)"}, format="json")
+        self.assertEqual(patch_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_b.data["name"], "Perm Tenant B Grocery (Updated)")
+
+        # 5. Tenant B cannot reactivate Tenant A's shop
+        react_a = reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_a_id})
+        self.assertEqual(self.client.post(react_a).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_permutation_qr_regeneration_on_inactive_shop(self):
+        """Super Admin can regenerate QR on an inactive shop; public link remains unavailable until shop is reactivated."""
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "QR Inactive Test Store",
+                "address_line": "10 North Main Road",
+                "area": "Koregaon Park",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411001",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+        slug_initial = create_res.data["public_slug"]
+
+        # Deactivate shop
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_id}))
+
+        # Regenerate QR on deactivated shop -> succeeds with rotated slug
+        regen_res = self.client.post(reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": shop_id}))
+        self.assertEqual(regen_res.status_code, status.HTTP_200_OK)
+        slug_rotated = regen_res.data["public_slug"]
+        self.assertNotEqual(slug_rotated, slug_initial)
+
+        # Public access: initial slug is 404 SHOP_NOT_FOUND
+        self.client.credentials()
+        res_initial = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_initial}))
+        self.assertEqual(res_initial.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Public access: rotated slug is 404 SHOP_UNAVAILABLE (because shop is deactivated!)
+        res_rotated = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_rotated}))
+        self.assertEqual(res_rotated.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_rotated.data.get("code"), "SHOP_UNAVAILABLE")
+
+        # Reactivate shop -> slug rotates again to active slug
+        self.auth_admin()
+        react_res = self.client.post(reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_id}))
+        self.assertEqual(react_res.status_code, status.HTTP_200_OK)
+        slug_active = react_res.data["public_slug"]
+        self.assertNotEqual(slug_active, slug_rotated)
+
+        # Public access: rotated slug is now 404 SHOP_NOT_FOUND
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_rotated})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # Public access: active slug is 200 OK
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug_active})).status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_permutation_merchant_actions_while_active_vs_superadmin_actions(self):
+        """Permutation: While merchant is actively managing shop, validates Super Admin boundary actions and restrictions."""
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Active Matrix Store",
+                "address_line": "5 Prabhat Road",
+                "area": "Deccan",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411004",
+                "delivery_charge": "20.00",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+
+        # Merchant updates settings successfully
+        patch_res = self.client.patch(reverse("shops:shop-me"), {"delivery_charge": "25.00"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["delivery_charge"], "25.00")
+
+        # Merchant validation error: negative delivery fee rejected
+        neg_res = self.client.patch(reverse("shops:shop-me"), {"delivery_charge": "-10.00"}, format="json")
+        self.assertEqual(neg_res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Super Admin attempts while shop is ACTIVE:
+        self.auth_admin()
+
+        # 1. Unsuspend on already active shop fails with 400 SHOP_ALREADY_ACTIVE
+        self.assertEqual(
+            self.client.post(reverse("shops:shop-admin-unsuspend", kwargs={"pk": shop_id})).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        # 2. Reactivate on already active shop fails with 400 SHOP_ALREADY_ACTIVE
+        self.assertEqual(
+            self.client.post(reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_id})).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        # 3. QR regeneration succeeds without modifying active status
+        regen_res = self.client.post(reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": shop_id}))
+        self.assertEqual(regen_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(regen_res.data["status"], "ACTIVE")
+
+        # 4. Deletion without confirmation fails with 400 CONFIRMATION_REQUIRED
+        self.assertEqual(
+            self.client.delete(reverse("shops:shop-admin-delete", kwargs={"pk": shop_id})).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        # Shop remains active and operational
+        self.auth_merchant_a()
+        me_check = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_check.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_check.data["status"], "ACTIVE")
+
+    def test_permutation_merchant_auth_actions_while_shop_deactivated(self):
+        """Permutation: While shop is deactivated, merchant can perform auth actions (password change, refresh, logout)
+        but is strictly denied from all shop domain endpoints.
+        """
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Deact Auth Matrix Store",
+                "address_line": "12 Sinhagad Road",
+                "area": "Parvati",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411030",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+
+        # Super Admin deactivates shop
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_id}))
+
+        # Merchant logs in again to test fresh token
+        tokens = self.auth_merchant_a()
+        access_token = tokens["access"]
+        refresh_token = tokens["refresh"]
+
+        # Merchant is blocked from shop domain endpoints
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.patch(reverse("shops:shop-me"), {"name": "X"}).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(reverse("shops:shop-me-qr")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(reverse("shops:shop-create"), {"name": "X"}).status_code, status.HTTP_400_BAD_REQUEST)
+
+        # BUT Merchant CAN change password (user account is intact and active)
+        ch_pass_res = self.client.post(
+            reverse("auth-change-password"),
+            {"current_password": "securepassword123", "new_password": "NewSecurePassword456!"},
+            format="json",
+        )
+        self.assertEqual(ch_pass_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Merchant CAN log in with new password
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "NewSecurePassword456!"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_200_OK)
+        new_refresh = login_res.data["refresh"]
+
+        # Merchant CAN refresh token (which rotates the refresh token)
+        ref_res = self.client.post(reverse("auth-refresh"), {"refresh": new_refresh}, format="json")
+        self.assertEqual(ref_res.status_code, status.HTTP_200_OK)
+        rotated_refresh = ref_res.data["refresh"]
+        rotated_access = ref_res.data["access"]
+
+        # Merchant CAN logout using the active rotated session
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {rotated_access}")
+        logout_res = self.client.post(reverse("auth-logout"), {"refresh": rotated_refresh}, format="json")
+        self.assertEqual(logout_res.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_permutation_temporary_closure_vs_deactivation_distinction(self):
+        """Permutation: Temporary closure (merchant-operated pause) vs Deactivation (super-admin-operated lifecycle).
+        - Temporary closure allows merchant read/update and public read (with closed flag).
+        - Deactivation completely shuts down merchant access and returns 404 on public route.
+        """
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Closure vs Deact Store",
+                "address_line": "15 Paud Road",
+                "area": "Kothrud",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411038",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+        slug = create_res.data["public_slug"]
+
+        # 1. Merchant marks shop temporarily closed
+        close_res = self.client.patch(reverse("shops:shop-me"), {"is_temporarily_closed": True}, format="json")
+        self.assertEqual(close_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(close_res.data["is_temporarily_closed"])
+
+        # Merchant can STILL read and update profile
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(me_res.data["status"], "ACTIVE")
+
+        # Public visitor CAN access shop, sees is_temporarily_closed=True
+        self.client.credentials()
+        pub_res = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug}))
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)
+        self.assertTrue(pub_res.data["is_temporarily_closed"])
+
+        # Merchant reopens shop
+        self.auth_merchant_a()
+        reopen_res = self.client.patch(reverse("shops:shop-me"), {"is_temporarily_closed": False}, format="json")
+        self.assertEqual(reopen_res.status_code, status.HTTP_200_OK)
+        self.assertFalse(reopen_res.data["is_temporarily_closed"])
+
+        # 2. In contrast: Super Admin deactivates shop
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_id}))
+
+        # Merchant is completely locked out (403 SHOP_INACTIVE)
+        self.auth_merchant_a()
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.client.patch(reverse("shops:shop-me"), {"is_temporarily_closed": False}).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        # Public access is blocked (404 SHOP_UNAVAILABLE)
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": slug})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_permutation_concurrent_shared_merchant_sessions(self):
+        """Permutation: Shared merchant staff logins across multiple devices.
+        When Super Admin deactivates shop, all concurrent merchant sessions are instantly locked out.
+        When Super Admin reactivates shop, all concurrent merchant sessions instantly regain access.
+        """
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Shared Session Store",
+                "address_line": "7 Ferguson Road",
+                "area": "Shivajinagar",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411005",
+            },
+            format="json",
+        )
+        shop_id = create_res.data["id"]
+
+        # Staff Member 1 logs in (Device 1)
+        res1 = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token_device_1 = res1.data["access"]
+
+        # Staff Member 2 logs in (Device 2)
+        res2 = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user_a.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token_device_2 = res2.data["access"]
+
+        # Device 1 updates shop name
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_1}")
+        dev1_res = self.client.patch(reverse("shops:shop-me"), {"name": "Staff Device 1 Update"}, format="json")
+        self.assertEqual(dev1_res.status_code, status.HTTP_200_OK)
+
+        # Device 2 reads updated shop name
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_2}")
+        dev2_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(dev2_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(dev2_res.data["name"], "Staff Device 1 Update")
+
+        # Super Admin deactivates shop
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-deactivate", kwargs={"pk": shop_id}))
+
+        # BOTH Device 1 and Device 2 are immediately locked out
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_1}")
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_2}")
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_403_FORBIDDEN)
+
+        # Super Admin reactivates shop
+        self.auth_admin()
+        self.client.post(reverse("shops:shop-admin-reactivate", kwargs={"pk": shop_id}))
+
+        # BOTH Device 1 and Device 2 immediately regain access
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_1}")
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_200_OK)
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_device_2}")
+        self.assertEqual(self.client.get(reverse("shops:shop-me")).status_code, status.HTTP_200_OK)
+
+    def test_permutation_cross_shop_tamper_matrix_all_parameter_types(self):
+        """Permutation: Multi-vector tampering attempts by Tenant A targeting Tenant B:
+        - Query parameters: ?shop_id=<b_id>, ?merchant_id=<b_id>
+        - URL path traversal: /api/v1/shops/<b_id>/
+        - Header or body injection: passing Tenant B IDs
+        All attacks fail to leak or alter Tenant B's data.
+        """
+        self.auth_merchant_a()
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Tenant A Store",
+                "address_line": "1 Tilak Road",
+                "area": "Swargate",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411030",
+            },
+            format="json",
+        )
+        shop_a_id = create_res.data["id"]
+
+        # 1. Query parameter tampering on /me/
+        tamper_me = self.client.get(f"{reverse('shops:shop-me')}?shop_id={self.shop_b.pk}&merchant_id={self.merchant_b.pk}")
+        self.assertEqual(tamper_me.status_code, status.HTTP_200_OK)
+        self.assertEqual(tamper_me.data["id"], shop_a_id)  # Strictly returns Shop A
+        self.assertNotEqual(tamper_me.data["id"], self.shop_b.pk)
+
+        # 2. Query parameter tampering on /me/qr/
+        tamper_qr = self.client.get(f"{reverse('shops:shop-me-qr')}?shop_id={self.shop_b.pk}")
+        self.assertEqual(tamper_qr.status_code, status.HTTP_200_OK)
+        self.assertEqual(tamper_qr.data["public_slug"], create_res.data["public_slug"])
+        self.assertNotEqual(tamper_qr.data["public_slug"], self.shop_b.public_slug)
+
+        # 3. Direct ID lookup on Shop B via GET /api/v1/shops/<pk>/
+        # For Merchant A, admin endpoint denies with 403 Forbidden
+        tamper_direct = self.client.get(reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk}))
+        self.assertEqual(tamper_direct.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 4. Direct ID mutation on Shop B via PATCH /api/v1/shops/<pk>/
+        # For Merchant A, admin endpoint denies with 403 Forbidden
+        tamper_patch_direct = self.client.patch(
+            reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk}),
+            {"name": "Hacked B"},
+            format="json",
+        )
+        self.assertEqual(tamper_patch_direct.status_code, status.HTTP_403_FORBIDDEN)
+
+        # For Super Admin, GET/PATCH on delete endpoint returns 405 Method Not Allowed (only DELETE permitted)
+        self.auth_admin()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk})).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+        self.assertEqual(
+            self.client.patch(reverse("shops:shop-admin-delete", kwargs={"pk": self.shop_b.pk}), {"name": "H"}).status_code,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+        # Return credentials to Merchant A
+        self.auth_merchant_a()
+
+        # 5. Body injection on /me/ attempting to repoint ownership or reassign fields
+        body_inject = self.client.patch(
+            reverse("shops:shop-me"),
+            {
+                "id": self.shop_b.pk,
+                "merchant": self.merchant_b.pk,
+                "merchant_id": self.merchant_b.pk,
+                "public_slug": self.shop_b.public_slug,
+                "name": "Tenant A Renamed",
+            },
+            format="json",
+        )
+        self.assertEqual(body_inject.status_code, status.HTTP_200_OK)
+        self.assertEqual(body_inject.data["id"], shop_a_id)
+        self.assertEqual(body_inject.data["name"], "Tenant A Renamed")
+
+        # Verify Shop B in DB is completely untouched
+        self.shop_b.refresh_from_db()
+        self.assertEqual(self.shop_b.name, "Perm Tenant B Grocery")
+        self.assertEqual(self.shop_b.merchant, self.merchant_b)
+
+
+
+
+
 
 
 
