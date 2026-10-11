@@ -43,6 +43,33 @@ class ShopSerializer(serializers.ModelSerializer):
         ]
 
 
+class PublicShopSerializer(serializers.ModelSerializer):
+    """Serializer exposing only customer-facing Shop details for public QR / link access."""
+
+    class Meta:
+        model = Shop
+        fields = [
+            "public_slug",
+            "name",
+            "description",
+            "logo",
+            "address_line",
+            "area",
+            "city",
+            "state",
+            "pincode",
+            "contact_number",
+            "is_temporarily_closed",
+            "opening_time",
+            "closing_time",
+            "is_home_delivery_enabled",
+            "is_pickup_enabled",
+            "delivery_fee_type",
+            "delivery_charge",
+        ]
+        read_only_fields = fields
+
+
 class ShopCreateSerializer(serializers.ModelSerializer):
     """Serializer used for initial Shop profile creation by an authenticated Merchant."""
 

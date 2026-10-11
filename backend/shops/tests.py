@@ -1244,5 +1244,128 @@ class ShopLifecycleAndDeletionAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+class PublicShopAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="merchant_public",
+            email="merchant_public@example.com",
+            mobile_number="+919876543501",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Public Corner Grocery",
+            description="Fresh daily produce and staples",
+            address_line="505 Market Road",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.user.mobile_number,
+            status=Shop.Status.ACTIVE,
+            is_temporarily_closed=False,
+            opening_time=datetime.time(8, 0),
+            closing_time=datetime.time(22, 0),
+            is_home_delivery_enabled=True,
+            is_pickup_enabled=True,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("25.00"),
+        )
+        self.public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop.public_slug})
+
+    def test_anonymous_customer_can_retrieve_active_shop_details(self):
+        """Unauthenticated customer retrieves public shop details via public slug."""
+        response = self.client.get(self.public_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Approved public fields
+        self.assertEqual(response.data["public_slug"], self.shop.public_slug)
+        self.assertEqual(response.data["name"], self.shop.name)
+        self.assertEqual(response.data["description"], self.shop.description)
+        self.assertEqual(response.data["address_line"], self.shop.address_line)
+        self.assertEqual(response.data["area"], self.shop.area)
+        self.assertEqual(response.data["city"], self.shop.city)
+        self.assertEqual(response.data["state"], self.shop.state)
+        self.assertEqual(response.data["pincode"], self.shop.pincode)
+        self.assertEqual(response.data["contact_number"], self.shop.contact_number)
+        self.assertFalse(response.data["is_temporarily_closed"])
+        self.assertEqual(response.data["opening_time"], "08:00:00")
+        self.assertEqual(response.data["closing_time"], "22:00:00")
+        self.assertTrue(response.data["is_home_delivery_enabled"])
+        self.assertTrue(response.data["is_pickup_enabled"])
+        self.assertEqual(response.data["delivery_fee_type"], "FIXED")
+        self.assertEqual(Decimal(str(response.data["delivery_charge"])), Decimal("25.00"))
+
+        # Strictly private/internal fields MUST be omitted
+        self.assertNotIn("id", response.data)
+        self.assertNotIn("merchant", response.data)
+        self.assertNotIn("merchant_id", response.data)
+        self.assertNotIn("status", response.data)
+        self.assertNotIn("created_at", response.data)
+        self.assertNotIn("updated_at", response.data)
+
+    def test_temporary_closed_shop_returns_200_with_closed_flag(self):
+        """When shop is temporarily closed, customer receives 200 with is_temporarily_closed=True."""
+        self.shop.is_temporarily_closed = True
+        self.shop.save(update_fields=["is_temporarily_closed"])
+
+        response = self.client.get(self.public_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["is_temporarily_closed"])
+        self.assertEqual(response.data["name"], self.shop.name)
+
+    def test_deactivated_shop_returns_404_shop_unavailable(self):
+        """Customer accessing deactivated shop receives 404 with SHOP_UNAVAILABLE."""
+        self.shop.deactivate()
+
+        response = self.client.get(self.public_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_UNAVAILABLE")
+
+    def test_suspended_shop_returns_404_shop_unavailable(self):
+        """Customer accessing suspended shop receives 404 with SHOP_UNAVAILABLE."""
+        self.shop.suspend()
+
+        response = self.client.get(self.public_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_UNAVAILABLE")
+
+    def test_nonexistent_public_slug_returns_404_shop_not_found(self):
+        """Accessing nonexistent public slug returns 404 SHOP_NOT_FOUND."""
+        nonexistent_url = reverse("shops:shop-public-detail", kwargs={"public_slug": "nonexistent99"})
+        response = self.client.get(nonexistent_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_database_id_cannot_be_used_in_public_endpoint(self):
+        """Querying by database ID string in public slug path returns 404 if not matching slug."""
+        id_url = reverse("shops:shop-public-detail", kwargs={"public_slug": str(self.shop.pk)})
+        response = self.client.get(id_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_authenticated_user_accessing_public_api_receives_only_public_data(self):
+        """Authenticated users (merchants/admins) accessing public API receive only public fields."""
+        auth_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = auth_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.get(self.public_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("id", response.data)
+        self.assertNotIn("merchant", response.data)
+        self.assertNotIn("status", response.data)
+
+
 
 

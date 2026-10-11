@@ -1,14 +1,19 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.permissions import IsSuperAdmin
 
 from .models import Shop
 from .permissions import IsActiveMerchant
-from .serializers import ShopCreateSerializer, ShopSerializer, ShopUpdateSerializer
+from .serializers import (
+    PublicShopSerializer,
+    ShopCreateSerializer,
+    ShopSerializer,
+    ShopUpdateSerializer,
+)
 
 
 def get_merchant_shop(user):
@@ -179,4 +184,25 @@ class SuperAdminShopDeleteView(APIView):
             shop.delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PublicShopDetailView(APIView):
+    """API endpoint allowing unauthenticated customers/visitors to retrieve public Shop details via public QR slug."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop = Shop.objects.filter(public_slug=public_slug).first()
+        if not shop:
+            return Response(
+                {"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if shop.status != Shop.Status.ACTIVE:
+            return Response(
+                {"detail": "Shop is unavailable.", "code": "SHOP_UNAVAILABLE"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = PublicShopSerializer(shop, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
