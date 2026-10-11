@@ -77,8 +77,8 @@ These Merchant endpoints are protected APIs. Any future public/customer-facing S
 - Merchant can edit Shop details (name, description, logo, structured address).
 - Merchant cannot change the Shop contact number separately because it is strictly linked to the Merchant's mobile number.
 - Merchant controls operational open/closed state (temporary closure / daily business hours) and delivery options.
-- Merchant can deactivate their own Shop but cannot reactivate or suspend it.
-- Super Admin may suspend or reactivate a Shop under existing rules. This does not permit browsing or editing private Shop information.
+- Merchant cannot deactivate, reactivate, suspend, or delete their Shop. Lifecycle status transitions are controlled by Super Admin.
+- Super Admin may deactivate, suspend, reactivate, or permanently delete a Shop under platform rules. This does not permit browsing or editing private Shop information.
 
 ### Merchant Shop Update API Contract (`PATCH /api/v1/shops/me/`, `PUT /api/v1/shops/me/`)
 
@@ -111,10 +111,13 @@ These Merchant endpoints are protected APIs. Any future public/customer-facing S
 
 Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 
-- **Merchant**: May deactivate their own Shop. This is distinct from platform suspension.
-- **Super Admin**: May suspend or reactivate a Shop under existing rules. Existing rules assign permanent deletion to Super Admin; this document does not add permission to browse or edit private Shop information.
-- **Merchant Controls Operations Only**: Merchant controls operational ON/OFF status (temporary closure outside business hours).
-- Deactivating a Merchant account automatically deactivates that Merchant's Shop. This account-lifecycle rule is distinct from the Merchant's authority to deactivate their own Shop.
+### Lifecycle Governance Decision Record (SHOP-007)
+- **Earlier Policy**: Documentation previously stated that a Merchant could deactivate their own Shop (without reactivation authority), while also managing operational temporary closure.
+- **Rationale for Change**: Permitting Merchants to trigger lifecycle deactivation without possessing reactivation authority introduced a high operational risk of accidental merchant lockout. A deactivated Shop locks out the Merchant from accessing their dashboard and business data (`403 SHOP_INACTIVE`), with no self-service restoration capability, requiring manual administrative intervention. Merchant operational needs are completely and safely addressed by temporary closure (`is_temporarily_closed`) and scheduled business hours.
+- **Current Policy**:
+  - **Merchant Scope**: Controls operational temporary closure (`is_temporarily_closed`) and business hours. Merchants cannot deactivate, reactivate, suspend, or delete their Shop. Requests by Merchants to deactivate or delete their Shop return `403 Forbidden`.
+  - **Super Admin Scope**: Controls platform lifecycle status transitions (`ACTIVE`, `DEACTIVATED`, `SUSPENDED`) and permanent deletion with confirmation safeguards.
+- Deactivating a Merchant account automatically deactivates that Merchant's Shop.
 - A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains preserved.
 - When Super Admin reactivates or unsuspends a Shop, a new QR code / public link is assigned; previous QR code does not work. Existing data mapping (products, previous orders, customer history) remains completely intact.
 
