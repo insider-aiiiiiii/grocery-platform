@@ -148,5 +148,9 @@ class Shop(models.Model):
             self.save(update_fields=["public_slug", "updated_at"])
         return self.public_slug
 
+    def get_public_path(self) -> str:
+        """Return the relative public endpoint path for this shop."""
+        return f"/api/v1/shops/public/{self.public_slug}/"
+
     def __str__(self):
         return f"{self.name} ({self.status})"

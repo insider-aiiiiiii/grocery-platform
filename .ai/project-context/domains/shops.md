@@ -206,6 +206,17 @@ Public access is limited to the intended Shop's customer-facing information and 
 - Regenerating a QR code updates only the public link token (`public_slug`); all existing data mapping (products, orders, customer history) remains completely preserved and unaffected.
 - When the Shop is deleted, its QR and public link become unavailable immediately.
 
+### Merchant QR Details API Contract (`GET /api/v1/shops/me/qr/`)
+- **Endpoint**: `GET /api/v1/shops/me/qr/`
+- **Authorization**: Authenticated active Merchant (`IsActiveMerchant`).
+- **Behavior**: Returns the active Shop's `public_slug`, `public_url` (absolute URI to public endpoint), and `qr_data` (target string for client-side QR generation).
+- **Invariants**: If Shop is deactivated or suspended, returns `403 Forbidden` (`SHOP_INACTIVE`). If Merchant has no Shop, returns `404 Not Found` (`SHOP_NOT_FOUND`).
+
+### Super Admin QR Regeneration API Contract (`POST /api/v1/shops/<int:pk>/regenerate-qr/`)
+- **Endpoint**: `POST /api/v1/shops/<int:pk>/regenerate-qr/` (alias: `POST /api/v1/shops/<int:pk>/regenerate-link/`).
+- **Authorization**: Super Admin only (`IsSuperAdmin`). Merchant requests return `403 Forbidden` (`QR_REGENERATION_NOT_PERMITTED` on `me/regenerate-qr/` and standard 403 on `<pk>`).
+- **Behavior**: Generates a fresh 12-character hex `public_slug`. The old public link immediately stops resolving (`404 SHOP_NOT_FOUND`), while the new public link resolves immediately (`200 OK` if active). All Shop products, orders, and merchant relations remain completely preserved.
+
 QR encoding, image format/storage, and link-generation implementation remain technical decisions.
 
 ## 11. Shop Deletion

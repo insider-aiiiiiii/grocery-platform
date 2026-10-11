@@ -8,6 +8,8 @@ from .models import Shop
 class ShopSerializer(serializers.ModelSerializer):
     """Serializer representing full Shop profile details."""
 
+    public_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Shop
         fields = [
@@ -30,6 +32,7 @@ class ShopSerializer(serializers.ModelSerializer):
             "delivery_fee_type",
             "delivery_charge",
             "public_slug",
+            "public_url",
             "created_at",
             "updated_at",
         ]
@@ -38,18 +41,29 @@ class ShopSerializer(serializers.ModelSerializer):
             "contact_number",
             "status",
             "public_slug",
+            "public_url",
             "created_at",
             "updated_at",
         ]
+
+    def get_public_url(self, obj) -> str:
+        request = self.context.get("request")
+        path = f"/api/v1/shops/public/{obj.public_slug}/"
+        if request is not None:
+            return request.build_absolute_uri(path)
+        return path
 
 
 class PublicShopSerializer(serializers.ModelSerializer):
     """Serializer exposing only customer-facing Shop details for public QR / link access."""
 
+    public_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Shop
         fields = [
             "public_slug",
+            "public_url",
             "name",
             "description",
             "logo",
@@ -68,6 +82,13 @@ class PublicShopSerializer(serializers.ModelSerializer):
             "delivery_charge",
         ]
         read_only_fields = fields
+
+    def get_public_url(self, obj) -> str:
+        request = self.context.get("request")
+        path = f"/api/v1/shops/public/{obj.public_slug}/"
+        if request is not None:
+            return request.build_absolute_uri(path)
+        return path
 
 
 class ShopCreateSerializer(serializers.ModelSerializer):
