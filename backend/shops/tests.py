@@ -1583,6 +1583,241 @@ class SuperAdminShopReactivationTests(TestCase):
         self.assertEqual(me_res.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class ShopQRAndPublicLinkTests(TestCase):
+    """Test suite for system-generated public Shop QR/link creation and regeneration (SHOP-010)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.merchant_user = User.objects.create_user(
+            username="merchant_qr",
+            email="merchant_qr@example.com",
+            mobile_number="+919876543601",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.admin_user = User.objects.create_user(
+            username="admin_qr",
+            email="admin_qr@example.com",
+            mobile_number="+919876543602",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="QR Grocery Mart",
+            description="Testing QR link creation and regeneration",
+            address_line="700 JM Road",
+            area="Shivajinagar",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411005",
+            contact_number=self.merchant_user.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("10.00"),
+        )
+        self.qr_regenerate_url = reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": self.shop.pk})
+        self.link_regenerate_url = reverse("shops:shop-admin-regenerate-link", kwargs={"pk": self.shop.pk})
+        self.merchant_qr_url = reverse("shops:shop-me-qr")
+        self.merchant_regenerate_qr_url = reverse("shops:shop-me-regenerate-qr")
+
+    def authenticate_merchant(self):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def authenticate_admin(self):
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_qr@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def test_shop_creation_assigns_public_slug_and_does_not_expose_db_id(self):
+        """Shop creation generates a unique 12-char hex public slug; DB ID is not used as public slug."""
+        new_user = User.objects.create_user(
+            username="merchant_new_qr",
+            email="merchant_new_qr@example.com",
+            mobile_number="+919876543603",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=new_user, status=Merchant.Status.ACTIVE, must_change_password=False)
+        auth_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": new_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_res.data['access']}")
+
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Brand New QR Shop",
+                "description": "Unique QR test",
+                "address_line": "100 FC Road",
+                "area": "Deccan",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411004",
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        data = create_res.data
+        self.assertIn("public_slug", data)
+        self.assertEqual(len(data["public_slug"]), 12)
+        self.assertNotEqual(str(data["id"]), data["public_slug"])
+        self.assertIn("public_url", data)
+        self.assertIn(f"/api/v1/shops/public/{data['public_slug']}/", data["public_url"])
+
+    def test_public_url_included_in_shop_serializers(self):
+        """Both ShopSerializer and PublicShopSerializer expose computed public_url."""
+        self.authenticate_merchant()
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_200_OK)
+        self.assertIn("public_url", me_res.data)
+        self.assertIn(self.shop.public_slug, me_res.data["public_url"])
+
+        # Public endpoint
+        self.client.credentials()
+        public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": self.shop.public_slug})
+        pub_res = self.client.get(public_url)
+        self.assertEqual(pub_res.status_code, status.HTTP_200_OK)
+        self.assertIn("public_url", pub_res.data)
+        self.assertIn(self.shop.public_slug, pub_res.data["public_url"])
+
+    def test_merchant_can_retrieve_own_qr_details(self):
+        """Authenticated merchant can view their shop's QR details and public link."""
+        self.authenticate_merchant()
+        response = self.client.get(self.merchant_qr_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["public_slug"], self.shop.public_slug)
+        self.assertIn(f"/api/v1/shops/public/{self.shop.public_slug}/", response.data["public_url"])
+        self.assertEqual(response.data["qr_data"], response.data["public_url"])
+
+    def test_merchant_cannot_retrieve_qr_for_inactive_shop(self):
+        """Merchant receives 403 SHOP_INACTIVE when retrieving QR for a deactivated shop."""
+        self.shop.deactivate()
+        self.authenticate_merchant()
+        response = self.client.get(self.merchant_qr_url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data.get("code"), "SHOP_INACTIVE")
+
+    def test_merchant_with_no_shop_calling_qr_returns_404(self):
+        """Merchant without a shop calling /me/qr/ receives 404 SHOP_NOT_FOUND."""
+        no_shop_user = User.objects.create_user(
+            username="merchant_no_shop_qr",
+            email="noshop_qr@example.com",
+            mobile_number="+919876543604",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=no_shop_user, status=Merchant.Status.ACTIVE, must_change_password=False)
+        auth_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": no_shop_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_res.data['access']}")
+        response = self.client.get(self.merchant_qr_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_super_admin_can_regenerate_qr(self):
+        """Super Admin can regenerate QR/link: rotates slug, invalidates old link, and resolves new link."""
+        old_slug = self.shop.public_slug
+        old_public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": old_slug})
+
+        # Old link resolves initially
+        res_initial = self.client.get(old_public_url)
+        self.assertEqual(res_initial.status_code, status.HTTP_200_OK)
+
+        # Super Admin regenerates QR
+        self.authenticate_admin()
+        response = self.client.post(self.qr_regenerate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_slug = response.data["public_slug"]
+        self.assertNotEqual(new_slug, old_slug)
+        self.assertEqual(len(new_slug), 12)
+
+        # Old link immediately returns 404 SHOP_NOT_FOUND
+        self.client.credentials()
+        res_old = self.client.get(old_public_url)
+        self.assertEqual(res_old.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_old.data.get("code"), "SHOP_NOT_FOUND")
+
+        # New link immediately returns 200 OK
+        new_public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": new_slug})
+        res_new = self.client.get(new_public_url)
+        self.assertEqual(res_new.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_new.data["name"], self.shop.name)
+
+        # Verify shop mappings preserved in DB
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.public_slug, new_slug)
+        self.assertEqual(self.shop.merchant, self.merchant)
+
+    def test_super_admin_regenerate_link_alias_works(self):
+        """Super Admin can call /regenerate-link/ alias and successfully rotate the public slug."""
+        old_slug = self.shop.public_slug
+        self.authenticate_admin()
+        response = self.client.post(self.link_regenerate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(response.data["public_slug"], old_slug)
+
+    def test_merchant_cannot_regenerate_qr(self):
+        """Merchants cannot regenerate QR codes; attempts return 403 QR_REGENERATION_NOT_PERMITTED."""
+        self.authenticate_merchant()
+
+        # Merchant calls /api/v1/shops/<pk>/regenerate-qr/
+        res1 = self.client.post(self.qr_regenerate_url)
+        self.assertEqual(res1.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Merchant calls /api/v1/shops/me/regenerate-qr/
+        res2 = self.client.post(self.merchant_regenerate_qr_url)
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res2.data.get("code"), "QR_REGENERATION_NOT_PERMITTED")
+
+        # Merchant calls /api/v1/shops/regenerate-qr/
+        res3 = self.client.post(reverse("shops:shop-regenerate-qr"))
+        self.assertEqual(res3.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res3.data.get("code"), "QR_REGENERATION_NOT_PERMITTED")
+
+    def test_anonymous_user_cannot_regenerate_qr(self):
+        """Unauthenticated requests to regenerate QR return 401 Unauthorized."""
+        response = self.client.post(self.qr_regenerate_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_regenerate_qr_for_nonexistent_shop_returns_404(self):
+        """Super Admin calling regenerate-qr for nonexistent shop receives 404 Not Found."""
+        self.authenticate_admin()
+        nonexistent_url = reverse("shops:shop-admin-regenerate-qr", kwargs={"pk": 999999})
+        response = self.client.post(nonexistent_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_public_endpoint_does_not_resolve_internal_database_id(self):
+        """Querying by database ID string in public slug path returns 404 if not matching slug."""
+        id_url = reverse("shops:shop-public-detail", kwargs={"public_slug": str(self.shop.pk)})
+        response = self.client.get(id_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
+
+
+
 
 
 

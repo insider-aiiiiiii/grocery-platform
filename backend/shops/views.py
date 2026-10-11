@@ -157,6 +157,50 @@ class MerchantShopReactivationForbiddenView(APIView):
         )
 
 
+class MerchantShopQRRegenerationForbiddenView(APIView):
+    """Endpoint explicitly informing merchants that QR code regeneration is restricted to Super Admin."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response(
+            {
+                "detail": "Merchants cannot regenerate the shop QR code. The QR code remains fixed to preserve printed materials. Contact Super Admin if compromised.",
+                "code": "QR_REGENERATION_NOT_PERMITTED",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class MerchantShopQRDetailView(APIView):
+    """API endpoint allowing an authenticated Merchant to view their own Shop's QR details and public link."""
+
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def get(self, request):
+        shop = get_merchant_shop(request.user)
+        if not shop:
+            return Response(
+                {"detail": "Merchant does not have a shop.", "code": "SHOP_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if shop.status in [Shop.Status.DEACTIVATED, Shop.Status.SUSPENDED]:
+            return Response(
+                {"detail": "Shop is deactivated or suspended.", "code": "SHOP_INACTIVE"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        path = f"/api/v1/shops/public/{shop.public_slug}/"
+        public_url = request.build_absolute_uri(path) if request else path
+        return Response(
+            {
+                "public_slug": shop.public_slug,
+                "public_url": public_url,
+                "qr_data": public_url,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class SuperAdminShopDeactivateView(APIView):
     """API endpoint allowing an authenticated Super Admin to deactivate a Shop."""
 
@@ -170,7 +214,7 @@ class SuperAdminShopDeactivateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         shop.deactivate()
-        return Response(ShopSerializer(shop).data, status=status.HTTP_200_OK)
+        return Response(ShopSerializer(shop, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class SuperAdminShopReactivateView(APIView):
@@ -186,7 +230,18 @@ class SuperAdminShopReactivateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         shop.reactivate()
-        return Response(ShopSerializer(shop).data, status=status.HTTP_200_OK)
+        return Response(ShopSerializer(shop, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class SuperAdminShopRegenerateQRView(APIView):
+    """API endpoint allowing an authenticated Super Admin to regenerate a Shop's QR code / public link."""
+
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk: int):
+        shop = get_object_or_404(Shop, pk=pk)
+        shop.regenerate_public_slug()
+        return Response(ShopSerializer(shop, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class SuperAdminShopDeleteView(APIView):
