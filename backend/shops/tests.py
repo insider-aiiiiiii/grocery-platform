@@ -1042,5 +1042,207 @@ class MerchantShopUpdateAPITests(TestCase):
         self.assertEqual(shop2.name, "Shop 2")
 
 
+class ShopLifecycleAndDeletionAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.merchant_user = User.objects.create_user(
+            username="merchant_lifecycle",
+            email="merchant_lifecycle@example.com",
+            mobile_number="+919876543401",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.admin_user = User.objects.create_user(
+            username="admin_lifecycle",
+            email="admin_lifecycle@example.com",
+            mobile_number="+919876543402",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Lifecycle Shop",
+            description="Testing deactivation and deletion",
+            address_line="202 MG Road",
+            area="Camp",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=self.merchant_user.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("15.00"),
+        )
+        self.deactivate_url = reverse("shops:shop-admin-deactivate", kwargs={"pk": self.shop.pk})
+        self.delete_url = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop.pk})
+        self.merchant_deactivate_url = reverse("shops:shop-me-deactivate")
+        self.merchant_url_me = reverse("shops:shop-me")
+
+    def authenticate_merchant(self):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def authenticate_admin(self):
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_lifecycle@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def test_super_admin_can_deactivate_shop(self):
+        """Super Admin can deactivate an active shop."""
+        self.authenticate_admin()
+        response = self.client.post(self.deactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "DEACTIVATED")
+
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.status, Shop.Status.DEACTIVATED)
+
+        # Deactivated shop blocks merchant from reading or updating profile
+        self.authenticate_merchant()
+        get_res = self.client.get(self.merchant_url_me)
+        self.assertEqual(get_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(get_res.data.get("code"), "SHOP_INACTIVE")
+
+        patch_res = self.client.patch(self.merchant_url_me, {"name": "New Name"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(patch_res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_super_admin_deactivating_already_deactivated_shop_returns_400(self):
+        """Deactivating an already deactivated shop returns 400 Bad Request."""
+        self.shop.deactivate()
+        self.authenticate_admin()
+        response = self.client.post(self.deactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data.get("code"), "SHOP_ALREADY_DEACTIVATED")
+
+    def test_super_admin_deactivating_nonexistent_shop_returns_404(self):
+        """Deactivating a nonexistent shop returns 404 Not Found."""
+        self.authenticate_admin()
+        non_existent_url = reverse("shops:shop-admin-deactivate", kwargs={"pk": 999999})
+        response = self.client.post(non_existent_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_merchant_cannot_deactivate_shop(self):
+        """Merchants cannot deactivate shops; requests are rejected with 403."""
+        self.authenticate_merchant()
+
+        # Merchant calls /me/deactivate/
+        res1 = self.client.post(self.merchant_deactivate_url)
+        self.assertEqual(res1.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res1.data.get("code"), "SHOP_DEACTIVATION_NOT_PERMITTED")
+
+        # Merchant calls root /deactivate/
+        res2 = self.client.post(reverse("shops:shop-deactivate"))
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res2.data.get("code"), "SHOP_DEACTIVATION_NOT_PERMITTED")
+
+        # Merchant calls admin endpoint
+        res3 = self.client.post(self.deactivate_url)
+        self.assertEqual(res3.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_cannot_deactivate_shop(self):
+        """Unauthenticated requests to deactivate endpoint return 401."""
+        response = self.client.post(self.deactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_super_admin_permanent_delete_requires_confirmation(self):
+        """Super Admin cannot delete a shop without explicit confirmation safeguard."""
+        self.authenticate_admin()
+
+        # Missing confirmation
+        res1 = self.client.delete(self.delete_url)
+        self.assertEqual(res1.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res1.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # Confirmation false
+        res2 = self.client.delete(self.delete_url, {"confirm": False}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res2.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # Shop still exists
+        self.assertTrue(Shop.objects.filter(pk=self.shop.pk).exists())
+
+    def test_super_admin_permanent_delete_with_confirmation_succeeds(self):
+        """Super Admin deletes shop with confirmation; merchant account is preserved."""
+        self.authenticate_admin()
+        shop_id = self.shop.pk
+        merchant_id = self.merchant.pk
+        user_id = self.merchant_user.pk
+
+        response = self.client.delete(self.delete_url, {"confirm": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Shop is permanently removed
+        self.assertFalse(Shop.objects.filter(pk=shop_id).exists())
+
+        # Merchant and User credentials remain intact
+        self.assertTrue(Merchant.objects.filter(pk=merchant_id).exists())
+        self.assertTrue(User.objects.filter(pk=user_id).exists())
+
+        # Merchant can log in and create a replacement shop
+        self.authenticate_merchant()
+        replacement_data = {
+            "name": "Fresh Replacement Shop",
+            "address_line": "303 MG Road",
+            "area": "Camp",
+            "city": "Pune",
+            "state": "Maharashtra",
+            "pincode": "411001",
+        }
+        create_res = self.client.post(reverse("shops:shop-create"), replacement_data, format="json")
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(create_res.data["id"], shop_id)
+
+    def test_super_admin_permanent_delete_with_query_param_confirmation(self):
+        """Super Admin can provide confirmation via query parameter ?confirm=true."""
+        self.authenticate_admin()
+        response = self.client.delete(f"{self.delete_url}?confirm=true")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Shop.objects.filter(pk=self.shop.pk).exists())
+
+    def test_super_admin_permanent_delete_nonexistent_shop_returns_404(self):
+        """Super Admin deleting nonexistent shop returns 404."""
+        self.authenticate_admin()
+        non_existent_url = reverse("shops:shop-admin-delete", kwargs={"pk": 999999})
+        response = self.client.delete(f"{non_existent_url}?confirm=true")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_merchant_cannot_delete_shop(self):
+        """Merchants cannot delete shops; requests return 403."""
+        self.authenticate_merchant()
+
+        res1 = self.client.delete(self.merchant_url_me)
+        self.assertEqual(res1.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res1.data.get("code"), "SHOP_DELETION_NOT_PERMITTED")
+
+        res2 = self.client.delete(reverse("shops:shop-create"))
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res2.data.get("code"), "SHOP_DELETION_NOT_PERMITTED")
+
+        res3 = self.client.delete(self.delete_url)
+        self.assertEqual(res3.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unauthenticated_cannot_delete_shop(self):
+        """Unauthenticated requests to delete endpoint return 401."""
+        response = self.client.delete(self.delete_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
 
 

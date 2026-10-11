@@ -57,8 +57,7 @@ Follow `.ai/skills/multi-tenancy/SKILL.md` for engineering requirements. This do
 
 - Required Shop information: Shop name; structured address with address line, area, city, state, and pincode; Shop contact number equal to the Merchant's mobile number.
 - Shop name does not need to be unique. Shop description and Shop logo are optional.
-- Merchant can edit Shop details, but cannot change Shop contact number separately from the Merchant mobile number.
-- Merchant can manage Merchant personal information and Shop profile details, and can deactivate their own Shop. Merchant cannot reactivate or suspend a Shop or regenerate the QR code. Super Admin may suspend and reactivate a Shop under existing rules.
+- Merchant can manage Merchant personal information and Shop profile details, and controls operational temporary closure and business hours. Merchant cannot deactivate, reactivate, suspend, or delete a Shop or regenerate the QR code. Super Admin controls platform lifecycle status (deactivation, suspension, reactivation) and permanent deletion.
 
 ## 6. QR / Public Shop Access Rules
 
@@ -306,11 +305,17 @@ The exact snapshot strategy remains **Not Finalized / Require Decision**. Orders
 
 Shop lifecycle and deletion rules are approved:
 
+### Lifecycle Governance Decision Record (SHOP-007)
+- **Earlier Policy**: Documentation previously stated that a Merchant could deactivate their own Shop (without reactivation authority), while also managing operational temporary closure.
+- **Rationale for Change**: Permitting Merchants to trigger lifecycle deactivation without reactivation authority introduced an operational risk of accidental lockout: a deactivated Shop immediately blocks the Merchant from accessing their dashboard and business data (`403 SHOP_INACTIVE`), with no self-service restoration capability, requiring manual administrative intervention. Merchant operational needs are fully and safely addressed by temporary closure (`is_temporarily_closed`) and business hours.
+- **Current Policy**:
+  - **Merchant Scope**: Controls operational temporary closure (`is_temporarily_closed`) and business hours. Merchants cannot deactivate, reactivate, suspend, or delete their Shop.
+  - **Super Admin Scope**: Controls platform lifecycle status transitions (`ACTIVE`, `DEACTIVATED`, `SUSPENDED`) and permanent deletion with confirmation safeguards.
 - Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
-- Merchant may deactivate their own Shop. Super Admin can reactivate a Shop; the authority to browse/edit private Shop information is not granted.
-- Merchant also controls operational open/closed status (temporary closure), which is distinct from Shop deactivation.
+- Super Admin controls Shop deactivation, suspension, and reactivation; the authority to browse/edit private Shop information is not granted.
+- Merchant controls operational open/closed status (temporary closure), which is distinct from Shop deactivation.
 - A deactivated or suspended Shop cannot be accessed by customers or by the Merchant. Its data remains preserved.
-- Merchant account deactivation automatically deactivates the Merchant's Shop. This account-lifecycle rule is distinct from the Merchant's authority to deactivate their own Shop.
+- Merchant account deactivation automatically deactivates the Merchant's Shop.
 - When Super Admin reactivates or unsuspends a Shop, a new QR code is assigned, and the old QR stops working. Existing data mapping (products, orders, customer history) remains completely intact.
 - Only Super Admin can permanently delete a Shop, including when it has existing orders. Keep the existing confirmation safeguard and clear warning that Shop data and orders will be deleted.
 - Shop deletion is permanent. Shop data, including Shop Products and Orders, is deleted, and the Shop QR/public link becomes unavailable immediately. Shop deletion does not delete or deactivate the Merchant account, and the existing login credentials are retained. The same Merchant may create a replacement Shop with a new identity and public QR/link. Data from the deleted Shop, including its customer history, is not associated with or exposed through the replacement Shop. Customer entities are not globally deleted solely because of Shop deletion under the existing Customer rules and are not automatically transferred.

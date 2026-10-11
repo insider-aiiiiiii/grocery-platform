@@ -1,7 +1,10 @@
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from users.permissions import IsSuperAdmin
 
 from .models import Shop
 from .permissions import IsActiveMerchant
@@ -69,6 +72,15 @@ class MerchantShopDetailView(APIView):
     def put(self, request):
         return update_merchant_shop(request, partial=False)
 
+    def delete(self, request):
+        return Response(
+            {
+                "detail": "Merchants cannot delete a shop. Only Super Admin can permanently delete a shop.",
+                "code": "SHOP_DELETION_NOT_PERMITTED",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
 
 class ShopCreateView(APIView):
     """API endpoint allowing an authenticated Merchant to create, retrieve, or update their Shop profile."""
@@ -83,7 +95,6 @@ class ShopCreateView(APIView):
 
     def put(self, request):
         return update_merchant_shop(request, partial=False)
-
 
     def post(self, request):
         merchant = getattr(request.user, "merchant", None)
@@ -100,4 +111,72 @@ class ShopCreateView(APIView):
         shop = serializer.save()
 
         return Response(ShopSerializer(shop).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        return Response(
+            {
+                "detail": "Merchants cannot delete a shop. Only Super Admin can permanently delete a shop.",
+                "code": "SHOP_DELETION_NOT_PERMITTED",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class MerchantShopDeactivationForbiddenView(APIView):
+    """Endpoint explicitly informing merchants that Shop deactivation is an administrative lifecycle action."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response(
+            {
+                "detail": "Merchants cannot deactivate a shop. Use temporary closure to stop operations, or contact Super Admin.",
+                "code": "SHOP_DEACTIVATION_NOT_PERMITTED",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class SuperAdminShopDeactivateView(APIView):
+    """API endpoint allowing an authenticated Super Admin to deactivate a Shop."""
+
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk: int):
+        shop = get_object_or_404(Shop, pk=pk)
+        if shop.status == Shop.Status.DEACTIVATED:
+            return Response(
+                {"detail": "Shop is already deactivated.", "code": "SHOP_ALREADY_DEACTIVATED"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        shop.deactivate()
+        return Response(ShopSerializer(shop).data, status=status.HTTP_200_OK)
+
+
+class SuperAdminShopDeleteView(APIView):
+    """API endpoint allowing an authenticated Super Admin to permanently delete a Shop."""
+
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def delete(self, request, pk: int):
+        shop = get_object_or_404(Shop, pk=pk)
+
+        confirm = request.data.get("confirm") if isinstance(request.data, dict) else None
+        if confirm is None:
+            raw_param = request.query_params.get("confirm")
+            confirm = True if raw_param and str(raw_param).lower() in ("true", "1") else False
+
+        if confirm is not True:
+            return Response(
+                {
+                    "detail": "Permanent deletion requires explicit confirmation. All shop data, products, and orders will be permanently removed.",
+                    "code": "CONFIRMATION_REQUIRED",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            shop.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
