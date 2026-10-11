@@ -161,7 +161,27 @@ Products
 
 Public access is limited to the intended Shop's customer-facing information and does not grant Merchant or administrative access. A deactivated Shop is unavailable to customers.
 
-The exact public link format, domain, and routing implementation remain unresolved. The public identifier is a system-generated link and must not directly expose or use the Shop ID.
+### Public Shop Details API Contract (`GET /api/v1/shops/public/<slug:public_slug>/`)
+
+- **Endpoint**: `GET /api/v1/shops/public/<slug:public_slug>/`
+- **Authentication**: `AllowAny` (public access, no tokens, session, or customer login required).
+- **Identifier**: Resolves strictly via `public_slug` (12-char hex QR token). The internal database `id` is never used or accepted as the public identifier.
+- **Allowed Customer-Facing Fields**:
+  - Store identity: `public_slug`, `name`, `description`, `logo`.
+  - Physical location: structured address (`address_line`, `area`, `city`, `state`, `pincode`).
+  - Contact: `contact_number` (for customer inquiries / WhatsApp).
+  - Operational availability: `is_temporarily_closed` (displays "Shop Closed" banner when true; customer orders permitted), `opening_time`, `closing_time`.
+  - Fulfillment options: `is_home_delivery_enabled`, `is_pickup_enabled`.
+  - Delivery charge policy: `delivery_fee_type`, `delivery_charge`.
+- **Strictly Omitted Private / Internal Fields**:
+  - `id` (internal DB primary key).
+  - `merchant` / `merchant_id` (internal ownership relationship).
+  - `status` (internal lifecycle enum).
+  - `created_at`, `updated_at` (audit timestamps).
+- **Lifecycle & Availability Invariants**:
+  - Active Shop (`status == ACTIVE`): returns `200 OK` with customer-facing fields.
+  - Inactive / Deactivated / Suspended Shop: returns `404 Not Found` with `{"detail": "Shop is unavailable.", "code": "SHOP_UNAVAILABLE"}`.
+  - Non-existent public slug: returns `404 Not Found` with `{"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"}`.
 
 ## 10. Shop QR Code
 
