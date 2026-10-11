@@ -1367,5 +1367,222 @@ class PublicShopAPITests(TestCase):
         self.assertNotIn("status", response.data)
 
 
+class SuperAdminShopReactivationTests(TestCase):
+    """Test suite for Super Admin Shop reactivation operation (SHOP-009)."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.merchant_user = User.objects.create_user(
+            username="merchant_reactivate",
+            email="merchant_reactivate@example.com",
+            mobile_number="+919876543501",
+            password="securepassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.admin_user = User.objects.create_user(
+            username="admin_reactivate",
+            email="admin_reactivate@example.com",
+            mobile_number="+919876543502",
+            password="securepassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Reactivate Market",
+            description="Testing reactivation lifecycle",
+            address_line="500 FC Road",
+            area="Deccan",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411004",
+            contact_number=self.merchant_user.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_fee_type=Shop.DeliveryFeeType.FIXED,
+            delivery_charge=Decimal("20.00"),
+        )
+        self.reactivate_url = reverse("shops:shop-admin-reactivate", kwargs={"pk": self.shop.pk})
+        self.unsuspend_url = reverse("shops:shop-admin-unsuspend", kwargs={"pk": self.shop.pk})
+        self.merchant_reactivate_url = reverse("shops:shop-me-reactivate")
+        self.merchant_url_me = reverse("shops:shop-me")
+
+    def authenticate_merchant(self):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def authenticate_admin(self):
+        response = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "admin_reactivate@example.com", "password": "securepassword123"},
+            format="json",
+        )
+        token = response.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return response.data
+
+    def test_super_admin_can_reactivate_deactivated_shop(self):
+        """Super Admin can reactivate a deactivated shop, returning 200 OK and updated ACTIVE status."""
+        self.shop.deactivate()
+        old_slug = self.shop.public_slug
+
+        self.authenticate_admin()
+        response = self.client.post(self.reactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "ACTIVE")
+        self.assertNotEqual(response.data["public_slug"], old_slug)
+
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.status, Shop.Status.ACTIVE)
+        self.assertNotEqual(self.shop.public_slug, old_slug)
+
+    def test_super_admin_can_unsuspend_suspended_shop(self):
+        """Super Admin can unsuspend a suspended shop using the unsuspend alias URL."""
+        self.shop.suspend()
+        old_slug = self.shop.public_slug
+
+        self.authenticate_admin()
+        response = self.client.post(self.unsuspend_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "ACTIVE")
+        self.assertNotEqual(response.data["public_slug"], old_slug)
+
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.status, Shop.Status.ACTIVE)
+
+    def test_reactivate_already_active_shop_returns_400(self):
+        """Reactivating an already active shop returns 400 with SHOP_ALREADY_ACTIVE."""
+        self.authenticate_admin()
+        response = self.client.post(self.reactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data.get("code"), "SHOP_ALREADY_ACTIVE")
+
+    def test_reactivation_rotates_qr_slug_and_old_slug_stops_working(self):
+        """Old public slug immediately stops resolving (404) and new public slug resolves (200)."""
+        old_slug = self.shop.public_slug
+        old_public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": old_slug})
+
+        # Before deactivation, old slug resolves
+        res = self.client.get(old_public_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Deactivate shop
+        self.shop.deactivate()
+
+        # Reactivate via Super Admin
+        self.authenticate_admin()
+        response = self.client.post(self.reactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_slug = response.data["public_slug"]
+        self.assertNotEqual(new_slug, old_slug)
+
+        # Public client resets credentials
+        self.client.credentials()
+
+        # Old slug no longer resolves
+        old_res = self.client.get(old_public_url)
+        self.assertEqual(old_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(old_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # New slug resolves successfully
+        new_public_url = reverse("shops:shop-public-detail", kwargs={"public_slug": new_slug})
+        new_res = self.client.get(new_public_url)
+        self.assertEqual(new_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(new_res.data["public_slug"], new_slug)
+
+    def test_reactivation_restores_merchant_access(self):
+        """Reactivating shop restores merchant profile retrieval and update operations."""
+        self.shop.deactivate()
+
+        self.authenticate_merchant()
+        me_res = self.client.get(self.merchant_url_me)
+        self.assertEqual(me_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(me_res.data.get("code"), "SHOP_INACTIVE")
+
+        # Super admin reactivates shop
+        self.authenticate_admin()
+        reactivate_res = self.client.post(self.reactivate_url)
+        self.assertEqual(reactivate_res.status_code, status.HTTP_200_OK)
+        new_slug = reactivate_res.data["public_slug"]
+
+        # Merchant access is now restored
+        self.authenticate_merchant()
+        restored_res = self.client.get(self.merchant_url_me)
+        self.assertEqual(restored_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(restored_res.data["status"], "ACTIVE")
+        self.assertEqual(restored_res.data["public_slug"], new_slug)
+
+        # Merchant can update shop profile
+        patch_res = self.client.patch(
+            self.merchant_url_me,
+            {"description": "Updated after reactivation"},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_res.data["description"], "Updated after reactivation")
+
+    def test_merchant_cannot_reactivate_shop(self):
+        """Merchants cannot reactivate shops; attempts return 403 Forbidden."""
+        self.shop.deactivate()
+        self.authenticate_merchant()
+
+        # Merchant calls /api/v1/shops/<pk>/reactivate/
+        res1 = self.client.post(self.reactivate_url)
+        self.assertEqual(res1.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Merchant calls /api/v1/shops/me/reactivate/
+        res2 = self.client.post(self.merchant_reactivate_url)
+        self.assertEqual(res2.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res2.data.get("code"), "SHOP_REACTIVATION_NOT_PERMITTED")
+
+        # Merchant calls root /api/v1/shops/reactivate/
+        res3 = self.client.post(reverse("shops:shop-reactivate"))
+        self.assertEqual(res3.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res3.data.get("code"), "SHOP_REACTIVATION_NOT_PERMITTED")
+
+    def test_anonymous_user_cannot_reactivate_shop(self):
+        """Unauthenticated requests to reactivate endpoint return 401 Unauthorized."""
+        response = self.client.post(self.reactivate_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_reactivate_nonexistent_shop_returns_404(self):
+        """Attempting to reactivate a nonexistent shop returns 404 Not Found."""
+        self.authenticate_admin()
+        nonexistent_url = reverse("shops:shop-admin-reactivate", kwargs={"pk": 999999})
+        response = self.client.post(nonexistent_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_super_admin_cannot_browse_or_edit_private_shop(self):
+        """Super Admin cannot browse or edit private shop profile info directly."""
+        self.authenticate_admin()
+
+        # GET /api/v1/shops/<pk>/ is not allowed (only DELETE is defined)
+        admin_shop_url = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop.pk})
+        get_res = self.client.get(admin_shop_url)
+        self.assertEqual(get_res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # PATCH /api/v1/shops/<pk>/ is not allowed
+        patch_res = self.client.patch(admin_shop_url, {"name": "Admin Modified"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # PUT /api/v1/shops/<pk>/ is not allowed
+        put_res = self.client.put(admin_shop_url, {"name": "Admin Modified"}, format="json")
+        self.assertEqual(put_res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # GET /api/v1/shops/me/ denies Super Admin because Super Admin is not a Merchant
+        me_res = self.client.get(self.merchant_url_me)
+        self.assertEqual(me_res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+
 
 

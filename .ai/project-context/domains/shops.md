@@ -121,6 +121,19 @@ Shop status is `ACTIVE`, `DEACTIVATED`, or `SUSPENDED`.
 - A deactivated or suspended Shop cannot be accessed by customers or by the Merchant; Shop data remains preserved.
 - When Super Admin reactivates or unsuspends a Shop, a new QR code / public link is assigned; previous QR code does not work. Existing data mapping (products, previous orders, customer history) remains completely intact.
 
+### Super Admin Shop Reactivation API Contract (`POST /api/v1/shops/<int:pk>/reactivate/`)
+- **Endpoint**: `POST /api/v1/shops/<int:pk>/reactivate/` (alias: `POST /api/v1/shops/<int:pk>/unsuspend/`).
+- **Authorization**: Super Admin only (`IsSuperAdmin`). Requests by Merchants return `403 Forbidden` (`SHOP_REACTIVATION_NOT_PERMITTED` on `me/reactivate/` or standard 403 on `<pk>`).
+- **Target Status Requirements**:
+  - If Shop is currently `DEACTIVATED` or `SUSPENDED`: sets `status = ACTIVE`, rotates `public_slug` to a fresh 12-character token, and returns `200 OK` with updated Shop details.
+  - If Shop is already `ACTIVE`: returns `400 Bad Request` with `{"detail": "Shop is already active.", "code": "SHOP_ALREADY_ACTIVE"}`.
+  - If Shop does not exist: returns `404 Not Found`.
+- **Public & Merchant Impact**:
+  - Old `public_slug` immediately stops resolving on the public endpoint (`404 SHOP_NOT_FOUND`).
+  - New `public_slug` immediately resolves on the public endpoint (`200 OK`).
+  - Merchant access is restored (`GET /api/v1/shops/me/` and `PATCH /api/v1/shops/me/` return `200 OK`).
+  - All existing data mappings (products, orders, merchant identity) remain completely preserved.
+
 ## 7. Business Hours and Temporary Closure
 
 Business hours are an MVP feature managed by the Merchant.

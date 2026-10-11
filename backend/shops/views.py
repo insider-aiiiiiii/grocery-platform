@@ -142,6 +142,21 @@ class MerchantShopDeactivationForbiddenView(APIView):
         )
 
 
+class MerchantShopReactivationForbiddenView(APIView):
+    """Endpoint explicitly informing merchants that Shop reactivation is an administrative lifecycle action."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response(
+            {
+                "detail": "Merchants cannot reactivate a shop. Only Super Admin can reactivate a deactivated or suspended shop.",
+                "code": "SHOP_REACTIVATION_NOT_PERMITTED",
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+
 class SuperAdminShopDeactivateView(APIView):
     """API endpoint allowing an authenticated Super Admin to deactivate a Shop."""
 
@@ -155,6 +170,22 @@ class SuperAdminShopDeactivateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         shop.deactivate()
+        return Response(ShopSerializer(shop).data, status=status.HTTP_200_OK)
+
+
+class SuperAdminShopReactivateView(APIView):
+    """API endpoint allowing an authenticated Super Admin to reactivate or unsuspend a Shop."""
+
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk: int):
+        shop = get_object_or_404(Shop, pk=pk)
+        if shop.status == Shop.Status.ACTIVE:
+            return Response(
+                {"detail": "Shop is already active.", "code": "SHOP_ALREADY_ACTIVE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        shop.reactivate()
         return Response(ShopSerializer(shop).data, status=status.HTTP_200_OK)
 
 
