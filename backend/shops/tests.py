@@ -105,8 +105,9 @@ class ShopModelTests(TestCase):
                 state="State 1",
                 pincode="123456",
                 contact_number=self.user.mobile_number,
-                status="UNKNOWN_STATUS",
+                status="INVALID",
             )
+
 
     def test_delivery_fee_types_fixed_and_whatsapp_confirmed(self):
         """Verify Option 2 flexible delivery policy: FIXED vs CONFIRMED_ON_WHATSAPP."""
