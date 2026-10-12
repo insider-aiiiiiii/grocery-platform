@@ -11,14 +11,17 @@ from shops.models import Shop
 from users.models import Merchant, User
 
 from .models import (
+    Category,
     MasterCategory,
     MasterProduct,
     Product,
     ProductVariant,
+    ShopCategory,
     ShopProduct,
     ShopProductVariant,
     Variant,
 )
+
 
 
 
@@ -601,6 +604,195 @@ class ProductVariantModelTests(TestCase):
         """Variant aliases point to ProductVariant."""
         self.assertIs(Variant, ProductVariant)
         self.assertIs(ShopProductVariant, ProductVariant)
+
+
+class ShopCategoryModelTests(TestCase):
+    def setUp(self):
+        self.user1 = User.objects.create_user(
+            username="merchant_cat1",
+            email="merchant_cat1@example.com",
+            mobile_number="+919876543231",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Category Mart Alpha",
+            address_line="1 Market St",
+            area="North",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user1.mobile_number,
+        )
+
+        self.user2 = User.objects.create_user(
+            username="merchant_cat2",
+            email="merchant_cat2@example.com",
+            mobile_number="+919876543232",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Category Mart Beta",
+            address_line="2 Market St",
+            area="South",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user2.mobile_number,
+        )
+
+        self.product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Orange Juice 1L",
+            price=Decimal("3.50"),
+        )
+
+    def test_merchant_category_crud_control(self):
+        """Merchants have full CRUD control over Shop-owned categories."""
+        # Create
+        cat = ShopCategory.objects.create(
+            shop=self.shop1,
+            name="Beverages",
+            slug="beverages",
+            description="Drink items",
+            is_active=True,
+        )
+        self.assertEqual(cat.shop, self.shop1)
+        self.assertEqual(cat.name, "Beverages")
+        self.assertEqual(str(cat), "Beverages (Shop: %s)" % self.shop1.id)
+
+        # Update
+        cat.name = "Refreshing Beverages"
+        cat.save()
+        cat.refresh_from_db()
+        self.assertEqual(cat.name, "Refreshing Beverages")
+
+        # Delete
+        cat_id = cat.id
+        cat.delete()
+        self.assertFalse(ShopCategory.objects.filter(id=cat_id).exists())
+
+    def test_subcategory_creation_and_hierarchy(self):
+        """Merchants can create subcategories and nested hierarchies."""
+        parent_cat = ShopCategory.objects.create(
+            shop=self.shop1,
+            name="Beverages",
+        )
+        sub_cat = ShopCategory.objects.create(
+            shop=self.shop1,
+            parent=parent_cat,
+            name="Juices",
+        )
+        nested_sub_cat = ShopCategory.objects.create(
+            shop=self.shop1,
+            parent=sub_cat,
+            name="Cold-Pressed",
+        )
+
+        self.assertFalse(parent_cat.is_subcategory)
+        self.assertTrue(sub_cat.is_subcategory)
+        self.assertEqual(sub_cat.parent, parent_cat)
+        self.assertIn(sub_cat, parent_cat.subcategories.all())
+        self.assertEqual(str(sub_cat), "Beverages > Juices (Shop: %s)" % self.shop1.id)
+        self.assertEqual(str(nested_sub_cat), "Juices > Cold-Pressed (Shop: %s)" % self.shop1.id)
+
+    def test_parent_category_must_belong_to_same_shop(self):
+        """A subcategory parent must belong to the same Shop; cross-shop parent is rejected."""
+        shop2_cat = ShopCategory.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Electronics",
+        )
+        invalid_subcat = ShopCategory(
+            shop=self.shop1,
+            parent=shop2_cat,
+            name="Shop 1 Illegal Subcat",
+        )
+        with self.assertRaises(ValidationError):
+            invalid_subcat.clean()
+
+    def test_self_parenting_rejected(self):
+        """A category cannot be its own parent."""
+        cat = ShopCategory.objects.create(
+            shop=self.shop1,
+            name="Root",
+        )
+        cat.parent = cat
+        with self.assertRaises(ValidationError):
+            cat.clean()
+
+    def test_product_belongs_to_multiple_categories(self):
+        """Products can belong to multiple categories."""
+        cat_drinks = ShopCategory.objects.create(shop=self.shop1, name="Drinks")
+        cat_organic = ShopCategory.objects.create(shop=self.shop1, name="Organic")
+
+        self.product.categories.add(cat_drinks, cat_organic)
+
+        self.assertEqual(self.product.categories.count(), 2)
+        self.assertIn(cat_drinks, self.product.categories.all())
+        self.assertIn(cat_organic, self.product.categories.all())
+        self.assertFalse(self.product.is_uncategorized)
+        self.assertEqual(cat_drinks.products.count(), 1)
+
+    def test_category_deletion_leaves_products_intact_and_uncategorized(self):
+        """
+        When a category is deleted, assigned products must remain intact and
+        become uncategorized per the finalized Catalog specification.
+        """
+        cat_dairy = ShopCategory.objects.create(shop=self.shop1, name="Dairy")
+        self.product.categories.add(cat_dairy)
+
+        self.assertFalse(self.product.is_uncategorized)
+        self.assertEqual(self.product.categories.count(), 1)
+
+        # Delete category
+        cat_dairy.delete()
+
+        # Product must remain intact in DB and now be uncategorized
+        self.product.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=self.product.id).exists())
+        self.assertEqual(self.product.categories.count(), 0)
+        self.assertTrue(self.product.is_uncategorized)
+
+    def test_multi_category_partial_deletion_preserves_remaining_categories(self):
+        """
+        When a product belongs to multiple categories and one is deleted,
+        the product remains associated with the surviving categories.
+        """
+        cat_a = ShopCategory.objects.create(shop=self.shop1, name="Category A")
+        cat_b = ShopCategory.objects.create(shop=self.shop1, name="Category B")
+        self.product.categories.add(cat_a, cat_b)
+
+        cat_a.delete()
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.categories.count(), 1)
+        self.assertIn(cat_b, self.product.categories.all())
+        self.assertFalse(self.product.is_uncategorized)
+
+    def test_shop_deletion_cascades_categories(self):
+        """Deleting a Shop cascades and deletes all of its Shop categories."""
+        cat = ShopCategory.objects.create(shop=self.shop1, name="Perishable")
+        cat_id = cat.id
+
+        self.shop1.delete()
+
+        self.assertFalse(ShopCategory.objects.filter(id=cat_id).exists())
+
+    def test_category_domain_alias(self):
+        """Category alias points to ShopCategory."""
+        self.assertIs(Category, ShopCategory)
+
 
 
 

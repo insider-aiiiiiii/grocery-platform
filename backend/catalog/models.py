@@ -64,6 +64,61 @@ class MasterProduct(models.Model):
         return self.name
 
 
+class ShopCategory(models.Model):
+    """
+    Shop-owned Category representation fully controlled by the Merchant.
+
+    Merchants can create, edit, delete categories, and create subcategories.
+    Deleting a category preserves all assigned products, leaving them uncategorized
+    per the finalized Catalog specification.
+    """
+
+    shop = models.ForeignKey(
+        "shops.Shop",
+        on_delete=models.CASCADE,
+        related_name="categories",
+    )
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="subcategories",
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    slug = models.SlugField(max_length=255, blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Shop Category"
+        verbose_name_plural = "Shop Categories"
+        ordering = ["name", "id"]
+        indexes = [
+            models.Index(fields=["shop", "is_active"], name="catalog_sc_shop_act_idx"),
+            models.Index(fields=["shop", "name"], name="catalog_sc_shop_name_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.parent_id:
+            if self.parent_id == self.id:
+                raise ValidationError({"parent": "A category cannot be its own parent."})
+            if self.parent.shop_id != self.shop_id:
+                raise ValidationError({"parent": "Parent category must belong to the same Shop."})
+
+    @property
+    def is_subcategory(self) -> bool:
+        return self.parent_id is not None
+
+    def __str__(self):
+        if self.parent_id:
+            return f"{self.parent.name} > {self.name} (Shop: {self.shop_id})"
+        return f"{self.name} (Shop: {self.shop_id})"
+
+
 class ShopProduct(models.Model):
     """
     Shop-specific sellable product representation independently controlled by Merchant.
@@ -85,6 +140,11 @@ class ShopProduct(models.Model):
         null=True,
         blank=True,
         related_name="shop_products",
+    )
+    categories = models.ManyToManyField(
+        ShopCategory,
+        blank=True,
+        related_name="products",
     )
     name = models.CharField(max_length=255, db_index=True)
     description = models.TextField(blank=True, default="")
@@ -135,9 +195,15 @@ class ShopProduct(models.Model):
         """Returns True if this product has defined variants."""
         return self.variants.exists()
 
+    @property
+    def is_uncategorized(self) -> bool:
+        """Returns True if the product is not assigned to any category."""
+        return not self.categories.exists()
+
     def get_available_variants(self):
         """Returns variants that are both visible and manually available."""
         return self.variants.filter(is_visible=True, is_available=True)
+
 
     @classmethod
     def from_master_product(cls, shop, master_product, **kwargs):
@@ -234,9 +300,11 @@ class ProductVariant(models.Model):
 
 
 # Domain aliases
+Category = ShopCategory
 Product = ShopProduct
 Variant = ProductVariant
 ShopProductVariant = ProductVariant
+
 
 
 
