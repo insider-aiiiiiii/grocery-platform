@@ -67,7 +67,7 @@ class ShopProductAdmin(admin.ModelAdmin):
 @admin.register(ProductVariant)
 class ProductVariantAdmin(admin.ModelAdmin):
     list_display = ("name", "product", "sku", "price", "is_visible", "is_available", "created_at")
-    search_fields = ("name", "sku", "product__name")
+    search_fields = ("name", "sku", "product__name", "description")
     list_filter = ("is_visible", "is_available", "product__shop")
     raw_id_fields = ("product",)
 
