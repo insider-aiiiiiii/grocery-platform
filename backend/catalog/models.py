@@ -96,6 +96,13 @@ class ShopCategory(models.Model):
         verbose_name = "Shop Category"
         verbose_name_plural = "Shop Categories"
         ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shop", "slug"],
+                condition=~Q(slug=""),
+                name="catalog_shopcategory_unique_shop_slug",
+            ),
+        ]
         indexes = [
             models.Index(fields=["shop", "is_active"], name="catalog_sc_shop_act_idx"),
             models.Index(fields=["shop", "name"], name="catalog_sc_shop_name_idx"),
@@ -144,6 +151,13 @@ class ShopBrand(models.Model):
         verbose_name = "Shop Brand"
         verbose_name_plural = "Shop Brands"
         ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shop", "slug"],
+                condition=~Q(slug=""),
+                name="catalog_shopbrand_unique_shop_slug",
+            ),
+        ]
         indexes = [
             models.Index(fields=["shop", "is_active"], name="catalog_sb_shop_act_idx"),
             models.Index(fields=["shop", "name"], name="catalog_sb_shop_name_idx"),
@@ -178,6 +192,12 @@ class ShopCustomAttribute(models.Model):
         verbose_name = "Shop Custom Attribute"
         verbose_name_plural = "Shop Custom Attributes"
         ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shop", "name"],
+                name="catalog_shopcustomattribute_unique_shop_name",
+            ),
+        ]
         indexes = [
             models.Index(fields=["shop", "is_active"], name="catalog_sca_shop_act_idx"),
             models.Index(fields=["shop", "name"], name="catalog_sca_shop_name_idx"),
@@ -274,6 +294,7 @@ class ShopProduct(models.Model):
         indexes = [
             models.Index(fields=["shop", "is_visible", "is_available"], name="catalog_sp_shop_vis_avail_idx"),
             models.Index(fields=["shop", "name"], name="catalog_sp_shop_name_idx"),
+            models.Index(fields=["shop", "sku"], name="catalog_sp_shop_sku_idx"),
         ]
 
     def clean(self):
