@@ -1833,3 +1833,255 @@ class MasterProductSuperAdminAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["name"], "Direct Alias Product")
 
+
+class SuperAdminPromoteShopProductAPITests(TestCase):
+    """
+    Tests for Super Admin promotion of a Merchant-created Shop Product into the Master Catalog (CAT-009).
+
+    Validates:
+    - Super Admin can promote a Merchant-created Shop Product into Master Catalog via
+      /api/v1/catalog/shop-products/<id>/promote/ and /api/v1/catalog/master-products/promote/.
+    - Promotion creates reusable Master Catalog content available to other Merchants.
+    - Promotion strictly does NOT link, replace, update, or merge the originating Shop Product.
+    - Originating Shop Product's fields, pricing, SKU, and master_product FK remain unmodified.
+    - Subsequent updates/deletions on the Master Product do not alter the originating Shop Product,
+      and vice versa.
+    - Optional overrides (name, description, brand, category, is_active) work as expected.
+    - Image fallback/assignment is preserved.
+    - Authorization: unauthenticated requests return 401; non-Super Admin (Merchant) requests return 403.
+    - Edge cases: non-existent Shop Product returns 404; invalid overrides return 400.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+        cls.media_override = override_settings(MEDIA_ROOT=cls.temp_media)
+        cls.media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.media_override.disable()
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.client = APIClient()
+        self.super_admin = User.objects.create_user(
+            username="super_admin_promoter",
+            mobile_number="+919876543220",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        self.merchant_user = User.objects.create_user(
+            username="merchant_creator",
+            mobile_number="+919876543221",
+            password="merchantpassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Baker Street Delights",
+        )
+        self.master_category = MasterCategory.objects.create(
+            name="Bakery & Bread",
+            slug="bakery-bread",
+            description="Freshly baked goods",
+        )
+        self.shop_product = ShopProduct.objects.create(
+            shop=self.shop,
+            master_product=None,
+            name="Sourdough Loaf",
+            description="Slow-fermented artisan sourdough",
+            brand="Artisan Bake",
+            price=Decimal("4.50"),
+            sku="SOUR-001",
+            is_visible=True,
+            is_available=True,
+        )
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_merchant(self):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "merchantpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_super_admin_promote_shop_product_via_shop_product_endpoint(self):
+        """
+        Super Admin promotes a Shop Product via /api/v1/catalog/shop-products/<id>/promote/.
+        """
+        self._auth_super_admin()
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Sourdough Loaf")
+        self.assertEqual(response.data["description"], "Slow-fermented artisan sourdough")
+        self.assertEqual(response.data["brand"], "Artisan Bake")
+        self.assertIsNone(response.data["category"])
+        self.assertTrue(response.data["is_active"])
+
+        # Master Product was created
+        master_product = MasterProduct.objects.get(id=response.data["id"])
+        self.assertEqual(master_product.name, "Sourdough Loaf")
+
+        # Originating Shop Product was NOT linked, replaced, updated, or merged
+        self.shop_product.refresh_from_db()
+        self.assertIsNone(self.shop_product.master_product)
+        self.assertEqual(self.shop_product.name, "Sourdough Loaf")
+        self.assertEqual(self.shop_product.price, Decimal("4.50"))
+        self.assertEqual(self.shop_product.sku, "SOUR-001")
+
+    def test_super_admin_promote_shop_product_via_master_product_promote_action(self):
+        """
+        Super Admin promotes a Shop Product via /api/v1/catalog/master-products/promote/.
+        """
+        self._auth_super_admin()
+        url = "/api/v1/catalog/master-products/promote/"
+        response = self.client.post(url, {"shop_product_id": self.shop_product.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Sourdough Loaf")
+
+        # Originating Shop Product was NOT linked
+        self.shop_product.refresh_from_db()
+        self.assertIsNone(self.shop_product.master_product)
+
+    def test_promotion_with_optional_overrides_and_category(self):
+        """
+        Super Admin can override name, description, brand, category, and is_active during promotion.
+        """
+        self._auth_super_admin()
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        payload = {
+            "name": "Platform Universal Sourdough",
+            "description": "Standardized description for catalog",
+            "brand": "Universal Bakery",
+            "category": self.master_category.id,
+            "is_active": True,
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Platform Universal Sourdough")
+        self.assertEqual(response.data["description"], "Standardized description for catalog")
+        self.assertEqual(response.data["brand"], "Universal Bakery")
+        self.assertEqual(response.data["category"], self.master_category.id)
+        self.assertEqual(response.data["category_name"], "Bakery & Bread")
+
+        # Originating Shop Product retains all its original data
+        self.shop_product.refresh_from_db()
+        self.assertEqual(self.shop_product.name, "Sourdough Loaf")
+        self.assertEqual(self.shop_product.brand, "Artisan Bake")
+        self.assertEqual(self.shop_product.description, "Slow-fermented artisan sourdough")
+        self.assertIsNone(self.shop_product.master_product)
+
+    def test_promotion_strict_independence_after_promotion(self):
+        """
+        Verify that after promotion:
+        - Modifying the new MasterProduct does NOT modify the originating ShopProduct.
+        - Modifying the originating ShopProduct does NOT modify the new MasterProduct.
+        - Deleting the new MasterProduct does NOT delete or alter the ShopProduct.
+        - Deleting the originating ShopProduct does NOT delete or alter the MasterProduct.
+        """
+        self._auth_super_admin()
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        response = self.client.post(url, {}, format="json")
+        master_id = response.data["id"]
+        master_product = MasterProduct.objects.get(id=master_id)
+
+        # 1. Update Master Product -> Shop Product untouched
+        master_product.name = "Globally Renamed Sourdough"
+        master_product.brand = "Global Brand"
+        master_product.save()
+
+        self.shop_product.refresh_from_db()
+        self.assertEqual(self.shop_product.name, "Sourdough Loaf")
+        self.assertEqual(self.shop_product.brand, "Artisan Bake")
+
+        # 2. Update Shop Product -> Master Product untouched
+        self.shop_product.name = "Locally Modified Loaf"
+        self.shop_product.save()
+
+        master_product.refresh_from_db()
+        self.assertEqual(master_product.name, "Globally Renamed Sourdough")
+
+        # 3. Delete Master Product -> Shop Product untouched
+        master_product.delete()
+        self.assertFalse(MasterProduct.objects.filter(id=master_id).exists())
+
+        self.shop_product.refresh_from_db()
+        self.assertEqual(self.shop_product.name, "Locally Modified Loaf")
+        self.assertIsNone(self.shop_product.master_product)
+
+    def test_promote_shop_product_with_image(self):
+        """
+        Promotion preserves the shop product image reference for reusable content.
+        """
+        self._auth_super_admin()
+        image = SimpleUploadedFile("sourdough.jpg", b"image_binary_data", content_type="image/jpeg")
+        self.shop_product.image = image
+        self.shop_product.save()
+
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        master_product = MasterProduct.objects.get(id=response.data["id"])
+        self.assertTrue(bool(master_product.image))
+
+    def test_promotion_non_existent_shop_product_returns_404(self):
+        self._auth_super_admin()
+        # Via shop-products endpoint
+        url_shop = "/api/v1/catalog/shop-products/99999/promote/"
+        response = self.client.post(url_shop, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Via master-products endpoint
+        url_master = "/api/v1/catalog/master-products/promote/"
+        response = self.client.post(url_master, {"shop_product_id": 99999}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_promotion_validation_errors(self):
+        self._auth_super_admin()
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+
+        # Whitespace-only name override
+        response = self.client.post(url, {"name": "   "}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+        # Invalid category ID
+        response = self.client.post(url, {"category": 99999}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("category", response.data)
+
+    def test_promotion_unauthenticated_request_denied_with_401(self):
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_promotion_merchant_request_denied_with_403(self):
+        self._auth_merchant()
+        url = f"/api/v1/catalog/shop-products/{self.shop_product.id}/promote/"
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+

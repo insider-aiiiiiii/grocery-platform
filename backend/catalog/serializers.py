@@ -39,3 +39,29 @@ class MasterProductSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Name cannot be empty or whitespace only.")
         return value.strip()
+
+
+class PromoteShopProductSerializer(serializers.Serializer):
+    """
+    Serializer for Super Admin promoting a Shop Product into Master Catalog.
+
+    Supports optional overrides and category assignment while defaulting
+    to the originating Shop Product's metadata.
+    """
+
+    shop_product_id = serializers.IntegerField(required=False, min_value=1)
+    name = serializers.CharField(max_length=255, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    brand = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=MasterCategory.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    is_active = serializers.BooleanField(required=False, default=True)
+
+    def validate_name(self, value):
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be empty or whitespace only.")
+        return value.strip() if value else value
+
