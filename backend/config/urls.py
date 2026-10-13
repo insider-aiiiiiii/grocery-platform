@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
+from catalog.urls import direct_router as catalog_direct_router
 from users.views import (
     ChangePasswordView,
     LoginView,
@@ -44,4 +45,7 @@ urlpatterns = [
     path('api/v1/auth/logout/', LogoutView.as_view(), name='auth-logout'),
     path('api/v1/auth/refresh/', RefreshView.as_view(), name='auth-refresh'),
     path('api/v1/shops/', include('shops.urls')),
+    path('api/v1/catalog/', include('catalog.urls')),
+    path('api/v1/master-products/', include((catalog_direct_router.urls, 'master-products-direct'))),
 ]
+

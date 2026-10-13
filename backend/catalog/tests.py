@@ -6,9 +6,13 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import TestCase, override_settings
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from shops.models import Shop
-from users.models import Merchant, User
+from users.models import Merchant, User, UserAuthSession
+from users.views import refresh_for_user
 
 from .models import (
     Attribute,
@@ -1514,4 +1518,318 @@ class ShopProductAndVariantFieldsAndAvailabilityTests(TestCase):
             description="Special variant notes",
         )
         self.assertEqual(v_custom_desc.effective_description, "Special variant notes")
+
+
+class MasterProductSuperAdminAPITests(TestCase):
+    """
+    Unit and integration tests for Super Admin CRUD APIs on Master Catalog products.
+
+    Validates:
+    - Super Admin full CRUD operations (Create, List, Retrieve, Update, Delete).
+    - Unauthenticated requests are rejected with 401.
+    - Non-Super Admin (Merchant) requests are rejected with 403.
+    - Input validation (blank/whitespace name, non-existent category).
+    - Queryset filtering (is_active, category, search).
+    - Master Catalog independence: updates and deletions do not alter or delete Shop Products.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.temp_media = tempfile.mkdtemp()
+        cls.media_override = override_settings(MEDIA_ROOT=cls.temp_media)
+        cls.media_override.enable()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.media_override.disable()
+        shutil.rmtree(cls.temp_media, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.client = APIClient()
+        self.super_admin = User.objects.create_user(
+            username="test_super_admin",
+            mobile_number="+919876543210",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        self.merchant_user = User.objects.create_user(
+            username="test_merchant",
+            mobile_number="+919876543211",
+            password="merchantpassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Organic Corner",
+        )
+        self.category = MasterCategory.objects.create(
+            name="Fresh Dairy",
+            slug="fresh-dairy",
+            description="Dairy and refrigerated items",
+        )
+        self.base_url = "/api/v1/catalog/master-products/"
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_merchant(self):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "merchantpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_super_admin_create_master_product(self):
+        self._auth_super_admin()
+        payload = {
+            "name": "Whole Milk 1L",
+            "description": "Farm-fresh pasteurized whole milk",
+            "category": self.category.id,
+            "brand": "Amul",
+            "is_active": True,
+        }
+        response = self.client.post(self.base_url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Whole Milk 1L")
+        self.assertEqual(response.data["category"], self.category.id)
+        self.assertEqual(response.data["category_name"], "Fresh Dairy")
+        self.assertEqual(response.data["brand"], "Amul")
+        self.assertTrue(response.data["is_active"])
+        self.assertTrue(MasterProduct.objects.filter(id=response.data["id"]).exists())
+
+    def test_super_admin_create_master_product_validation(self):
+        self._auth_super_admin()
+
+        # Missing or blank name
+        response = self.client.post(self.base_url, {"name": ""}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+        # Whitespace-only name
+        response = self.client.post(self.base_url, {"name": "   "}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", response.data)
+
+        # Invalid category ID
+        response = self.client.post(self.base_url, {"name": "Valid Name", "category": 99999}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("category", response.data)
+
+    def test_super_admin_list_master_products_and_filtering(self):
+        self._auth_super_admin()
+        cat2 = MasterCategory.objects.create(name="Beverages", slug="beverages")
+
+        mp1 = MasterProduct.objects.create(name="Apple Juice", category=cat2, brand="Tropicana", is_active=True)
+        mp2 = MasterProduct.objects.create(name="Orange Juice", category=cat2, brand="Tropicana", is_active=False)
+        mp3 = MasterProduct.objects.create(name="Greek Yogurt", category=self.category, brand="Nestle", is_active=True)
+
+        # List all
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+
+        # Filter by is_active=true
+        response_active = self.client.get(f"{self.base_url}?is_active=true")
+        self.assertEqual(response_active.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_active.data), 2)
+        names = [item["name"] for item in response_active.data]
+        self.assertIn("Apple Juice", names)
+        self.assertIn("Greek Yogurt", names)
+
+        # Filter by is_active=false
+        response_inactive = self.client.get(f"{self.base_url}?is_active=false")
+        self.assertEqual(response_inactive.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_inactive.data), 1)
+        self.assertEqual(response_inactive.data[0]["name"], "Orange Juice")
+
+        # Filter by category
+        response_cat = self.client.get(f"{self.base_url}?category={cat2.id}")
+        self.assertEqual(response_cat.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_cat.data), 2)
+
+        # Search by name
+        response_search = self.client.get(f"{self.base_url}?search=Yogurt")
+        self.assertEqual(response_search.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_search.data), 1)
+        self.assertEqual(response_search.data[0]["name"], "Greek Yogurt")
+
+    def test_super_admin_retrieve_master_product(self):
+        self._auth_super_admin()
+        mp = MasterProduct.objects.create(
+            name="Almond Milk",
+            description="Unsweetened almond milk",
+            category=self.category,
+            brand="Silk",
+            is_active=True,
+        )
+        response = self.client.get(f"{self.base_url}{mp.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["name"], "Almond Milk")
+        self.assertEqual(response.data["brand"], "Silk")
+        self.assertEqual(response.data["category_name"], "Fresh Dairy")
+
+    def test_super_admin_update_master_product_put_and_patch(self):
+        self._auth_super_admin()
+        mp = MasterProduct.objects.create(
+            name="Organic Butter",
+            description="Salted butter",
+            category=self.category,
+            brand="Amul",
+            is_active=True,
+        )
+
+        # PATCH partial update
+        patch_res = self.client.patch(
+            f"{self.base_url}{mp.id}/",
+            {"brand": "Amul Gold", "description": "Unsalted pure butter"},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        mp.refresh_from_db()
+        self.assertEqual(mp.brand, "Amul Gold")
+        self.assertEqual(mp.description, "Unsalted pure butter")
+        self.assertEqual(mp.name, "Organic Butter")
+
+        # PUT full update
+        put_res = self.client.put(
+            f"{self.base_url}{mp.id}/",
+            {
+                "name": "Organic Table Butter",
+                "description": "500g block",
+                "category": self.category.id,
+                "brand": "Amul Gold",
+                "is_active": False,
+            },
+            format="json",
+        )
+        self.assertEqual(put_res.status_code, status.HTTP_200_OK)
+        mp.refresh_from_db()
+        self.assertEqual(mp.name, "Organic Table Butter")
+        self.assertFalse(mp.is_active)
+
+    def test_super_admin_delete_master_product(self):
+        self._auth_super_admin()
+        mp = MasterProduct.objects.create(name="Temporary Product")
+        response = self.client.delete(f"{self.base_url}{mp.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(MasterProduct.objects.filter(id=mp.id).exists())
+
+    def test_unauthenticated_requests_denied(self):
+        # Without credentials
+        mp = MasterProduct.objects.create(name="Secured Product")
+
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(self.base_url, {"name": "Test"}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.get(f"{self.base_url}{mp.id}/").status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.patch(f"{self.base_url}{mp.id}/", {"name": "New"}).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.delete(f"{self.base_url}{mp.id}/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_merchant_requests_denied_with_403(self):
+        self._auth_merchant()
+        mp = MasterProduct.objects.create(name="Secured Product")
+
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.post(self.base_url, {"name": "Test"}, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(f"{self.base_url}{mp.id}/").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.patch(f"{self.base_url}{mp.id}/", {"name": "New"}, format="json").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.delete(f"{self.base_url}{mp.id}/").status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_master_product_independence_on_update(self):
+        """
+        Updating a Master Product does NOT alter any existing Shop Product.
+        """
+        self._auth_super_admin()
+        mp = MasterProduct.objects.create(
+            name="Original Master Name",
+            brand="Original Master Brand",
+            description="Original Master Desc",
+        )
+        shop_product = ShopProduct.objects.create(
+            shop=self.shop,
+            master_product=mp,
+            name="Shop Customized Product",
+            brand="Shop Independent Brand",
+            description="Shop specific description",
+            price=Decimal("15.50"),
+        )
+
+        # Super Admin updates MasterProduct
+        response = self.client.patch(
+            f"{self.base_url}{mp.id}/",
+            {
+                "name": "Modified Master Name",
+                "brand": "Modified Master Brand",
+                "description": "Modified Master Desc",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # ShopProduct must remain completely unchanged
+        shop_product.refresh_from_db()
+        self.assertEqual(shop_product.name, "Shop Customized Product")
+        self.assertEqual(shop_product.brand, "Shop Independent Brand")
+        self.assertEqual(shop_product.description, "Shop specific description")
+        self.assertEqual(shop_product.price, Decimal("15.50"))
+        self.assertEqual(shop_product.master_product_id, mp.id)
+
+    def test_master_product_independence_on_deletion(self):
+        """
+        Deleting a Master Product preserves existing Shop Products.
+        The reference becomes NULL (SET_NULL) without deleting the Shop Product.
+        """
+        self._auth_super_admin()
+        mp = MasterProduct.objects.create(
+            name="To Be Deleted Master",
+            brand="Master Brand",
+        )
+        shop_product = ShopProduct.objects.create(
+            shop=self.shop,
+            master_product=mp,
+            name="Merchant Sellable Product",
+            brand="Merchant Brand",
+            price=Decimal("25.00"),
+        )
+
+        # Super Admin deletes MasterProduct
+        response = self.client.delete(f"{self.base_url}{mp.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # MasterProduct is deleted
+        self.assertFalse(MasterProduct.objects.filter(id=mp.id).exists())
+
+        # ShopProduct remains intact in the shop's catalog
+        shop_product.refresh_from_db()
+        self.assertIsNone(shop_product.master_product)
+        self.assertEqual(shop_product.name, "Merchant Sellable Product")
+        self.assertEqual(shop_product.price, Decimal("25.00"))
+
+    def test_direct_url_alias(self):
+        """
+        Test direct /api/v1/master-products/ alias also routes to the same CRUD operations.
+        """
+        self._auth_super_admin()
+        direct_url = "/api/v1/master-products/"
+        response = self.client.post(
+            direct_url,
+            {"name": "Direct Alias Product", "brand": "Direct Brand"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["name"], "Direct Alias Product")
 
