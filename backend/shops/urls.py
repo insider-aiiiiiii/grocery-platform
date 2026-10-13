@@ -1,4 +1,5 @@
 from django.urls import path
+from catalog.views import MerchantShopProductViewSet
 
 from .views import (
     MerchantShopDeactivationForbiddenView,
@@ -20,6 +21,9 @@ urlpatterns = [
     path("", ShopCreateView.as_view(), name="shop-create"),
     path("me/", MerchantShopDetailView.as_view(), name="shop-me"),
     path("me/qr/", MerchantShopQRDetailView.as_view(), name="shop-me-qr"),
+    path("me/products/", MerchantShopProductViewSet.as_view({"get": "list", "post": "create"}), name="shop-me-products-list"),
+    path("me/products/<int:pk>/", MerchantShopProductViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-products-detail"),
+
     path("me/deactivate/", MerchantShopDeactivationForbiddenView.as_view(), name="shop-me-deactivate"),
     path("deactivate/", MerchantShopDeactivationForbiddenView.as_view(), name="shop-deactivate"),
     path("me/reactivate/", MerchantShopReactivationForbiddenView.as_view(), name="shop-me-reactivate"),
