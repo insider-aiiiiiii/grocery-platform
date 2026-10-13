@@ -11,13 +11,20 @@ from shops.models import Shop
 from users.models import Merchant, User
 
 from .models import (
+    Attribute,
+    Brand,
     Category,
+    CustomAttribute,
     MasterCategory,
     MasterProduct,
     Product,
     ProductVariant,
+    ShopAttribute,
+    ShopBrand,
     ShopCategory,
+    ShopCustomAttribute,
     ShopProduct,
+    ShopProductBrand,
     ShopProductVariant,
     Variant,
 )
@@ -794,5 +801,483 @@ class ShopCategoryModelTests(TestCase):
         self.assertIs(Category, ShopCategory)
 
 
+class ShopBrandModelTests(TestCase):
+    def setUp(self):
+        self.user1 = User.objects.create_user(
+            username="merchant_brand1",
+            email="merchant_brand1@example.com",
+            mobile_number="+919876543241",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Brand Mart Alpha",
+            address_line="10 Brand Blvd",
+            area="North",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user1.mobile_number,
+        )
+
+        self.user2 = User.objects.create_user(
+            username="merchant_brand2",
+            email="merchant_brand2@example.com",
+            mobile_number="+919876543242",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Brand Mart Beta",
+            address_line="20 Brand Blvd",
+            area="South",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user2.mobile_number,
+        )
+
+        self.product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Almond Milk 1L",
+            price=Decimal("4.50"),
+        )
+
+    def test_merchant_brand_crud_control(self):
+        """Merchants have full CRUD control over Shop-owned brands."""
+        brand = ShopBrand.objects.create(
+            shop=self.shop1,
+            name="NutriLife",
+            slug="nutrilife",
+            description="Organic nut-based milks and foods",
+            is_active=True,
+        )
+        self.assertEqual(brand.shop, self.shop1)
+        self.assertEqual(brand.name, "NutriLife")
+        self.assertEqual(brand.slug, "nutrilife")
+        self.assertTrue(brand.is_active)
+        self.assertEqual(str(brand), "NutriLife (Shop: %s)" % self.shop1.id)
+
+        # Update
+        brand.name = "NutriLife Organics"
+        brand.is_active = False
+        brand.save()
+        brand.refresh_from_db()
+        self.assertEqual(brand.name, "NutriLife Organics")
+        self.assertFalse(brand.is_active)
+
+        # Delete
+        brand_id = brand.id
+        brand.delete()
+        self.assertFalse(ShopBrand.objects.filter(id=brand_id).exists())
+
+    def test_assign_shop_brand_to_product(self):
+        """Merchants can assign a ShopBrand to a ShopProduct."""
+        brand = ShopBrand.objects.create(shop=self.shop1, name="FarmFresh")
+        self.product.brand_ref = brand
+        self.product.save()
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.brand_ref, brand)
+        self.assertEqual(self.product.shop_brand, brand)
+        self.assertEqual(self.product.effective_brand, "FarmFresh")
+        self.assertIn(self.product, brand.products.all())
+
+    def test_assign_via_shop_brand_property_setter(self):
+        """Merchants can assign brand via shop_brand property setter."""
+        brand = ShopBrand.objects.create(shop=self.shop1, name="SetterBrand")
+        self.product.shop_brand = brand
+        self.assertEqual(self.product.brand_ref, brand)
+        self.assertEqual(self.product.effective_brand, "SetterBrand")
+
+    def test_effective_brand_fallback_to_string_brand(self):
+        """
+        When brand_ref is not assigned, effective_brand returns product.brand string.
+        """
+        prod_with_str = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Green Tea",
+            brand="ZenBrew",
+        )
+        self.assertIsNone(prod_with_str.brand_ref)
+        self.assertEqual(prod_with_str.effective_brand, "ZenBrew")
+
+    def test_cross_shop_brand_assignment_rejected(self):
+        """
+        Assigning a brand from a different Shop is rejected by multi-tenant validation.
+        """
+        shop2_brand = ShopBrand.objects.create(shop=self.shop2, name="ForeignBrand")
+        self.product.brand_ref = shop2_brand
+        with self.assertRaises(ValidationError) as ctx:
+            self.product.clean()
+        self.assertIn("brand_ref", ctx.exception.message_dict)
+
+    def test_brand_deletion_preserves_assigned_product(self):
+        """
+        When a ShopBrand is deleted, assigned products must remain intact with
+        their brand reference set to None (SET_NULL), preserving historical products.
+        """
+        brand = ShopBrand.objects.create(shop=self.shop1, name="PerishableBrand")
+        self.product.brand_ref = brand
+        self.product.brand = "PerishableBrand"
+        self.product.save()
+
+        brand_id = brand.id
+        brand.delete()
+
+        self.assertFalse(ShopBrand.objects.filter(id=brand_id).exists())
+        self.product.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=self.product.id).exists())
+        self.assertIsNone(self.product.brand_ref)
+        self.assertEqual(self.product.effective_brand, "PerishableBrand")
+
+    def test_shop_deletion_cascades_brands(self):
+        """Deleting a Shop cascades and deletes all of its Shop brands."""
+        brand = ShopBrand.objects.create(shop=self.shop1, name="LocalBrand")
+        brand_id = brand.id
+
+        self.shop1.delete()
+        self.assertFalse(ShopBrand.objects.filter(id=brand_id).exists())
+
+    def test_independent_brand_customization_from_master_product(self):
+        """
+        Merchants can customize a selected Master Product's brand independently.
+        Master Product brand updates/deletion do not affect Shop Product brand.
+        """
+        master_product = MasterProduct.objects.create(
+            name="Cereal Box",
+            brand="MasterBrand",
+        )
+        shop_product = ShopProduct.from_master_product(self.shop1, master_product)
+        self.assertEqual(shop_product.brand, "MasterBrand")
+        self.assertEqual(shop_product.effective_brand, "MasterBrand")
+
+        # Merchant assigns a ShopBrand independently
+        local_brand = ShopBrand.objects.create(shop=self.shop1, name="ShopCustomBrand")
+        shop_product.brand_ref = local_brand
+        shop_product.save()
+        self.assertEqual(shop_product.effective_brand, "ShopCustomBrand")
+
+        # Modifying master product brand does not affect shop product
+        master_product.brand = "AlteredMasterBrand"
+        master_product.save()
+        shop_product.refresh_from_db()
+        self.assertEqual(shop_product.effective_brand, "ShopCustomBrand")
+
+        # Deleting master product does not affect shop product or shop brand
+        master_product.delete()
+        shop_product.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=shop_product.id).exists())
+        self.assertTrue(ShopBrand.objects.filter(id=local_brand.id).exists())
+        self.assertEqual(shop_product.effective_brand, "ShopCustomBrand")
+
+    def test_brand_domain_aliases(self):
+        """Brand aliases point to ShopBrand."""
+        self.assertIs(Brand, ShopBrand)
+        self.assertIs(ShopProductBrand, ShopBrand)
 
 
+class ShopCustomAttributeModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="merchant_attr",
+            email="merchant_attr@example.com",
+            mobile_number="+919876543251",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Attr Mart",
+            address_line="55 Config Way",
+            area="Central",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user.mobile_number,
+        )
+
+    def test_merchant_custom_attribute_crud_control(self):
+        """Merchants have full CRUD control over Shop-owned custom attributes and basic values."""
+        attr = ShopCustomAttribute.objects.create(
+            shop=self.shop,
+            name="Dietary Preference",
+            description="Customer dietary tags",
+            values=["Vegan", "Vegetarian", "Gluten-Free"],
+            is_active=True,
+        )
+        self.assertEqual(attr.shop, self.shop)
+        self.assertEqual(attr.name, "Dietary Preference")
+        self.assertEqual(attr.values, ["Vegan", "Vegetarian", "Gluten-Free"])
+        self.assertEqual(str(attr), "Dietary Preference (Shop: %s)" % self.shop.id)
+
+        # Update
+        attr.name = "Dietary Lifestyle"
+        attr.values = ["Vegan", "Keto", "Paleo"]
+        attr.is_active = False
+        attr.save()
+        attr.refresh_from_db()
+        self.assertEqual(attr.name, "Dietary Lifestyle")
+        self.assertEqual(attr.values, ["Vegan", "Keto", "Paleo"])
+        self.assertFalse(attr.is_active)
+
+        # Delete
+        attr_id = attr.id
+        attr.delete()
+        self.assertFalse(ShopCustomAttribute.objects.filter(id=attr_id).exists())
+
+    def test_attribute_add_and_remove_value_helpers(self):
+        """Helpers allow adding and removing basic attribute values cleanly."""
+        attr = ShopCustomAttribute.objects.create(
+            shop=self.shop,
+            name="Size Options",
+            values=["Small", "Medium"],
+        )
+        attr.add_value("Large")
+        self.assertEqual(attr.values, ["Small", "Medium", "Large"])
+
+        # Idempotent add
+        attr.add_value("Large")
+        self.assertEqual(attr.values, ["Small", "Medium", "Large"])
+
+        attr.remove_value("Medium")
+        self.assertEqual(attr.values, ["Small", "Large"])
+
+    def test_attribute_values_validation(self):
+        """Values field must be a list containing primitive items."""
+        invalid_attr_not_list = ShopCustomAttribute(
+            shop=self.shop,
+            name="Bad Attr",
+            values="not a list",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            invalid_attr_not_list.clean()
+        self.assertIn("values", ctx.exception.message_dict)
+
+        invalid_attr_nested = ShopCustomAttribute(
+            shop=self.shop,
+            name="Bad Nested",
+            values=[{"nested": "dictionary"}],
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            invalid_attr_nested.clean()
+        self.assertIn("values", ctx.exception.message_dict)
+
+    def test_shop_deletion_cascades_custom_attributes(self):
+        """Deleting a Shop cascades and deletes its custom attributes."""
+        attr = ShopCustomAttribute.objects.create(shop=self.shop, name="Packaging")
+        attr_id = attr.id
+
+        self.shop.delete()
+        self.assertFalse(ShopCustomAttribute.objects.filter(id=attr_id).exists())
+
+    def test_attribute_domain_aliases(self):
+        """Attribute domain aliases point to ShopCustomAttribute."""
+        self.assertIs(ShopAttribute, ShopCustomAttribute)
+        self.assertIs(CustomAttribute, ShopCustomAttribute)
+        self.assertIs(Attribute, ShopCustomAttribute)
+
+
+class ProductAndVariantCustomAttributesTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="merchant_prod_attr",
+            email="merchant_prod_attr@example.com",
+            mobile_number="+919876543261",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Product Attr Mart",
+            address_line="77 Feature Rd",
+            area="West",
+            city="Metropolis",
+            state="State",
+            pincode="123456",
+            contact_number=self.user.mobile_number,
+        )
+        self.product = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Artisan Sourdough",
+            price=Decimal("5.00"),
+            attributes={
+                "Flavors": ["Original", "Rosemary", "Garlic"],
+                "Dietary": ["Vegan", "Organic"],
+                "Shelf Life Days": 5,
+                "Contains Gluten": True,
+            },
+        )
+
+    def test_product_multiple_attributes_with_multiple_values(self):
+        """
+        Shop products support multiple custom attributes with multiple values
+        per the finalized specification.
+        """
+        self.assertEqual(len(self.product.attributes["Flavors"]), 3)
+        self.assertIn("Rosemary", self.product.attributes["Flavors"])
+        self.assertEqual(self.product.attributes["Dietary"], ["Vegan", "Organic"])
+        self.assertEqual(self.product.attributes["Shelf Life Days"], 5)
+        self.assertTrue(self.product.attributes["Contains Gluten"])
+
+    def test_product_attribute_helper_methods(self):
+        """Product helper methods for managing attributes and multiple values."""
+        # get_attribute
+        self.assertEqual(self.product.get_attribute("Shelf Life Days"), 5)
+        self.assertIsNone(self.product.get_attribute("NonExistent"))
+        self.assertEqual(self.product.get_attribute("NonExistent", default="DefaultVal"), "DefaultVal")
+
+        # set_attribute
+        self.product.set_attribute("Origin", "France")
+        self.assertEqual(self.product.get_attribute("Origin"), "France")
+
+        # add_attribute_value to existing list
+        self.product.add_attribute_value("Flavors", "Olive")
+        self.assertIn("Olive", self.product.get_attribute("Flavors"))
+        # idempotent add
+        self.product.add_attribute_value("Flavors", "Olive")
+        self.assertEqual(self.product.get_attribute("Flavors").count("Olive"), 1)
+
+        # add_attribute_value to scalar converts to list
+        self.product.add_attribute_value("Origin", "Italy")
+        self.assertEqual(self.product.get_attribute("Origin"), ["France", "Italy"])
+
+        # add_attribute_value to new attribute
+        self.product.add_attribute_value("Packaging", "Paper Bag")
+        self.assertEqual(self.product.get_attribute("Packaging"), ["Paper Bag"])
+
+        # remove_attribute
+        self.product.remove_attribute("Contains Gluten")
+        self.assertIsNone(self.product.get_attribute("Contains Gluten"))
+
+    def test_variant_custom_attributes_independent_from_product(self):
+        """
+        Variants have their own custom attributes independent of the parent product.
+        """
+        v1 = ProductVariant.objects.create(
+            product=self.product,
+            name="Half Loaf",
+            price=Decimal("3.00"),
+            attributes={
+                "Weight": "400g",
+                "Slice Options": ["Thick", "Thin"],
+            },
+        )
+        v2 = ProductVariant.objects.create(
+            product=self.product,
+            name="Whole Loaf",
+            price=Decimal("5.00"),
+            attributes={
+                "Weight": "800g",
+                "Slice Options": ["Thick", "Thin", "Unsliced"],
+            },
+        )
+
+        self.assertEqual(v1.attributes["Weight"], "400g")
+        self.assertEqual(v1.attributes["Slice Options"], ["Thick", "Thin"])
+        self.assertEqual(v2.attributes["Weight"], "800g")
+        self.assertEqual(len(v2.attributes["Slice Options"]), 3)
+        # Parent product attributes unchanged
+        self.assertNotIn("Weight", self.product.attributes)
+
+    def test_variant_attribute_helper_methods(self):
+        """Variant helper methods for managing attributes and multiple values."""
+        variant = ProductVariant.objects.create(
+            product=self.product,
+            name="Mini Bun",
+            price=Decimal("1.50"),
+            attributes={"Pack": "Single"},
+        )
+        self.assertEqual(variant.get_attribute("Pack"), "Single")
+        variant.set_attribute("Temperature", "Room")
+        self.assertEqual(variant.get_attribute("Temperature"), "Room")
+
+        variant.add_attribute_value("Pack", "4-Pack")
+        self.assertEqual(variant.get_attribute("Pack"), ["Single", "4-Pack"])
+
+        variant.remove_attribute("Temperature")
+        self.assertIsNone(variant.get_attribute("Temperature"))
+
+    def test_attribute_validation_rejects_malformed_structures(self):
+        """clean() validation catches invalid attribute structures on product and variant."""
+        # Non-dict product attributes
+        p_invalid_type = ShopProduct(
+            shop=self.shop,
+            name="Bad Attr Product",
+            attributes="not a dictionary",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            p_invalid_type.clean()
+        self.assertIn("attributes", ctx.exception.message_dict)
+
+        # Empty key
+        p_invalid_key = ShopProduct(
+            shop=self.shop,
+            name="Bad Key Product",
+            attributes={"": "value"},
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            p_invalid_key.clean()
+        self.assertIn("attributes", ctx.exception.message_dict)
+
+        # Nested complex object in value
+        p_invalid_val = ShopProduct(
+            shop=self.shop,
+            name="Bad Value Product",
+            attributes={"Complex": {"deep": "nested"}},
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            p_invalid_val.clean()
+        self.assertIn("attributes", ctx.exception.message_dict)
+
+        # Non-primitive item in list
+        p_invalid_list = ShopProduct(
+            shop=self.shop,
+            name="Bad List Product",
+            attributes={"Items": [{"dict": "item"}]},
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            p_invalid_list.clean()
+        self.assertIn("attributes", ctx.exception.message_dict)
+
+        # Variant validation
+        v_invalid = ProductVariant(
+            product=self.product,
+            name="Bad Variant",
+            attributes="invalid",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            v_invalid.clean()
+        self.assertIn("attributes", ctx.exception.message_dict)
+
+    def test_master_product_independence_with_attributes(self):
+        """
+        Master Catalog product has no custom attributes.
+        Shop product created from Master Product can define custom attributes freely.
+        """
+        mp = MasterProduct.objects.create(name="Global Pasta")
+        sp = ShopProduct.from_master_product(self.shop, mp)
+
+        self.assertEqual(sp.attributes, {})
+        sp.set_attribute("Grain", ["Durum Wheat", "Semolina"])
+        sp.save()
+        sp.refresh_from_db()
+        self.assertEqual(sp.attributes["Grain"], ["Durum Wheat", "Semolina"])

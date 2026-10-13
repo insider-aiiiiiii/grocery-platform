@@ -1,5 +1,13 @@
 from django.contrib import admin
-from .models import MasterCategory, MasterProduct, ProductVariant, ShopCategory, ShopProduct
+from .models import (
+    MasterCategory,
+    MasterProduct,
+    ProductVariant,
+    ShopBrand,
+    ShopCategory,
+    ShopCustomAttribute,
+    ShopProduct,
+)
 
 
 @admin.register(MasterCategory)
@@ -24,6 +32,22 @@ class ShopCategoryAdmin(admin.ModelAdmin):
     raw_id_fields = ("shop", "parent")
 
 
+@admin.register(ShopBrand)
+class ShopBrandAdmin(admin.ModelAdmin):
+    list_display = ("name", "shop", "is_active", "created_at")
+    search_fields = ("name", "slug")
+    list_filter = ("is_active", "shop")
+    raw_id_fields = ("shop",)
+
+
+@admin.register(ShopCustomAttribute)
+class ShopCustomAttributeAdmin(admin.ModelAdmin):
+    list_display = ("name", "shop", "is_active", "created_at")
+    search_fields = ("name",)
+    list_filter = ("is_active", "shop")
+    raw_id_fields = ("shop",)
+
+
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
@@ -33,9 +57,9 @@ class ProductVariantInline(admin.TabularInline):
 @admin.register(ShopProduct)
 class ShopProductAdmin(admin.ModelAdmin):
     list_display = ("name", "shop", "price", "is_visible", "is_available", "created_at")
-    search_fields = ("name", "brand", "sku")
+    search_fields = ("name", "brand", "sku", "brand_ref__name")
     list_filter = ("is_visible", "is_available", "shop")
-    raw_id_fields = ("shop", "master_product")
+    raw_id_fields = ("shop", "master_product", "brand_ref")
     filter_horizontal = ("categories",)
     inlines = [ProductVariantInline]
 
@@ -46,6 +70,7 @@ class ProductVariantAdmin(admin.ModelAdmin):
     search_fields = ("name", "sku", "product__name")
     list_filter = ("is_visible", "is_available", "product__shop")
     raw_id_fields = ("product",)
+
 
 
 
