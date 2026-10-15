@@ -13,6 +13,8 @@ jobs:
   test:
     name: Django Tests
     runs-on: ubuntu-latest
+    env:
+      JWT_SIGNING_KEY: ci-only-not-a-production-secret
 
     defaults:
       run:
