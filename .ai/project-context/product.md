@@ -30,7 +30,7 @@ A Merchant may create and sell a product directly in their Shop Catalog without 
 
 ### Campaigns and Advertisements
 
-The Super Admin can create campaigns or advertisements displayed across all shops or selected shops. A campaign may target one or more shops. Campaign data, targeting rules, scheduling, and presentation behavior will be defined later.
+The Super Admin manages platform campaigns displayed across all Shops or a selected set of Shops. Campaigns use the approved Draft/Active/Ended lifecycle and optional schedule; product, category, brand, and Shop mentions are content only. The Campaigns domain specification records the MVP visibility, pricing, notification, and technical model boundaries.
 
 ### Analytics
 

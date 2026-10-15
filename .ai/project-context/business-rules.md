@@ -270,7 +270,7 @@ Campaigns are platform-level promotional content managed exclusively by Super Ad
 
 The MVP lifecycle is Draft, Active, and Ended. Start and end times are optional. A campaign is customer-visible only when Active, within any configured schedule, and within the display scope of the Shop being viewed. Super Admin can deactivate an Active campaign. Draft campaigns can be edited. Ended campaigns cannot be reactivated. Active and Ended campaigns are deactivated or retained rather than deleted through normal campaign management.
 
-Campaigns do not modify prices, inventory, product availability, checkout totals, Orders, or discounts. Merchant-created campaigns, coupons, discount rules, customer segmentation, personalization, campaign-triggered notifications, and campaign attribution analytics are excluded from the MVP. Campaigns must preserve platform authorization and public Shop visibility boundaries. Schema, APIs, timezone handling, and retention mechanics remain technical design choices.
+Campaigns do not modify prices, inventory, product availability, checkout totals, Orders, or discounts. Merchant-created campaigns, coupons, discount rules, customer segmentation, personalization, campaign-triggered notifications, and campaign attribution analytics are excluded from the MVP. Campaigns must preserve platform authorization and public Shop visibility boundaries. The initial schema, UTC schedule storage, and Shop display-scope representation are specified in the Campaigns domain document; APIs, runtime schedule evaluation, and retention mechanics remain technical design choices.
 
 ## 23. Analytics Rules
 
