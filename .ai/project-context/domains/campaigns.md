@@ -166,13 +166,22 @@ The following MVP business rules are finalized:
 
 Business behavior listed above is finalized for the MVP. Remaining choices are technical or presentation design decisions and must not be mistaken for unresolved business rules:
 
+### Technical model decisions
+
+- Lifecycle is stored in a constrained `status` field with `DRAFT`, `ACTIVE`, and `ENDED` values.
+- Shop display scope is stored in a `shop_scope` field with `ALL_SHOPS` and `SELECTED_SHOPS` values. Selected Shops are represented by a many-to-many relationship to `Shop`; that relationship defines display scope, not ownership. It is ignored for `ALL_SHOPS`.
+- Campaign content is stored as a title and free-form text. Product, category, brand, and Shop mentions remain content; no Catalog target relationships are added.
+- Optional schedule bounds are nullable `DateTimeField` values. With the project's `USE_TZ = True` configuration and UTC `TIME_ZONE`, timestamps are timezone-aware and stored in UTC; no Shop-local timezone is persisted. When both bounds exist, the start must not be later than the end.
+- Expiring an Active campaign still needs application-level schedule evaluation to transition it to Ended; the model does not add a scheduler or endpoint.
+
+### Remaining technical/design choices
+
 | Technical/design choice | Why it remains open | Area |
 |---|---|---|
-| Campaign database schema and Shop display-scope representation | Physical relationships and fields are not defined by business rules. | Campaigns, Shops |
 | API shape and authorization enforcement | Endpoints and permission implementation are not specified. | Campaigns, Users |
-| Schedule storage, timezone handling, and evaluation mechanism | The optional time-window behavior is approved; its technical representation and execution are not. | Campaigns |
+| Schedule evaluation mechanism | The optional time-window behavior and UTC storage are defined; the runtime mechanism for transitioning an expired Active campaign to Ended is not. | Campaigns |
 | Physical deletion, retention, and archival mechanics | Normal management behavior is approved, but storage-level retention/deletion mechanics are not. | Campaigns |
-| Customer-facing placement and presentation format | Visibility rules are approved, but exact UI placement/content schema is not. | Campaigns, customer-facing product |
+| Customer-facing placement and presentation format | Visibility rules are approved, but exact storefront placement remains a product/UI design detail. | Campaigns, customer-facing product |
 
 ## 24. Explicit Non-Goals
 
@@ -198,7 +207,7 @@ This specification does not define the following:
 
 ## 25. Implementation Gate
 
-> Campaign business rules are finalized. Implementation remains gated on technical design for schema, API and authorization, Shop display-scope representation, schedule/timezone handling, and retention mechanics.
+> Campaign business rules, the initial model schema, Shop display-scope representation, and UTC schedule storage are finalized. API/authorization, runtime schedule evaluation, and retention mechanics remain future technical work.
 
 Implementation must follow `AGENTS.md`, the product and architecture documentation, the relevant domain files, and engineering standards. Do not add campaign capabilities excluded from MVP or silently change approved business behavior.
 
@@ -208,18 +217,16 @@ Follow the repository workflow before making any change:
 
 ```text
 git status
-git checkout main
-git pull origin main
-git checkout -b <task-id>/define-campaigns-domain
+git pull --ff-only origin main
+git switch -c feature/<task-id>-campaign-work
 ```
 
 - Never work directly on `main`.
 - Inspect existing changes first and do not discard unrelated work.
 - Do not use destructive Git commands without explicit approval.
 - If no task ID is provided, ask for it before creating a branch.
-- Keep work limited to the documentation files authorized for the task.
-- Do not implement application code while defining this domain specification.
+- Keep work limited to files authorized for the task.
 
 ## Final Requirement
 
-Update only files authorized by the task. Do not create models, migrations, APIs, serializers, views, business logic, background jobs, payment logic, notification logic, or frontend behavior.
+Do not add APIs, serializers, views, background jobs, payment logic, notification logic, or frontend behavior unless separately approved.

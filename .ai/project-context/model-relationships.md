@@ -349,7 +349,7 @@ Campaign is a platform-level promotional content object, not a Shop-owned promot
 - Classification: Display targeting/scope relationship, not Shop ownership.
 - Cardinality: Potentially `many ↔ many` for selected-Shop display scope.
 - Tenant scope: Platform-global campaign with optional Shop display scope.
-- Status: **APPROVED MVP BUSINESS RULE**; physical representation remains a technical decision.
+- Status: **APPROVED MVP BUSINESS RULE**; represented by a campaign scope choice and an optional many-to-many relationship to Shops for selected scope.
 
 Only Super Admin creates campaigns in MVP. A campaign can advertise anything, including products, services, brands, or unrelated businesses. Any product/category/shop mention in advertisement copy is content, not a required relational target.
 
@@ -660,7 +660,7 @@ Only Super Admin creates and manages campaigns in the MVP.
 - Meaning: A Campaign may be displayed across all Shops or selected Shops.
 - Cardinality: Potentially `many ↔ many` for selected-Shop display scope.
 - Classification: Display targeting/scope.
-- Status: **APPROVED MVP DISPLAY SCOPE**; exact schema/cardinality representation is a technical decision.
+- Status: **APPROVED MVP DISPLAY SCOPE**; represented by the Campaign scope choice and an optional many-to-many relationship to Shops for selected scope.
 
 A Shop is not the owner of a platform Campaign merely because the Campaign is displayed on that Shop.
 
@@ -753,7 +753,7 @@ No separate analytics database or duplicated fact tables is required for MVP.
 | Order | Payment status | Order has `PAID` / `UNPAID` status; only Merchant updates it | Order context; physical representation TBD | Tenant | Business state | **APPROVED business rule** |
 | Order | Notification | Seven approved Order events may trigger notifications: new Order, received acknowledgement, accepted, rejected, quantity reduced, Customer cancellation, Merchant cancellation | `1 → many` possible | Tenant | Business interaction | **APPROVED business behavior** |
 | Notification | Recipient | Merchant messages resolve to the Shop's configured merchant WhatsApp number; customer messages resolve to the relevant Shop-specific Customer WhatsApp number | `TBD` | Tenant | Delivery/tenant-scoping | **APPROVED** |
-| Campaign | Shop | Campaign may display across all or selected Shops | `many ↔ many` possible | Platform/display scope | Targeting/display | **APPROVED BUSINESS SCOPE; schema conceptual** |
+| Campaign | Shop | Campaign may display across all or selected Shops | `many ↔ many` for selected Shops | Platform/display scope | Targeting/display | **APPROVED; represented by scope choice and optional many-to-many relation** |
 | Campaign | Product | Advertisement content may mention products; no persistent target | N/A | Platform | Content only | **NOT APPLICABLE** |
 | Campaign | Category | Advertisement content may mention categories; no persistent target | N/A | Platform | Content only | **NOT APPLICABLE** |
 | Campaign | Notification | Campaign-triggered notifications excluded from MVP | N/A | N/A | Business interaction | **EXCLUDED FROM MVP** |
@@ -791,7 +791,7 @@ The table intentionally includes conceptual interactions as well as likely datab
 
 \| OrderItem | Order → Shop | No independent path required yet | **\*\*CONCEPTUAL\*\*** | Historical line must remain within Order Shop context. |
 
-\| Campaign | Platform campaign with all-Shop or selected-Shop display scope | Platform-global; optional Shop display scope | **APPROVED BUSINESS RULE** | Display scope is not Shop ownership; physical schema remains technical design. |
+\| Campaign | Platform campaign with all-Shop or selected-Shop display scope | Platform-global; optional Shop display scope | **APPROVED BUSINESS RULE** | `shop_scope` distinguishes all vs selected Shops; selected scope uses a many-to-many relation and does not confer ownership. |
 
 \| Notification | Order → Shop → Notification → Shop's one configured merchant WhatsApp number; or Order → Shop → Shop-specific Customer → Customer WhatsApp number | \`TBD\` | **\*\*APPROVED\*\*** | Delivery must not cross Shop context; recipient resolution must not be global by WhatsApp number. |
 
@@ -1080,8 +1080,8 @@ No Django model implementation should begin before this relationship map and the
 | Shop Product/Variant ↔ Inventory representation | Product-only stock without variants; Variant stock plus aggregate Product quantity with variants | Exact database representation and aggregate recalculation behavior remain technical decisions | Catalog, Inventory | Inventory schema |
 | Order ↔ Inventory concurrency | Deduct on Merchant acceptance | Exact transaction/locking/error semantics remain implementation details | Orders, Inventory | Stock transaction logic |
 | Notification recipient physical representation | The MVP business relationship is approved: a Shop has one configured merchant WhatsApp number, and customer notifications use the relevant Shop-specific Customer WhatsApp number | Exact recipient/phone storage and delivery-record representation remain open | Notifications, Customers, Shops, Orders | Notification schema and delivery-record representation |
-| Campaign ↔ Shop display scope | Platform campaign displayed to all or selected Shops | Exact targeting representation remains DB decision | Campaigns, Shops | Campaign scope schema |
-| Campaign → Product/Category | No persistent targeting relationship in MVP | Ad content may mention them; content storage format is a technical design detail | Campaigns, Catalog | Campaign content schema |
+| Campaign ↔ Shop display scope | Platform campaign displayed to all or selected Shops | `shop_scope` choice plus optional many-to-many relationship for selected Shops | Campaigns, Shops | Runtime filtering and API validation |
+| Campaign → Product/Category | No persistent targeting relationship in MVP | Product/category/brand/Shop mentions are stored in the campaign's free-form content | Campaigns, Catalog | None for MVP |
 | Campaign → Notification | Campaign-triggered notifications excluded from MVP | Any future requirement needs separate approval | Campaigns, Notifications | Integration/schema |
 | Analytics storage | Direct source-domain queries in MVP | Future precomputation/caching may be considered if scale requires it | Analytics, all source domains | Optimization architecture |
 | Historical Order representation | Full Order history retained unless Merchant permanently deletes the Shop; Shop deletion removes its Orders; current Customer record may change | Exact historical fields/snapshot and physical Shop deletion representation remain DB decisions | Orders, Customers, Catalog | Order schema |
