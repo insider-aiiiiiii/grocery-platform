@@ -603,3 +603,185 @@ class AntiBloatVerificationTests(TestCase):
         model_names = [m.__name__ for m in inventory_models]
         self.assertEqual(model_names, ["InventoryItem"])
 
+
+class DatabaseConstraintsAndIntegrityTests(InventoryBaseTestCase):
+    """
+    Dedicated tests verifying database-level constraints (CheckConstraint, UniqueConstraint),
+    model clean() validations for Shop isolation and Catalog references, and cascade behaviors.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.product1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Sugar",
+            price=Decimal("45.00"),
+        )
+        self.product2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Flour",
+            price=Decimal("50.00"),
+        )
+
+    def test_db_check_constraint_rejects_negative_quantity_on_raw_insert(self):
+        """Database CheckConstraint rejects negative quantity even when bypassing full_clean()."""
+        with self.assertRaises(IntegrityError):
+            InventoryItem.objects.bulk_create([
+                InventoryItem(
+                    shop=self.shop1,
+                    product=self.product1,
+                    variant=None,
+                    quantity=Decimal("-1.000"),
+                    reserved_quantity=Decimal("0.000"),
+                )
+            ])
+
+    def test_db_check_constraint_rejects_negative_reserved_quantity_on_raw_insert(self):
+        """Database CheckConstraint rejects negative reserved_quantity on raw insert."""
+        with self.assertRaises(IntegrityError):
+            InventoryItem.objects.bulk_create([
+                InventoryItem(
+                    shop=self.shop1,
+                    product=self.product1,
+                    variant=None,
+                    quantity=Decimal("10.000"),
+                    reserved_quantity=Decimal("-2.000"),
+                )
+            ])
+
+    def test_db_check_constraint_rejects_reserved_greater_than_quantity_on_raw_insert(self):
+        """Database CheckConstraint rejects reserved_quantity > quantity on raw insert."""
+        with self.assertRaises(IntegrityError):
+            InventoryItem.objects.bulk_create([
+                InventoryItem(
+                    shop=self.shop1,
+                    product=self.product1,
+                    variant=None,
+                    quantity=Decimal("5.000"),
+                    reserved_quantity=Decimal("6.000"),
+                )
+            ])
+
+    def test_db_unique_constraint_rejects_duplicate_product_stock_on_raw_insert(self):
+        """Database UniqueConstraint rejects duplicate (shop, product) records where variant is null."""
+        # Initial item was already created by signal on ShopProduct creation
+        self.assertTrue(InventoryItem.objects.filter(shop=self.shop1, product=self.product1, variant__isnull=True).exists())
+
+        # Attempting to bulk_create a second product-level record for the same shop & product
+        with self.assertRaises(IntegrityError):
+            InventoryItem.objects.bulk_create([
+                InventoryItem(
+                    shop=self.shop1,
+                    product=self.product1,
+                    variant=None,
+                    quantity=Decimal("10.000"),
+                )
+            ])
+
+    def test_db_unique_constraint_rejects_duplicate_variant_stock_on_raw_insert(self):
+        """Database UniqueConstraint rejects duplicate (shop, variant) records."""
+        variant = ProductVariant.objects.create(product=self.product1, name="1 kg")
+        self.assertTrue(InventoryItem.objects.filter(shop=self.shop1, variant=variant).exists())
+
+        # Attempting to bulk_create a second variant-level record for the same shop & variant
+        with self.assertRaises(IntegrityError):
+            InventoryItem.objects.bulk_create([
+                InventoryItem(
+                    shop=self.shop1,
+                    product=self.product1,
+                    variant=variant,
+                    quantity=Decimal("5.000"),
+                )
+            ])
+
+    def test_shop_isolation_rejects_cross_shop_product_assignment(self):
+        """InventoryItem cannot reference a product belonging to a different shop."""
+        item = InventoryItem(
+            shop=self.shop1,
+            product=self.product2,  # belongs to shop2!
+            variant=None,
+            quantity=Decimal("10.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.clean()
+        self.assertIn("shop", cm.exception.message_dict)
+
+    def test_shop_isolation_rejects_cross_shop_variant_assignment(self):
+        """InventoryItem cannot reference a variant whose product belongs to a different shop."""
+        var2 = ProductVariant.objects.create(product=self.product2, name="500g")
+        item = InventoryItem(
+            shop=self.shop1,
+            product=self.product2,
+            variant=var2,
+            quantity=Decimal("10.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.clean()
+        self.assertIn("shop", cm.exception.message_dict)
+
+    def test_valid_product_reference_rejects_mismatched_variant(self):
+        """Variant must belong to the specified product in InventoryItem."""
+        var1 = ProductVariant.objects.create(product=self.product1, name="1 kg")
+        product_other = ShopProduct.objects.create(shop=self.shop1, name="Tea")
+
+        item = InventoryItem(
+            shop=self.shop1,
+            product=product_other,
+            variant=var1,  # belongs to product1, not product_other!
+            quantity=Decimal("5.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.clean()
+        self.assertIn("variant", cm.exception.message_dict)
+
+    def test_finalized_relationship_to_catalog_cascading_deletion(self):
+        """
+        When a Shop, ShopProduct, or ProductVariant is removed from the Catalog,
+        its Inventory records are cascade-deleted per Section 6 of inventory.md.
+        """
+        product = ShopProduct.objects.create(shop=self.shop1, name="Seasonal Dates")
+        var = ProductVariant.objects.create(product=product, name="500g Box")
+
+        var_id = var.id
+        prod_id = product.id
+
+        self.assertTrue(InventoryItem.objects.filter(variant_id=var_id).exists())
+
+        # 1. Variant deletion cascades to its InventoryItem
+        var.delete()
+        self.assertFalse(InventoryItem.objects.filter(variant_id=var_id).exists())
+
+        # 2. Product deletion cascades to its InventoryItems
+        product.delete()
+        self.assertFalse(InventoryItem.objects.filter(product_id=prod_id).exists())
+
+        # 3. Shop deletion cascades to all its InventoryItems
+        temp_user = User.objects.create_user(
+            username="merchant_temp",
+            email="merchant_temp@example.com",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+            mobile_number="+919876543999",
+        )
+        temp_merchant = Merchant.objects.create(
+            user=temp_user,
+            status=Merchant.Status.ACTIVE,
+        )
+        shop_test = Shop.objects.create(
+            merchant=temp_merchant,
+            name="Temporary Shop",
+            address_line="789 Lane",
+            area="Area",
+            city="City",
+            state="State",
+            pincode="123458",
+            contact_number="+919876543999",
+        )
+        prod_temp = ShopProduct.objects.create(shop=shop_test, name="Temp Item")
+        temp_shop_id = shop_test.id
+
+        self.assertTrue(InventoryItem.objects.filter(shop_id=temp_shop_id).exists())
+        shop_test.delete()
+        self.assertFalse(InventoryItem.objects.filter(shop_id=temp_shop_id).exists())
+
+
