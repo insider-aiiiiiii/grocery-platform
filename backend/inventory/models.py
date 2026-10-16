@@ -4,6 +4,30 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q
 
+QUANTITY_PRECISION = Decimal("0.001")
+
+
+def quantize_quantity(amount: Decimal | str | int | float) -> Decimal:
+    """
+    Validates and quantizes a quantity amount to 3 decimal places.
+    Rejects negative values and inputs with more than 3 decimal places.
+    """
+    if amount is None:
+        raise ValidationError("Quantity cannot be None.")
+    try:
+        dec = Decimal(str(amount))
+    except Exception as e:
+        raise ValidationError(f"Invalid decimal quantity: {amount}") from e
+
+    # Check decimal places
+    if dec.as_tuple().exponent < -3:
+        raise ValidationError("Quantity cannot have more than 3 decimal places.")
+
+    dec = dec.quantize(QUANTITY_PRECISION)
+    if dec < Decimal("0.000"):
+        raise ValidationError("Quantity cannot be negative.")
+    return dec
+
 
 class InventoryItem(models.Model):
     """
@@ -99,11 +123,17 @@ class InventoryItem(models.Model):
                     "product": "Variant-based products cannot have an independent product-level inventory record. Variant stock is authoritative."
                 })
 
-        if self.quantity is not None and self.quantity < Decimal("0.000"):
-            raise ValidationError({"quantity": "Stock quantity cannot be negative."})
+        if self.quantity is not None:
+            if self.quantity < Decimal("0.000"):
+                raise ValidationError({"quantity": "Stock quantity cannot be negative."})
+            if self.quantity.as_tuple().exponent < -3:
+                raise ValidationError({"quantity": "Quantity cannot have more than 3 decimal places."})
 
-        if self.reserved_quantity is not None and self.reserved_quantity < Decimal("0.000"):
-            raise ValidationError({"reserved_quantity": "Reserved quantity cannot be negative."})
+        if self.reserved_quantity is not None:
+            if self.reserved_quantity < Decimal("0.000"):
+                raise ValidationError({"reserved_quantity": "Reserved quantity cannot be negative."})
+            if self.reserved_quantity.as_tuple().exponent < -3:
+                raise ValidationError({"reserved_quantity": "Reserved quantity cannot have more than 3 decimal places."})
 
         if (
             self.quantity is not None
@@ -133,65 +163,47 @@ class InventoryItem(models.Model):
         """True if available quantity is zero or less."""
         return self.available_quantity <= Decimal("0.000")
 
-    def set_quantity(self, amount: Decimal):
+    def set_quantity(self, amount: Decimal | str | int | float):
         """Sets the exact stock quantity."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Stock quantity cannot be negative.")
+        amount = quantize_quantity(amount)
         if amount < self.reserved_quantity:
             raise ValidationError("Cannot set quantity lower than currently reserved quantity.")
         self.quantity = amount
         self.save()
 
-    def add_stock(self, amount: Decimal):
+    def add_stock(self, amount: Decimal | str | int | float):
         """Adds stock to on-hand inventory."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Stock amount to add must be non-negative.")
+        amount = quantize_quantity(amount)
         self.quantity += amount
         self.save()
 
-    def subtract_stock(self, amount: Decimal):
+    def subtract_stock(self, amount: Decimal | str | int | float):
         """Subtracts stock from on-hand inventory."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Stock amount to subtract must be non-negative.")
+        amount = quantize_quantity(amount)
         if self.quantity - amount < self.reserved_quantity:
             raise ValidationError("Cannot subtract stock below reserved quantity.")
         self.quantity -= amount
         self.save()
 
-    def reserve_stock(self, amount: Decimal):
+    def reserve_stock(self, amount: Decimal | str | int | float):
         """Reserves stock when an order is created."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Reservation amount must be non-negative.")
+        amount = quantize_quantity(amount)
         if amount > self.available_quantity:
             raise ValidationError("Cannot reserve more than currently available stock.")
         self.reserved_quantity += amount
         self.save()
 
-    def release_reserved_stock(self, amount: Decimal):
+    def release_reserved_stock(self, amount: Decimal | str | int | float):
         """Releases reserved stock when an order is rejected or cancelled before acceptance."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Release amount must be non-negative.")
+        amount = quantize_quantity(amount)
         if amount > self.reserved_quantity:
             raise ValidationError("Cannot release more than currently reserved stock.")
         self.reserved_quantity -= amount
         self.save()
 
-    def deduct_reserved_stock(self, amount: Decimal):
+    def deduct_reserved_stock(self, amount: Decimal | str | int | float):
         """Deducts stock when an order is accepted (reserved becomes deducted)."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Deduct amount must be non-negative.")
+        amount = quantize_quantity(amount)
         if amount > self.reserved_quantity:
             raise ValidationError("Cannot deduct more than currently reserved stock.")
         if amount > self.quantity:
@@ -200,11 +212,8 @@ class InventoryItem(models.Model):
         self.quantity -= amount
         self.save()
 
-    def restore_deducted_stock(self, amount: Decimal):
+    def restore_deducted_stock(self, amount: Decimal | str | int | float):
         """Restores deducted stock when an accepted order is cancelled."""
-        if not isinstance(amount, Decimal):
-            amount = Decimal(str(amount))
-        if amount < Decimal("0.000"):
-            raise ValidationError("Restoration amount must be non-negative.")
+        amount = quantize_quantity(amount)
         self.quantity += amount
         self.save()

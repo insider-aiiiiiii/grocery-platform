@@ -7,8 +7,21 @@ from django.test import TestCase
 from catalog.models import ProductVariant, ShopProduct
 from shops.models import Shop
 from users.models import Merchant, User
-from .models import InventoryItem
-from .services import adjust_stock, get_product_stock, get_variant_stock
+from .models import InventoryItem, quantize_quantity
+from .services import (
+    adjust_stock,
+    deduct_order_items_stock,
+    deduct_order_stock,
+    get_product_stock,
+    get_variant_stock,
+    reduce_and_accept_order_stock,
+    release_order_items_stock,
+    release_order_stock,
+    reserve_order_items_stock,
+    reserve_order_stock,
+    restore_cancelled_order_stock,
+    restore_order_items_stock,
+)
 
 
 class InventoryBaseTestCase(TestCase):
@@ -370,3 +383,223 @@ class InventoryServiceTests(InventoryBaseTestCase):
         # Cross-tenant modification rejected
         with self.assertRaises(ValidationError):
             adjust_stock(self.shop2, product, set_quantity=Decimal("10.000"))
+
+
+class OrderFlowStockLifecycleTests(InventoryBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Honey",
+            price=Decimal("350.00"),
+        )
+        adjust_stock(self.shop1, self.product, set_quantity=Decimal("50.000"))
+
+    def test_full_order_acceptance_lifecycle(self):
+        """
+        Flow 1: Order Created -> Required Quantity Reserved -> Merchant Accepts -> Reserved Quantity Deducted.
+        """
+        # Step 1: Order Created: Reserve 10.500 units
+        item = reserve_order_stock(self.shop1, self.product, Decimal("10.500"))
+        self.assertEqual(item.quantity, Decimal("50.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("10.500"))
+        self.assertEqual(item.available_quantity, Decimal("39.500"))
+
+        # Step 2: Merchant Accepts: 10.500 units deducted from on-hand stock
+        item = deduct_order_stock(self.shop1, self.product, Decimal("10.500"))
+        self.assertEqual(item.quantity, Decimal("39.500"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("39.500"))
+
+    def test_order_rejection_or_cancellation_releases_reserved_stock(self):
+        """
+        Flow 2: Order Created -> Quantity Reserved -> Order Rejected/Expired/Cancelled by customer -> Released.
+        """
+        item = reserve_order_stock(self.shop1, self.product, Decimal("15.000"))
+        self.assertEqual(item.available_quantity, Decimal("35.000"))
+
+        # Order Rejected or Expired or Cancelled while PENDING -> release reserved quantity
+        item = release_order_stock(self.shop1, self.product, Decimal("15.000"))
+        self.assertEqual(item.quantity, Decimal("50.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("50.000"))
+
+    def test_cancellation_after_acceptance_restores_deducted_stock(self):
+        """
+        Flow 3: Order Accepted -> Deducted -> Cancelled before preparation -> Deducted quantity restored.
+        """
+        reserve_order_stock(self.shop1, self.product, Decimal("20.000"))
+        deduct_order_stock(self.shop1, self.product, Decimal("20.000"))
+
+        item = InventoryItem.objects.get(product=self.product, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("30.000"))
+        self.assertEqual(item.available_quantity, Decimal("30.000"))
+
+        # Merchant cancels accepted order before PREPARING -> restore stock
+        item = restore_cancelled_order_stock(self.shop1, self.product, Decimal("20.000"))
+        self.assertEqual(item.quantity, Decimal("50.000"))
+        self.assertEqual(item.available_quantity, Decimal("50.000"))
+
+    def test_merchant_manual_fulfillment_reduction_before_acceptance(self):
+        """
+        Flow 4: Customer requested 5.000 units, but merchant only fulfills 3.000 units.
+        The unfulfilled difference (2.000) is released, and 3.000 is deducted atomically.
+        """
+        # Customer placed order requesting 5.000 units (reserved)
+        reserve_order_stock(self.shop1, self.product, Decimal("5.000"))
+        item = InventoryItem.objects.get(product=self.product, variant__isnull=True)
+        self.assertEqual(item.reserved_quantity, Decimal("5.000"))
+        self.assertEqual(item.available_quantity, Decimal("45.000"))
+
+        # Merchant manually reduces fulfillable quantity to 3.000 and accepts
+        item = reduce_and_accept_order_stock(
+            self.shop1,
+            self.product,
+            original_reserved=Decimal("5.000"),
+            accepted_quantity=Decimal("3.000"),
+        )
+        # On-hand drops by accepted quantity (50 - 3 = 47)
+        self.assertEqual(item.quantity, Decimal("47.000"))
+        # Reserved drops to 0
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        # Available stock is now 47.000 (45 + 2 unfulfilled released)
+        self.assertEqual(item.available_quantity, Decimal("47.000"))
+
+    def test_insufficient_stock_rejection(self):
+        """Reserving more than available stock raises ValidationError."""
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_stock(self.shop1, self.product, Decimal("60.000"))
+        self.assertIn("Insufficient available stock", str(cm.exception))
+
+    def test_reduce_and_accept_invalid_quantity(self):
+        """Accepted quantity cannot exceed originally reserved quantity."""
+        reserve_order_stock(self.shop1, self.product, Decimal("5.000"))
+        with self.assertRaises(ValidationError) as cm:
+            reduce_and_accept_order_stock(
+                self.shop1,
+                self.product,
+                original_reserved=Decimal("5.000"),
+                accepted_quantity=Decimal("6.000"),
+            )
+        self.assertIn("Accepted quantity cannot exceed", str(cm.exception))
+
+
+class BatchOrderStockAtomicTests(InventoryBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.prod_a = ShopProduct.objects.create(shop=self.shop1, name="Item A")
+        self.prod_b = ShopProduct.objects.create(shop=self.shop1, name="Item B")
+        self.prod_c = ShopProduct.objects.create(shop=self.shop1, name="Item C")
+
+        adjust_stock(self.shop1, self.prod_a, set_quantity=Decimal("10.000"))
+        adjust_stock(self.shop1, self.prod_b, set_quantity=Decimal("20.000"))
+        adjust_stock(self.shop1, self.prod_c, set_quantity=Decimal("5.000"))
+
+    def test_batch_reservation_success(self):
+        """All items in order reserved atomically."""
+        items_and_qty = [
+            (self.prod_a, Decimal("2.000")),
+            (self.prod_b, Decimal("5.000")),
+            (self.prod_c, Decimal("1.500")),
+        ]
+        reserve_order_items_stock(self.shop1, items_and_qty)
+
+        item_a = InventoryItem.objects.get(product=self.prod_a, variant__isnull=True)
+        item_b = InventoryItem.objects.get(product=self.prod_b, variant__isnull=True)
+        item_c = InventoryItem.objects.get(product=self.prod_c, variant__isnull=True)
+
+        self.assertEqual(item_a.reserved_quantity, Decimal("2.000"))
+        self.assertEqual(item_b.reserved_quantity, Decimal("5.000"))
+        self.assertEqual(item_c.reserved_quantity, Decimal("1.500"))
+
+    def test_batch_reservation_rollback_when_one_item_insufficient(self):
+        """
+        When any single line item has insufficient stock, the entire order reservation
+        rolls back atomically and no stock is reserved.
+        """
+        items_and_qty = [
+            (self.prod_a, Decimal("2.000")),
+            (self.prod_b, Decimal("5.000")),
+            (self.prod_c, Decimal("10.000")),  # prod_c only has 5.000!
+        ]
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_items_stock(self.shop1, items_and_qty)
+        self.assertIn("Insufficient stock for 'Item C'", str(cm.exception))
+
+        # Check atomicity: prod_a and prod_b must NOT have reserved stock!
+        item_a = InventoryItem.objects.get(product=self.prod_a, variant__isnull=True)
+        item_b = InventoryItem.objects.get(product=self.prod_b, variant__isnull=True)
+        item_c = InventoryItem.objects.get(product=self.prod_c, variant__isnull=True)
+
+        self.assertEqual(item_a.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item_b.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item_c.reserved_quantity, Decimal("0.000"))
+
+    def test_batch_deduct_and_restore(self):
+        """Multi-item deduction and restoration work atomically."""
+        items_and_qty = [
+            (self.prod_a, Decimal("4.000")),
+            (self.prod_b, Decimal("10.000")),
+        ]
+        reserve_order_items_stock(self.shop1, items_and_qty)
+        deduct_order_items_stock(self.shop1, items_and_qty)
+
+        item_a = InventoryItem.objects.get(product=self.prod_a, variant__isnull=True)
+        item_b = InventoryItem.objects.get(product=self.prod_b, variant__isnull=True)
+        self.assertEqual(item_a.quantity, Decimal("6.000"))
+        self.assertEqual(item_b.quantity, Decimal("10.000"))
+
+        # Restore
+        restore_order_items_stock(self.shop1, items_and_qty)
+        item_a.refresh_from_db()
+        item_b.refresh_from_db()
+        self.assertEqual(item_a.quantity, Decimal("10.000"))
+        self.assertEqual(item_b.quantity, Decimal("20.000"))
+
+
+class DecimalQuantityEdgeCasesTests(InventoryBaseTestCase):
+    def test_quantize_quantity_helper(self):
+        """Tests exact 3 decimal place quantization and validation."""
+        self.assertEqual(quantize_quantity("1.250"), Decimal("1.250"))
+        self.assertEqual(quantize_quantity("0.001"), Decimal("0.001"))
+        self.assertEqual(quantize_quantity(5), Decimal("5.000"))
+        self.assertEqual(quantize_quantity("10.5"), Decimal("10.500"))
+
+        # Rejects more than 3 decimal places
+        with self.assertRaises(ValidationError) as cm:
+            quantize_quantity("1.2345")
+        self.assertIn("cannot have more than 3 decimal places", str(cm.exception))
+
+        # Rejects negative values
+        with self.assertRaises(ValidationError) as cm:
+            quantize_quantity("-0.001")
+        self.assertIn("cannot be negative", str(cm.exception))
+
+    def test_boundary_zero_stock_quantities(self):
+        """Zero stock quantity is permitted, exactly 0.000."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Out of Stock Item")
+        item = InventoryItem.objects.get(product=product, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+
+class AntiBloatVerificationTests(TestCase):
+    def test_no_persistent_movement_ledger_or_low_stock_threshold(self):
+        """
+        Verifies compliance with Section 11 and Section 8 of inventory.md:
+        - The MVP stores current stock state and does not maintain a persistent inventory movement/history ledger.
+        - The MVP has no low-stock threshold.
+        """
+        # Ensure InventoryItem has no low_stock_threshold field
+        field_names = [f.name for f in InventoryItem._meta.get_fields()]
+        self.assertNotIn("low_stock_threshold", field_names)
+        self.assertNotIn("threshold", field_names)
+        self.assertNotIn("min_stock", field_names)
+
+        # Ensure no movement or ledger models exist in the inventory app
+        from django.apps import apps
+        inventory_models = apps.get_app_config("inventory").get_models()
+        model_names = [m.__name__ for m in inventory_models]
+        self.assertEqual(model_names, ["InventoryItem"])
+
