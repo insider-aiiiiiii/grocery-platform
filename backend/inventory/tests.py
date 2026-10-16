@@ -1,3 +1,372 @@
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase
 
-# Create your tests here.
+from catalog.models import ProductVariant, ShopProduct
+from shops.models import Shop
+from users.models import Merchant, User
+from .models import InventoryItem
+from .services import adjust_stock, get_product_stock, get_variant_stock
+
+
+class InventoryBaseTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user1 = User.objects.create_user(
+            username="merchant_one",
+            email="merchant_one@example.com",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+            mobile_number="+919876543210",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Shop One",
+            address_line="123 Market St",
+            area="Downtown",
+            city="Metropolis",
+            state="Central",
+            pincode="123456",
+            contact_number="+919876543210",
+        )
+
+        self.user2 = User.objects.create_user(
+            username="merchant_two",
+            email="merchant_two@example.com",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+            mobile_number="+919876543211",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Shop Two",
+            address_line="456 High St",
+            area="Uptown",
+            city="Metropolis",
+            state="Central",
+            pincode="123457",
+            contact_number="+919876543211",
+        )
+
+
+class InventoryItemModelTests(InventoryBaseTestCase):
+    def test_newly_created_product_starts_with_zero_stock(self):
+        """A newly created Shop Product automatically initializes with 0.000 stock."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Apples",
+            price=Decimal("120.00"),
+        )
+        item = InventoryItem.objects.filter(shop=self.shop1, product=product, variant__isnull=True).first()
+        self.assertIsNotNone(item)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+    def test_newly_created_variant_starts_with_zero_stock_and_replaces_product_level_stock(self):
+        """
+        When variants are added to a product, variant stock is created with 0.000 stock
+        and the obsolete independent product-level balance is removed.
+        """
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Basmati Rice",
+            price=Decimal("100.00"),
+        )
+        self.assertTrue(InventoryItem.objects.filter(product=product, variant__isnull=True).exists())
+
+        variant1 = ProductVariant.objects.create(
+            product=product,
+            name="1 kg",
+            price=Decimal("100.00"),
+        )
+        variant2 = ProductVariant.objects.create(
+            product=product,
+            name="5 kg",
+            price=Decimal("480.00"),
+        )
+
+        # Authoritative variant items exist with stock 0.000
+        item1 = InventoryItem.objects.filter(variant=variant1).first()
+        item2 = InventoryItem.objects.filter(variant=variant2).first()
+        self.assertIsNotNone(item1)
+        self.assertIsNotNone(item2)
+        self.assertEqual(item1.quantity, Decimal("0.000"))
+        self.assertEqual(item2.quantity, Decimal("0.000"))
+
+        # Obsolete product-level stock item is removed
+        self.assertFalse(InventoryItem.objects.filter(product=product, variant__isnull=True).exists())
+
+    def test_preserve_decimal_quantities(self):
+        """Preserves decimal quantities accurately (e.g. 1.250 kg, 0.750 L)."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Loose Potatoes",
+            price=Decimal("30.00"),
+        )
+        item = InventoryItem.objects.get(product=product, variant__isnull=True)
+        item.set_quantity(Decimal("15.750"))
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("15.750"))
+        self.assertEqual(item.available_quantity, Decimal("15.750"))
+
+    def test_non_negative_quantity_validation_and_check_constraint(self):
+        """Stock quantity cannot become negative."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Carrots",
+            price=Decimal("40.00"),
+        )
+        item = InventoryItem.objects.get(product=product, variant__isnull=True)
+        with self.assertRaises(ValidationError):
+            item.set_quantity(Decimal("-5.000"))
+
+        with self.assertRaises(ValidationError):
+            item.quantity = Decimal("-1.000")
+            item.save()
+
+    def test_reserved_quantity_cannot_exceed_total_quantity(self):
+        """Reserved stock cannot exceed total on-hand stock."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Oranges",
+            price=Decimal("80.00"),
+        )
+        item = InventoryItem.objects.get(product=product, variant__isnull=True)
+        item.set_quantity(Decimal("10.000"))
+
+        with self.assertRaises(ValidationError):
+            item.reserve_stock(Decimal("15.000"))
+
+    def test_tenant_boundary_validation(self):
+        """Inventory item must belong to the same shop as the product."""
+        product2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop Two Bananas",
+            price=Decimal("50.00"),
+        )
+        item = InventoryItem(
+            shop=self.shop1,  # Shop 1 attempting to manage Shop 2 product
+            product=product2,
+            quantity=Decimal("10.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.save()
+        self.assertIn("shop", cm.exception.message_dict)
+
+    def test_variant_must_belong_to_specified_product(self):
+        """Variant in inventory item must belong to the specified product."""
+        product_a = ShopProduct.objects.create(shop=self.shop1, name="Product A")
+        product_b = ShopProduct.objects.create(shop=self.shop1, name="Product B")
+        var_a = ProductVariant.objects.create(product=product_a, name="Var A")
+
+        item = InventoryItem(
+            shop=self.shop1,
+            product=product_b,
+            variant=var_a,
+            quantity=Decimal("5.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.save()
+        self.assertIn("variant", cm.exception.message_dict)
+
+    def test_variant_based_product_rejects_independent_product_level_record(self):
+        """Direct creation of product-level record for a variant-based product is rejected."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Milk")
+        ProductVariant.objects.create(product=product, name="500ml")
+
+        item = InventoryItem(
+            shop=self.shop1,
+            product=product,
+            variant=None,
+            quantity=Decimal("20.000"),
+        )
+        with self.assertRaises(ValidationError) as cm:
+            item.save()
+        self.assertIn("product", cm.exception.message_dict)
+
+    def test_cascade_delete_on_product_and_variant_removal(self):
+        """When a Catalog Product or Variant is removed, its Inventory record is removed with it."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Seasonal Mango")
+        var = ProductVariant.objects.create(product=product, name="1 Dozen")
+
+        self.assertTrue(InventoryItem.objects.filter(variant=var).exists())
+
+        # Removing variant removes inventory record
+        var_id = var.id
+        var.delete()
+        self.assertFalse(InventoryItem.objects.filter(variant_id=var_id).exists())
+
+        # Removing product removes all inventory records
+        prod_id = product.id
+        product.delete()
+        self.assertFalse(InventoryItem.objects.filter(product_id=prod_id).exists())
+
+
+class StockAdjustmentAndOrderFlowTests(InventoryBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Sugar",
+            price=Decimal("45.00"),
+        )
+        self.item = InventoryItem.objects.get(product=self.product, variant__isnull=True)
+
+    def test_merchant_add_and_subtract_stock(self):
+        """Merchant may add, subtract, and set exact stock."""
+        # Set exact stock
+        self.item.set_quantity(Decimal("50.000"))
+        self.assertEqual(self.item.quantity, Decimal("50.000"))
+
+        # Add stock
+        self.item.add_stock(Decimal("25.500"))
+        self.assertEqual(self.item.quantity, Decimal("75.500"))
+
+        # Subtract stock
+        self.item.subtract_stock(Decimal("10.500"))
+        self.assertEqual(self.item.quantity, Decimal("65.000"))
+
+        # Cannot subtract below zero
+        with self.assertRaises(ValidationError):
+            self.item.subtract_stock(Decimal("100.000"))
+
+    def test_order_lifecycle_stock_flow(self):
+        """
+        Verifies:
+        1. Order Created -> Required Quantity Reserved
+        2. Merchant Accepts -> Reserved Quantity Becomes Deducted Stock
+        3. Order Rejected -> Reserved Quantity Released
+        4. Accepted Order Cancelled -> Deducted Quantity Restored
+        """
+        self.item.set_quantity(Decimal("100.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("100.000"))
+
+        # Step 1: Order Created -> Reserve 20.000 units
+        self.item.reserve_stock(Decimal("20.000"))
+        self.assertEqual(self.item.quantity, Decimal("100.000"))
+        self.assertEqual(self.item.reserved_quantity, Decimal("20.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("80.000"))
+
+        # Step 2: Merchant Accepts -> 20.000 reserved becomes deducted stock
+        self.item.deduct_reserved_stock(Decimal("20.000"))
+        self.assertEqual(self.item.quantity, Decimal("80.000"))
+        self.assertEqual(self.item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("80.000"))
+
+        # Step 3: Another Order Created -> Reserve 15.000 units, then Order Rejected -> Released
+        self.item.reserve_stock(Decimal("15.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("65.000"))
+        self.item.release_reserved_stock(Decimal("15.000"))
+        self.assertEqual(self.item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("80.000"))
+
+        # Step 4: Accepted Order Cancelled -> Restores deducted quantity (e.g. 20.000)
+        self.item.restore_deducted_stock(Decimal("20.000"))
+        self.assertEqual(self.item.quantity, Decimal("100.000"))
+        self.assertEqual(self.item.available_quantity, Decimal("100.000"))
+
+
+class InventoryServiceTests(InventoryBaseTestCase):
+    def test_non_variant_product_stock_service(self):
+        """Non-variant product uses product-level stock with is_derived=False."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Green Tea",
+            price=Decimal("150.00"),
+        )
+        item = InventoryItem.objects.get(product=product, variant__isnull=True)
+        item.set_quantity(Decimal("25.000"))
+        item.reserve_stock(Decimal("5.000"))
+
+        stock_info = get_product_stock(product)
+        self.assertFalse(stock_info["is_derived"])
+        self.assertFalse(stock_info["has_variants"])
+        self.assertEqual(stock_info["quantity"], Decimal("25.000"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("5.000"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("20.000"))
+        self.assertFalse(stock_info["is_out_of_stock"])
+
+    def test_variant_based_product_stock_is_authoritative_and_derived(self):
+        """
+        For a variant-based product:
+        - Variant stock is authoritative.
+        - Product-level stock is derived aggregate of variants (is_derived=True).
+        - Direct changes to product-level stock are prohibited.
+        """
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Whole Wheat Flour",
+            price=Decimal("50.00"),
+        )
+        var_1kg = ProductVariant.objects.create(product=product, name="1 kg")
+        var_5kg = ProductVariant.objects.create(product=product, name="5 kg")
+
+        item_1kg = InventoryItem.objects.get(variant=var_1kg)
+        item_5kg = InventoryItem.objects.get(variant=var_5kg)
+
+        item_1kg.set_quantity(Decimal("30.000"))
+        item_1kg.reserve_stock(Decimal("5.000"))
+
+        item_5kg.set_quantity(Decimal("10.000"))
+        item_5kg.reserve_stock(Decimal("2.000"))
+
+        # Variant 1 stock check
+        v1_stock = get_variant_stock(var_1kg)
+        self.assertEqual(v1_stock["quantity"], Decimal("30.000"))
+        self.assertEqual(v1_stock["available_quantity"], Decimal("25.000"))
+
+        # Variant 2 stock check
+        v2_stock = get_variant_stock(var_5kg)
+        self.assertEqual(v2_stock["quantity"], Decimal("10.000"))
+        self.assertEqual(v2_stock["available_quantity"], Decimal("8.000"))
+
+        # Product derived aggregate check
+        prod_stock = get_product_stock(product)
+        self.assertTrue(prod_stock["is_derived"])
+        self.assertTrue(prod_stock["has_variants"])
+        self.assertEqual(prod_stock["quantity"], Decimal("40.000"))  # 30 + 10
+        self.assertEqual(prod_stock["reserved_quantity"], Decimal("7.000"))  # 5 + 2
+        self.assertEqual(prod_stock["available_quantity"], Decimal("33.000"))  # 40 - 7
+        self.assertFalse(prod_stock["is_out_of_stock"])
+
+        # Attempting to modify aggregate product stock directly is superseded and prohibited
+        with self.assertRaises(ValidationError) as cm:
+            adjust_stock(self.shop1, product, set_quantity=Decimal("50.000"))
+        self.assertIn("superseded and not permitted", str(cm.exception))
+
+    def test_adjust_stock_service_helper(self):
+        """adjust_stock helper modifies stock correctly and enforces shop authorization."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cooking Oil",
+            price=Decimal("180.00"),
+        )
+        # Set quantity via service
+        item = adjust_stock(self.shop1, product, set_quantity=Decimal("20.000"))
+        self.assertEqual(item.quantity, Decimal("20.000"))
+
+        # Add delta
+        adjust_stock(self.shop1, product, delta=Decimal("5.500"))
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("25.500"))
+
+        # Subtract delta
+        adjust_stock(self.shop1, product, delta=Decimal("-3.500"))
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("22.000"))
+
+        # Cross-tenant modification rejected
+        with self.assertRaises(ValidationError):
+            adjust_stock(self.shop2, product, set_quantity=Decimal("10.000"))
