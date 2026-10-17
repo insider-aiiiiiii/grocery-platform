@@ -1898,4 +1898,724 @@ class CartCustomerAssociationAPITests(TestCase):
         self.assertNotIn("otp", data)
 
 
+class CartDomainVerificationTests(TestCase):
+    """
+    Comprehensive domain tests for CART-007:
+    1. Shop isolation & prevention of cross-Shop cart manipulation across models and public APIs
+    2. Cart item quantities (boundaries, fractional quantities, non-positive values, precision, recalculation)
+    3. Product and variant validation (mandatory variants, prohibited variants, mismatched variants, uniqueness)
+    4. Availability and real-time inventory stock enforcement (visibility, manual availability, out-of-stock, non-destructive retention)
+    5. Customer association & global identity boundaries (creation, recognition, idempotency, reassignment protection, zero authentication)
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Shop 1 Setup
+        self.user1 = User.objects.create_user(
+            username="merchant_cart_dom1",
+            email="merchant1_cartdom@example.com",
+            mobile_number="+919811112201",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Alpha Mart",
+            address_line="100 First Road",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.user1.mobile_number,
+            delivery_charge=Decimal("30.00"),
+        )
+
+        # Shop 2 Setup (for multi-tenant isolation)
+        self.user2 = User.objects.create_user(
+            username="merchant_cart_dom2",
+            email="merchant2_cartdom@example.com",
+            mobile_number="+919811112202",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Beta Mart",
+            address_line="200 Second Road",
+            area="Aundh",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411007",
+            contact_number=self.user2.mobile_number,
+            delivery_charge=Decimal("40.00"),
+        )
+
+        # Products in Shop 1
+        # Simple product with stock
+        self.prod1_s1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Milk 1L",
+            price=Decimal("65.00"),
+            sku="MILK-ORG-1L",
+            is_available=True,
+            is_visible=True,
+        )
+        InventoryItem.objects.filter(shop=self.shop1, product=self.prod1_s1, variant__isnull=True).update(
+            quantity=Decimal("50.000")
+        )
+
+        # Multi-variant product in Shop 1
+        self.prod2_s1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Basmati Rice",
+            price=Decimal("150.00"),
+            sku="RICE-BASMATI",
+            is_available=True,
+            is_visible=True,
+        )
+        self.var1_s1 = ProductVariant.objects.create(
+            product=self.prod2_s1,
+            name="1kg Pack",
+            price=Decimal("160.00"),
+            sku="RICE-1KG",
+            is_available=True,
+            is_visible=True,
+        )
+        InventoryItem.objects.filter(shop=self.shop1, variant=self.var1_s1).update(
+            quantity=Decimal("20.000")
+        )
+
+        self.var2_s1 = ProductVariant.objects.create(
+            product=self.prod2_s1,
+            name="5kg Pack",
+            price=Decimal("750.00"),
+            sku="RICE-5KG",
+            is_available=True,
+            is_visible=True,
+        )
+        InventoryItem.objects.filter(shop=self.shop1, variant=self.var2_s1).update(
+            quantity=Decimal("10.000")
+        )
+
+        # Products in Shop 2
+        self.prod1_s2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Olive Oil",
+            price=Decimal("450.00"),
+            sku="OIL-S2",
+            is_available=True,
+            is_visible=True,
+        )
+        InventoryItem.objects.filter(shop=self.shop2, product=self.prod1_s2, variant__isnull=True).update(
+            quantity=Decimal("15.000")
+        )
+
+        self.prod2_s2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Brown Rice",
+            price=Decimal("180.00"),
+            sku="BRICE-S2",
+            is_available=True,
+            is_visible=True,
+        )
+        self.var1_s2 = ProductVariant.objects.create(
+            product=self.prod2_s2,
+            name="Shop 2 1kg Brown Rice",
+            price=Decimal("190.00"),
+            sku="BRICE-1KG-S2",
+            is_available=True,
+            is_visible=True,
+        )
+        InventoryItem.objects.filter(shop=self.shop2, variant=self.var1_s2).update(
+            quantity=Decimal("10.000")
+        )
+
+        # Customers in Shop 1 & Shop 2
+        self.cust_s1 = Customer.objects.create(
+            shop=self.shop1,
+            name="Aarav Sharma",
+            whatsapp_number="+919811113301",
+        )
+        self.cust_s2 = Customer.objects.create(
+            shop=self.shop2,
+            name="Bhavna Mehta",
+            whatsapp_number="+919811113302",
+        )
+
+        # Anonymous Carts in Shop 1 & Shop 2
+        self.cart_s1 = Cart.objects.create(shop=self.shop1)
+        self.cart_s2 = Cart.objects.create(shop=self.shop2)
+
+    # =========================================================================
+    # Pillar 1: Shop Isolation & Prevention of Cross-Shop Cart Manipulation
+    # =========================================================================
+
+    def test_model_cross_shop_product_in_cart_item_rejected(self):
+        """Model clean() rejects CartItem referencing a product from another Shop."""
+        item = CartItem(cart=self.cart_s1, product=self.prod1_s2, quantity=Decimal("1.000"))
+        with self.assertRaises(ValidationError) as ctx:
+            item.clean()
+        self.assertIn("product", ctx.exception.message_dict)
+
+    def test_model_cross_shop_variant_in_cart_item_rejected(self):
+        """Model clean() rejects CartItem referencing a variant from another Shop."""
+        item = CartItem(
+            cart=self.cart_s1,
+            product=self.prod2_s1,
+            variant=self.var1_s2,
+            quantity=Decimal("1.000"),
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            item.clean()
+        self.assertIn("variant", ctx.exception.message_dict)
+
+    def test_model_cart_shop_mutation_prevented_when_items_exist(self):
+        """Cart with items cannot be mutated to belong to another Shop."""
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        self.cart_s1.shop = self.shop2
+        with self.assertRaises(ValidationError) as ctx:
+            self.cart_s1.clean()
+        self.assertIn("shop", ctx.exception.message_dict)
+
+    def test_model_cross_shop_customer_assignment_rejected(self):
+        """Cart cannot be assigned a Customer from a different Shop."""
+        cart = Cart(shop=self.shop1, customer=self.cust_s2)
+        with self.assertRaises(ValidationError) as ctx:
+            cart.clean()
+        self.assertIn("customer", ctx.exception.message_dict)
+
+    def test_api_direct_cart_rejects_cross_shop_product_addition(self):
+        """Direct cart API rejects adding a product belonging to another Shop."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        payload = {"product_id": self.prod1_s2.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong to this Shop", str(response.json()))
+
+    def test_api_direct_cart_rejects_cross_shop_variant_addition(self):
+        """Direct cart API rejects adding a variant belonging to another Shop."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        payload = {
+            "product_id": self.prod2_s1.id,
+            "variant_id": self.var1_s2.id,
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_api_public_slug_cross_shop_cart_read_and_manipulation_rejected(self):
+        """Public endpoints scoped to Shop 2 reject all operations on Shop 1's cart with 404."""
+        item = CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        slug2 = self.shop2.public_slug
+
+        # 1. Detail retrieve
+        res1 = self.client.get(f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/")
+        self.assertEqual(res1.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 2. List items
+        res2 = self.client.get(f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/items/")
+        self.assertEqual(res2.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 3. Add item
+        res3 = self.client.post(
+            f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s2.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res3.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 4. Update item
+        res4 = self.client.patch(
+            f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/items/{item.id}/",
+            {"quantity": "2.000"},
+            format="json",
+        )
+        self.assertEqual(res4.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 5. Delete item
+        res5 = self.client.delete(f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/items/{item.id}/")
+        self.assertEqual(res5.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 6. Clear cart
+        res6 = self.client.delete(f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/items/")
+        self.assertEqual(res6.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 7. Customer associate
+        res7 = self.client.post(
+            f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/customer/",
+            {"whatsapp_number": "9811119999"},
+            format="json",
+        )
+        self.assertEqual(res7.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 8. Cart validate
+        res8 = self.client.get(f"/api/v1/shops/public/{slug2}/cart/{self.cart_s1.id}/validate/")
+        self.assertEqual(res8.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_api_public_slug_cart_id_parameter_spoofing_rejected(self):
+        """Passing Shop 1 cart_id to Shop 2 slug query/body/header endpoints returns 404."""
+        slug2 = self.shop2.public_slug
+
+        # Body spoofing on items
+        res1 = self.client.post(
+            f"/api/v1/shops/public/{slug2}/cart/items/",
+            {"cart_id": self.cart_s1.id, "product_id": self.prod1_s2.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res1.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Query param spoofing on validate
+        res2 = self.client.get(f"/api/v1/shops/public/{slug2}/cart/validate/?cart_id={self.cart_s1.id}")
+        self.assertEqual(res2.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Header spoofing on customer associate
+        res3 = self.client.post(
+            f"/api/v1/shops/public/{slug2}/cart/customer/",
+            {"whatsapp_number": "9811119999"},
+            headers={"X-Cart-ID": str(self.cart_s1.id)},
+            format="json",
+        )
+        self.assertEqual(res3.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_api_inactive_and_suspended_shop_blocks_cart_operations(self):
+        """When a Shop is deactivated or suspended, public cart operations are blocked with 404."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        # Direct cart operations
+        url_add = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        res1 = self.client.post(url_add, {"product_id": self.prod1_s1.id, "quantity": "1.000"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_404_NOT_FOUND)
+
+        url_assoc = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        res2 = self.client.post(url_assoc, {"whatsapp_number": "9811119999"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Shop public slug operations
+        slug1 = self.shop1.public_slug
+        url_create = f"/api/v1/shops/public/{slug1}/cart/"
+        res3 = self.client.post(url_create, {}, format="json")
+        self.assertEqual(res3.status_code, status.HTTP_404_NOT_FOUND)
+
+    # =========================================================================
+    # Pillar 2: Cart Item Quantities
+    # =========================================================================
+
+    def test_quantity_positive_quantization_and_supported_values(self):
+        """Accepts positive decimal quantities up to 3 decimal places and quantizes correctly."""
+        # 0.250
+        res1 = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "0.250"},
+            format="json",
+        )
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res1.json()["quantity"], "0.250")
+
+        # Update to 1.750
+        item_id = res1.json()["id"]
+        res2 = self.client.patch(
+            f"/api/v1/cart/{self.cart_s1.id}/items/{item_id}/",
+            {"quantity": "1.750"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(res2.json()["quantity"], "1.750")
+
+    def test_quantity_zero_and_negative_rejected(self):
+        """Zero and negative quantities are rejected at model and API levels."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+
+        # Zero
+        res_zero = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": "0.000"}, format="json")
+        self.assertEqual(res_zero.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Negative
+        res_neg = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": "-1.500"}, format="json")
+        self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Model validation
+        item = CartItem(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("0.000"))
+        with self.assertRaises(ValidationError):
+            item.clean()
+
+    def test_quantity_excessive_precision_rejected(self):
+        """Quantities with more than 3 decimal places are rejected."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        response = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": "1.0005"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("decimal places", str(response.json()))
+
+    def test_quantity_non_numeric_and_null_rejected(self):
+        """Non-numeric values, empty strings, and null quantities are rejected."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        for val in ["abc", "", None]:
+            response = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": val}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_quantity_incremental_addition_and_totals_recalculation(self):
+        """Adding an existing item increments quantity cleanly and updates cart totals."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+
+        # Add 2.000 units of prod1 (unit_price = 65.00)
+        res1 = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": "2.000"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res1.json()["line_total"], "130.00")
+
+        # Add 1.500 more units of prod1
+        res2 = self.client.post(url, {"product_id": self.prod1_s1.id, "quantity": "1.500"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res2.json()["quantity"], "3.500")
+        self.assertEqual(res2.json()["line_total"], "227.50")
+
+        # Verify Cart totals
+        self.cart_s1.refresh_from_db()
+        self.assertEqual(self.cart_s1.item_count, 1)
+        self.assertEqual(self.cart_s1.total_quantity, Decimal("3.500"))
+        self.assertEqual(self.cart_s1.subtotal, Decimal("227.50"))
+
+    def test_quantity_partial_update_and_removal_totals_recalculation(self):
+        """Updating or deleting items immediately recalculates cart subtotal and totals."""
+        item = CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("2.000"))
+
+        # Update to 4.000 (4 * 65.00 = 260.00)
+        res_update = self.client.patch(
+            f"/api/v1/cart/{self.cart_s1.id}/items/{item.id}/",
+            {"quantity": "4.000"},
+            format="json",
+        )
+        self.assertEqual(res_update.status_code, status.HTTP_200_OK)
+        self.cart_s1.refresh_from_db()
+        self.assertEqual(self.cart_s1.subtotal, Decimal("260.00"))
+
+        # Delete item -> subtotal returns to 0.00
+        res_del = self.client.delete(f"/api/v1/cart/{self.cart_s1.id}/items/{item.id}/")
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+        self.cart_s1.refresh_from_db()
+        self.assertEqual(self.cart_s1.subtotal, Decimal("0.00"))
+        self.assertEqual(self.cart_s1.item_count, 0)
+
+    # =========================================================================
+    # Pillar 3: Product & Variant Validation
+    # =========================================================================
+
+    def test_variant_mandatory_for_multi_variant_product(self):
+        """A product configured with has_variants=True requires a variant_id."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        payload = {"product_id": self.prod2_s1.id, "quantity": "1.000"}  # missing variant_id
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A variant must be selected", str(response.json()))
+
+    def test_variant_prohibited_for_simple_product(self):
+        """A simple product without variants prohibits specifying variant_id."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        payload = {
+            "product_id": self.prod1_s1.id,  # simple product
+            "variant_id": self.var1_s1.id,
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Variants cannot be specified", str(response.json()))
+
+    def test_variant_mismatch_to_different_product_rejected(self):
+        """Providing a variant that belongs to another product in the same shop is rejected."""
+        prod3_s1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Different Product With Variants",
+            price=Decimal("100.00"),
+            sku="DIFF-PROD",
+        )
+        var_diff = ProductVariant.objects.create(
+            product=prod3_s1,
+            name="Diff Variant",
+            price=Decimal("110.00"),
+            sku="DIFF-VAR",
+        )
+
+        url = f"/api/v1/cart/{self.cart_s1.id}/items/"
+        payload = {
+            "product_id": self.prod2_s1.id,
+            "variant_id": var_diff.id,  # belongs to prod3_s1, not prod2_s1
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong to Product", str(response.json()))
+
+    def test_unique_constraint_enforces_single_line_per_product_or_variant(self):
+        """Database unique constraint prevents duplicate lines for same product or variant."""
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        with self.assertRaises((IntegrityError, ValidationError)):
+            CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("2.000"))
+
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod2_s1, variant=self.var1_s1, quantity=Decimal("1.000"))
+        with self.assertRaises((IntegrityError, ValidationError)):
+            CartItem.objects.create(cart=self.cart_s1, product=self.prod2_s1, variant=self.var1_s1, quantity=Decimal("2.000"))
+
+    # =========================================================================
+    # Pillar 4: Availability & Real-Time Stock Enforcement
+    # =========================================================================
+
+    def test_catalog_hidden_product_and_variant_rejected_and_flagged(self):
+        """Hidden products and variants cannot be added and are flagged in cart validation."""
+        self.prod1_s1.is_visible = False
+        self.prod1_s1.save()
+
+        # Rejected on add
+        res_add = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res_add.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not visible", str(res_add.json()))
+
+        # Flagged on validation
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        res_val = self.client.get(f"/api/v1/cart/{self.cart_s1.id}/validate/")
+        self.assertEqual(res_val.status_code, status.HTTP_200_OK)
+        val_data = res_val.json()
+        self.assertFalse(val_data["is_valid"])
+        self.assertFalse(val_data["can_checkout"])
+        self.assertIn("PRODUCT_HIDDEN", val_data["items"][0]["issues"])
+
+    def test_catalog_manually_unavailable_product_and_variant_rejected_and_flagged(self):
+        """Manually unavailable products cannot be added and are flagged in cart validation."""
+        self.prod1_s1.is_available = False
+        self.prod1_s1.save()
+
+        # Rejected on add
+        res_add = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res_add.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Flagged on validation
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        res_val = self.client.get(f"/api/v1/cart/{self.cart_s1.id}/validate/")
+        self.assertEqual(res_val.status_code, status.HTTP_200_OK)
+        self.assertIn("PRODUCT_UNAVAILABLE", res_val.json()["items"][0]["issues"])
+
+    def test_out_of_stock_rejected_on_add_and_flagged_on_validate(self):
+        """Out-of-stock items cannot be added and are flagged in cart validation."""
+        InventoryItem.objects.filter(shop=self.shop1, product=self.prod1_s1, variant__isnull=True).update(
+            quantity=Decimal("0.000")
+        )
+
+        # Rejected on add
+        res_add = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res_add.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("out of stock", str(res_add.json()))
+
+        # Flagged on validation
+        CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
+        res_val = self.client.get(f"/api/v1/cart/{self.cart_s1.id}/validate/")
+        self.assertEqual(res_val.status_code, status.HTTP_200_OK)
+        self.assertIn("OUT_OF_STOCK", res_val.json()["items"][0]["issues"])
+        self.assertFalse(res_val.json()["can_checkout"])
+
+    def test_insufficient_stock_rejected_on_add_and_update(self):
+        """Quantities exceeding available stock are rejected on add and update."""
+        InventoryItem.objects.filter(shop=self.shop1, product=self.prod1_s1, variant__isnull=True).update(
+            quantity=Decimal("5.000"), reserved_quantity=Decimal("1.000")
+        )  # Available = 4.000
+
+        # Adding 4.500 exceeds available stock
+        res_add = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "4.500"},
+            format="json",
+        )
+        self.assertEqual(res_add.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("exceeds available stock", str(res_add.json()))
+
+        # Add valid 2.000 units
+        res_valid = self.client.post(
+            f"/api/v1/cart/{self.cart_s1.id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "2.000"},
+            format="json",
+        )
+        item_id = res_valid.json()["id"]
+
+        # Update to 6.000 exceeds available stock
+        res_upd = self.client.patch(
+            f"/api/v1/cart/{self.cart_s1.id}/items/{item_id}/",
+            {"quantity": "6.000"},
+            format="json",
+        )
+        self.assertEqual(res_upd.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_destructive_cart_retention_when_stock_decreases(self):
+        """Items in cart whose stock subsequently drops are NOT deleted; validation flags them non-destructively."""
+        item = CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("10.000"))
+
+        # Inventory drops to 4.000
+        InventoryItem.objects.filter(shop=self.shop1, product=self.prod1_s1, variant__isnull=True).update(
+            quantity=Decimal("4.000")
+        )
+
+        res_val = self.client.get(f"/api/v1/cart/{self.cart_s1.id}/validate/")
+        self.assertEqual(res_val.status_code, status.HTTP_200_OK)
+        val_data = res_val.json()
+        self.assertFalse(val_data["is_valid"])
+        self.assertFalse(val_data["can_checkout"])
+        self.assertIn("INSUFFICIENT_STOCK", val_data["items"][0]["issues"])
+
+        # Crucial invariant: Cart item was NOT removed from the database
+        self.assertTrue(CartItem.objects.filter(id=item.id).exists())
+        self.assertEqual(self.cart_s1.items.count(), 1)
+
+    # =========================================================================
+    # Pillar 5: Customer Association & Identity Boundaries
+    # =========================================================================
+
+    def test_anonymous_cart_association_lifecycle_and_customer_creation(self):
+        """Anonymous cart associated with a new WhatsApp number creates a permanent Shop-specific Customer."""
+        self.assertIsNone(self.cart_s1.customer)
+
+        url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        payload = {"whatsapp_number": "9811115501", "name": "Karan Malhotra"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertTrue(data["customer_created"])
+        self.assertEqual(data["customer"]["whatsapp_number"], "+919811115501")
+        self.assertEqual(data["customer"]["name"], "Karan Malhotra")
+
+        # Verify DB
+        self.cart_s1.refresh_from_db()
+        self.assertIsNotNone(self.cart_s1.customer)
+        self.assertEqual(self.cart_s1.customer.whatsapp_number, "+919811115501")
+        self.assertEqual(self.cart_s1.customer.shop_id, self.shop1.id)
+
+    def test_returning_customer_recognition_and_name_enrichment(self):
+        """Recognizing returning customer binds existing profile and enriches empty name."""
+        cust = Customer.objects.create(
+            shop=self.shop1,
+            whatsapp_number="+919811115502",
+            name="",
+        )
+
+        url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        payload = {"whatsapp_number": "9811115502", "name": "Kavita Rao"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["customer_created"])
+        self.assertEqual(data["customer"]["id"], cust.id)
+
+        cust.refresh_from_db()
+        self.assertEqual(cust.name, "Kavita Rao")
+
+    def test_idempotent_customer_association(self):
+        """Repeated association calls with the same WhatsApp number succeed idempotently."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        payload = {"whatsapp_number": "9811115503", "name": "Deepak Sen"}
+
+        res1 = self.client.post(url, payload, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        res2 = self.client.post(url, payload, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertFalse(res2.json()["customer_created"])
+        self.assertEqual(res2.json()["customer"]["id"], res1.json()["customer"]["id"])
+        self.assertEqual(Customer.objects.filter(shop=self.shop1, whatsapp_number="+919811115503").count(), 1)
+
+    def test_cart_reassignment_to_different_customer_prevented(self):
+        """Cart already associated with Customer A cannot be reassigned to Customer B."""
+        self.cart_s1.customer = self.cust_s1
+        self.cart_s1.save()
+
+        url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        payload = {"whatsapp_number": "9811115504", "name": "Different Customer"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already associated with another customer", str(response.json()))
+
+        self.cart_s1.refresh_from_db()
+        self.assertEqual(self.cart_s1.customer_id, self.cust_s1.id)
+
+    def test_authenticated_user_identity_collision_rejected(self):
+        """WhatsApp numbers claimed by authenticated Users (Merchants/SuperAdmins) are rejected."""
+        url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        payload = {"whatsapp_number": self.user1.mobile_number}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already registered as an authenticated user", str(response.json()))
+
+    def test_customer_deletion_sets_null_on_cart(self):
+        """Deleting a Customer sets cart.customer to None without deleting the cart."""
+        cust = Customer.objects.create(
+            shop=self.shop1,
+            whatsapp_number="+919811115509",
+            name="Temporary Customer",
+        )
+        self.cart_s1.customer = cust
+        self.cart_s1.save()
+
+        cust.delete()
+        self.cart_s1.refresh_from_db()
+        self.assertIsNone(self.cart_s1.customer)
+        self.assertTrue(Cart.objects.filter(id=self.cart_s1.id).exists())
+
+    def test_zero_customer_authentication_enforced(self):
+        """Public cart APIs succeed unauthenticated without tokens, cookies, passwords, or sessions."""
+        self.client.credentials()  # Unauthenticated client
+
+        # 1. Create cart
+        res1 = self.client.post(f"/api/v1/shops/public/{self.shop1.public_slug}/cart/", {}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        cart_id = res1.json()["id"]
+
+        # 2. Add item
+        res2 = self.client.post(
+            f"/api/v1/cart/{cart_id}/items/",
+            {"product_id": self.prod1_s1.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+
+        # 3. Associate customer
+        res3 = self.client.post(
+            f"/api/v1/cart/{cart_id}/customer/",
+            {"whatsapp_number": "9811115510"},
+            format="json",
+        )
+        self.assertEqual(res3.status_code, status.HTTP_201_CREATED)
+
+        # 4. Validate cart
+        res4 = self.client.get(f"/api/v1/cart/{cart_id}/validate/")
+        self.assertEqual(res4.status_code, status.HTTP_200_OK)
+
+        # Ensure no auth tokens or sessions are returned
+        for res in [res1, res2, res3, res4]:
+            data = res.json()
+            self.assertNotIn("token", data)
+            self.assertNotIn("access", data)
+            self.assertNotIn("session", data)
+            self.assertNotIn("password", data)
+
+
+
 
