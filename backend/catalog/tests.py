@@ -2639,5 +2639,432 @@ class MerchantShopProductAPITests(TestCase):
         self.assertEqual(get_res.data["name"], "Alias Test Item")
 
 
+class MerchantShopCategoryAPITests(TestCase):
+    """
+    Unit and integration tests for Merchant CRUD APIs on Categories and subcategories (CAT-012).
+
+    Validates:
+    - Merchant CRUD control over Shop-owned categories and subcategories.
+    - Preserves Shop ownership: server-side binding to authenticated merchant's shop; client shop_id ignored.
+    - Category deletion leaves assigned products intact and uncategorized per domain rules.
+    - Subcategory parent-child relationships, counts, and tenant-scoped validation.
+    - Strict multi-tenant isolation: Merchant A cannot list, retrieve, update, or delete Merchant B's categories.
+    - Cross-tenant parent category injection rejected with 400.
+    - Self-parenting and cyclic hierarchies rejected with 400.
+    - Filtering by parent (root/subcategories), active status, and search query.
+    - Authorization enforcement on all operations (unauthenticated 401, non-merchant 403, no-shop 404, inactive-shop 403).
+    - URL aliases: /api/v1/catalog/categories/, /api/v1/catalog/shop-categories/, and /api/v1/shops/me/categories/.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant A and Shop A
+        self.user_a = User.objects.create_user(
+            username="merchant_cat_a",
+            mobile_number="+919876543410",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
+            name="Shop A Groceries",
+        )
+
+        # Merchant B and Shop B
+        self.user_b = User.objects.create_user(
+            username="merchant_cat_b",
+            mobile_number="+919876543420",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Shop B Supermart",
+        )
+
+        # Super Admin
+        self.super_admin = User.objects.create_user(
+            username="super_admin_cat12",
+            mobile_number="+919876543430",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        self.base_url = "/api/v1/catalog/categories/"
+
+    def _auth_merchant(self, user):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "password123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_merchant_create_root_category(self):
+        """
+        Merchant can create a top-level category. Server preserves Shop ownership
+        and ignores client-provided shop IDs.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Fresh Dairy",
+            "description": "Milk, butter, and cheese",
+            "slug": "fresh-dairy",
+            "shop": self.shop_b.id,
+            "shop_id": self.shop_b.id,
+        }
+        res = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["name"], "Fresh Dairy")
+        self.assertEqual(res.data["slug"], "fresh-dairy")
+        self.assertEqual(res.data["description"], "Milk, butter, and cheese")
+        self.assertEqual(res.data["shop"], self.shop_a.id)
+        self.assertFalse(res.data["is_subcategory"])
+        self.assertIsNone(res.data["parent"])
+
+        # DB verification
+        cat = ShopCategory.objects.get(id=res.data["id"])
+        self.assertEqual(cat.shop, self.shop_a)
+        self.assertIsNone(cat.parent)
+
+    def test_merchant_create_subcategory(self):
+        """
+        Merchant can create subcategories by setting a valid parent category.
+        """
+        parent = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Beverages",
+            slug="beverages",
+        )
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Fruit Juices",
+            "parent": parent.id,
+            "description": "Cold-pressed juices",
+        }
+        res = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["name"], "Fruit Juices")
+        self.assertEqual(res.data["parent"], parent.id)
+        self.assertEqual(res.data["parent_name"], "Beverages")
+        self.assertTrue(res.data["is_subcategory"])
+
+        subcat = ShopCategory.objects.get(id=res.data["id"])
+        self.assertEqual(subcat.parent, parent)
+        self.assertEqual(subcat.shop, self.shop_a)
+
+    def test_merchant_crud_full_lifecycle(self):
+        """
+        Merchant can list, retrieve, update (PUT/PATCH), and delete categories.
+        """
+        self._auth_merchant(self.user_a)
+        cat = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Bakery",
+            slug="bakery",
+            description="Breads and buns",
+        )
+
+        # Retrieve
+        get_res = self.client.get(f"{self.base_url}{cat.id}/")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["name"], "Bakery")
+        self.assertEqual(get_res.data["subcategories_count"], 0)
+        self.assertEqual(get_res.data["products_count"], 0)
+
+        # Update via PATCH
+        patch_res = self.client.patch(
+            f"{self.base_url}{cat.id}/",
+            {"description": "Artisan breads and fresh buns", "is_active": False},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        cat.refresh_from_db()
+        self.assertEqual(cat.description, "Artisan breads and fresh buns")
+        self.assertFalse(cat.is_active)
+
+        # Update via PUT
+        put_res = self.client.put(
+            f"{self.base_url}{cat.id}/",
+            {"name": "Artisan Bakery", "slug": "artisan-bakery", "is_active": True},
+            format="json",
+        )
+        self.assertEqual(put_res.status_code, status.HTTP_200_OK)
+        cat.refresh_from_db()
+        self.assertEqual(cat.name, "Artisan Bakery")
+        self.assertTrue(cat.is_active)
+
+        # Delete
+        del_res = self.client.delete(f"{self.base_url}{cat.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ShopCategory.objects.filter(id=cat.id).exists())
+
+    def test_category_deletion_preserves_assigned_products(self):
+        """
+        Deleting a category MUST allow assigned products to remain intact,
+        becoming uncategorized per the Catalog domain specification.
+        """
+        self._auth_merchant(self.user_a)
+        cat = ShopCategory.objects.create(
+            shop=self.shop_a,
+            name="Snacks",
+            slug="snacks",
+        )
+        prod = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Potato Chips 50g",
+            price=Decimal("1.50"),
+        )
+        prod.categories.add(cat)
+
+        self.assertFalse(prod.is_uncategorized)
+        self.assertEqual(prod.categories.count(), 1)
+
+        # Delete category via API
+        del_res = self.client.delete(f"{self.base_url}{cat.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Category is gone
+        self.assertFalse(ShopCategory.objects.filter(id=cat.id).exists())
+
+        # Product remains intact and is now uncategorized
+        prod.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=prod.id).exists())
+        self.assertEqual(prod.categories.count(), 0)
+        self.assertTrue(prod.is_uncategorized)
+
+    def test_multi_category_partial_deletion_preserves_remaining_categories(self):
+        """
+        When a product belongs to multiple categories and one is deleted via API,
+        the product remains intact and retains its remaining category relationships.
+        """
+        self._auth_merchant(self.user_a)
+        cat_a = ShopCategory.objects.create(shop=self.shop_a, name="Organic Food", slug="organic-food")
+        cat_b = ShopCategory.objects.create(shop=self.shop_a, name="Pantry Staples", slug="pantry-staples")
+
+        prod = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Organic Rolled Oats 1kg",
+            price=Decimal("4.00"),
+        )
+        prod.categories.add(cat_a, cat_b)
+
+        # Delete Category A via API
+        del_res = self.client.delete(f"{self.base_url}{cat_a.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Product remains intact and still linked to Category B
+        prod.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=prod.id).exists())
+        self.assertEqual(prod.categories.count(), 1)
+        self.assertIn(cat_b, prod.categories.all())
+        self.assertFalse(prod.is_uncategorized)
+
+    def test_multi_tenant_isolation_list_and_retrieve(self):
+        """
+        Merchant A cannot view or retrieve categories belonging to Merchant B.
+        """
+        cat_a = ShopCategory.objects.create(shop=self.shop_a, name="Shop A Category", slug="shop-a-cat")
+        cat_b = ShopCategory.objects.create(shop=self.shop_b, name="Shop B Category", slug="shop-b-cat")
+
+        self._auth_merchant(self.user_a)
+
+        # Listing only includes Shop A categories
+        list_res = self.client.get(self.base_url)
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+        ids = [item["id"] for item in list_res.data]
+        self.assertIn(cat_a.id, ids)
+        self.assertNotIn(cat_b.id, ids)
+
+        # Retrieve own category
+        get_a = self.client.get(f"{self.base_url}{cat_a.id}/")
+        self.assertEqual(get_a.status_code, status.HTTP_200_OK)
+
+        # Retrieve Merchant B's category -> 404
+        get_b = self.client.get(f"{self.base_url}{cat_b.id}/")
+        self.assertEqual(get_b.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_multi_tenant_isolation_update_and_delete(self):
+        """
+        Merchant A cannot update or delete Merchant B's categories.
+        """
+        cat_b = ShopCategory.objects.create(shop=self.shop_b, name="Secret Category B", slug="secret-b")
+        self._auth_merchant(self.user_a)
+
+        # Update attempt -> 404
+        patch_res = self.client.patch(f"{self.base_url}{cat_b.id}/", {"name": "Hacked Name"}, format="json")
+        self.assertEqual(patch_res.status_code, status.HTTP_404_NOT_FOUND)
+        cat_b.refresh_from_db()
+        self.assertEqual(cat_b.name, "Secret Category B")
+
+        # Delete attempt -> 404
+        del_res = self.client.delete(f"{self.base_url}{cat_b.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(ShopCategory.objects.filter(id=cat_b.id).exists())
+
+    def test_cross_tenant_parent_category_rejected(self):
+        """
+        Merchant cannot assign a parent category belonging to another Shop.
+        """
+        cat_b = ShopCategory.objects.create(shop=self.shop_b, name="Parent from Shop B", slug="parent-b")
+        self._auth_merchant(self.user_a)
+
+        # Create subcategory pointing to Shop B category
+        res = self.client.post(
+            self.base_url,
+            {"name": "Invalid Subcat", "parent": cat_b.id},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res.data)
+
+        # Update subcategory pointing to Shop B category
+        cat_a = ShopCategory.objects.create(shop=self.shop_a, name="Own Category", slug="own-cat")
+        patch_res = self.client.patch(
+            f"{self.base_url}{cat_a.id}/",
+            {"parent": cat_b.id},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", patch_res.data)
+
+    def test_self_parenting_and_cyclic_hierarchy_rejected(self):
+        """
+        A category cannot be its own parent, nor can circular parenting be formed.
+        """
+        cat_a = ShopCategory.objects.create(shop=self.shop_a, name="Cat A", slug="cat-a")
+        cat_b = ShopCategory.objects.create(shop=self.shop_a, parent=cat_a, name="Cat B", slug="cat-b")
+        self._auth_merchant(self.user_a)
+
+        # Self-parenting
+        res_self = self.client.patch(f"{self.base_url}{cat_a.id}/", {"parent": cat_a.id}, format="json")
+        self.assertEqual(res_self.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res_self.data)
+
+        # Cyclic parenting (setting A's parent to B, when B's parent is A)
+        res_cycle = self.client.patch(f"{self.base_url}{cat_a.id}/", {"parent": cat_b.id}, format="json")
+        self.assertEqual(res_cycle.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("parent", res_cycle.data)
+
+    def test_filter_categories_by_parent_active_and_search(self):
+        """
+        Categories list supports filtering by parent (root vs subcategories), active state, and search.
+        """
+        self._auth_merchant(self.user_a)
+        root1 = ShopCategory.objects.create(shop=self.shop_a, name="Fruits", slug="fruits", is_active=True)
+        root2 = ShopCategory.objects.create(shop=self.shop_a, name="Vegetables", slug="vegetables", is_active=False)
+        sub1 = ShopCategory.objects.create(shop=self.shop_a, parent=root1, name="Apples", slug="apples", is_active=True)
+
+        # Filter root categories only
+        res_root = self.client.get(f"{self.base_url}?parent=root")
+        self.assertEqual(res_root.status_code, status.HTTP_200_OK)
+        ids_root = [c["id"] for c in res_root.data]
+        self.assertIn(root1.id, ids_root)
+        self.assertIn(root2.id, ids_root)
+        self.assertNotIn(sub1.id, ids_root)
+
+        # Filter subcategories by parent ID
+        res_sub = self.client.get(f"{self.base_url}?parent={root1.id}")
+        self.assertEqual(res_sub.status_code, status.HTTP_200_OK)
+        ids_sub = [c["id"] for c in res_sub.data]
+        self.assertIn(sub1.id, ids_sub)
+        self.assertNotIn(root1.id, ids_sub)
+
+        # Filter by active
+        res_active = self.client.get(f"{self.base_url}?is_active=false")
+        self.assertEqual(res_active.status_code, status.HTTP_200_OK)
+        ids_active = [c["id"] for c in res_active.data]
+        self.assertIn(root2.id, ids_active)
+        self.assertNotIn(root1.id, ids_active)
+
+        # Search
+        res_search = self.client.get(f"{self.base_url}?search=Apples")
+        self.assertEqual(res_search.status_code, status.HTTP_200_OK)
+        ids_search = [c["id"] for c in res_search.data]
+        self.assertIn(sub1.id, ids_search)
+        self.assertNotIn(root1.id, ids_search)
+
+    def test_authorization_checks(self):
+        """
+        Validate unauthenticated (401), non-merchant (403), merchant without shop (404),
+        and merchant with inactive shop (403).
+        """
+        # 1. Unauthenticated -> 401
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(self.base_url, {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Super Admin -> 403
+        self._auth_super_admin()
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Merchant without Shop -> 404
+        user_no_shop = User.objects.create_user(
+            username="merchant_cat_no_shop",
+            mobile_number="+919876543440",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=user_no_shop, status=Merchant.Status.ACTIVE, must_change_password=False)
+        self._auth_merchant(user_no_shop)
+        no_shop_res = self.client.get(self.base_url)
+        self.assertEqual(no_shop_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(no_shop_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # 4. Merchant with Inactive Shop -> 403
+        self.shop_a.status = Shop.Status.DEACTIVATED
+        self.shop_a.save()
+        self._auth_merchant(self.user_a)
+        inactive_res = self.client.get(self.base_url)
+        self.assertEqual(inactive_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(inactive_res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_url_aliases(self):
+        """
+        Verify /api/v1/catalog/shop-categories/ and /api/v1/shops/me/categories/ route properly.
+        """
+        self._auth_merchant(self.user_a)
+
+        # /api/v1/catalog/shop-categories/
+        url1 = "/api/v1/catalog/shop-categories/"
+        res1 = self.client.post(url1, {"name": "Alias Cat 1"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res1.data["name"], "Alias Cat 1")
+
+        # /api/v1/shops/me/categories/
+        url2 = "/api/v1/shops/me/categories/"
+        res2 = self.client.post(url2, {"name": "Alias Cat 2"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res2.data["name"], "Alias Cat 2")
+        cat2_id = res2.data["id"]
+
+        get2 = self.client.get(f"{url2}{cat2_id}/")
+        self.assertEqual(get2.status_code, status.HTTP_200_OK)
+        self.assertEqual(get2.data["name"], "Alias Cat 2")
+
+
+
 
 

@@ -10,10 +10,11 @@ from shops.models import Shop
 from shops.permissions import IsActiveMerchant
 from users.permissions import IsSuperAdmin
 
-from .models import MasterProduct, ShopProduct
+from .models import MasterProduct, ShopCategory, ShopProduct
 from .serializers import (
     MasterProductSerializer,
     PromoteShopProductSerializer,
+    ShopCategorySerializer,
     ShopProductSerializer,
 )
 
@@ -221,6 +222,95 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
         if search:
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(sku__icontains=search) | Q(brand__icontains=search)
+            )
+
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["shop"] = getattr(self, "_shop", None)
+        return context
+
+    def list(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().create(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().retrieve(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        serializer.save(shop=self._shop)
+
+
+class MerchantShopCategoryViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for Merchants managing their own Shop Categories and subcategories.
+
+    - Preserves Shop ownership: all operations are strictly scoped to the authenticated merchant's shop.
+    - Supports subcategories via parent-child relationship.
+    - Tenant isolation: parent must belong to the same Shop.
+    - Deleting a category leaves assigned products intact and uncategorized per domain rules.
+    """
+
+    serializer_class = ShopCategorySerializer
+    permission_classes = [IsAuthenticated, IsActiveMerchant]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        shop, error_res = get_authenticated_merchant_shop(request)
+        self._shop = shop
+        self._shop_error = error_res
+
+    def get_queryset(self):
+        if getattr(self, "_shop_error", None):
+            return ShopCategory.objects.none()
+        shop = getattr(self, "_shop", None)
+        if not shop:
+            return ShopCategory.objects.none()
+
+        queryset = (
+            ShopCategory.objects.filter(shop=shop)
+            .select_related("parent")
+            .prefetch_related("subcategories", "products")
+            .order_by("name", "id")
+        )
+
+        is_active = self.request.query_params.get("is_active")
+        if is_active is not None:
+            if is_active.lower() in ("true", "1"):
+                queryset = queryset.filter(is_active=True)
+            elif is_active.lower() in ("false", "0"):
+                queryset = queryset.filter(is_active=False)
+
+        parent_param = self.request.query_params.get("parent")
+        if parent_param is not None:
+            if parent_param.lower() in ("null", "none", "root"):
+                queryset = queryset.filter(parent__isnull=True)
+            elif parent_param.isdigit():
+                queryset = queryset.filter(parent_id=int(parent_param))
+
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(slug__icontains=search) | Q(description__icontains=search)
             )
 
         return queryset
