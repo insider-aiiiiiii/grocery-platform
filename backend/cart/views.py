@@ -5,8 +5,14 @@ from rest_framework.views import APIView
 
 from shops.models import Shop
 
-from .models import Cart
-from .serializers import CartCreateSerializer, PublicCartSerializer
+from .models import Cart, CartItem
+from .serializers import (
+    CartCreateSerializer,
+    CartItemAddSerializer,
+    CartItemUpdateSerializer,
+    PublicCartItemSerializer,
+    PublicCartSerializer,
+)
 
 
 def get_public_active_shop(public_slug: str):
@@ -26,6 +32,41 @@ def get_public_active_shop(public_slug: str):
             status=status.HTTP_404_NOT_FOUND,
         )
     return shop, None
+
+
+def resolve_cart_for_request(request, cart_id: int | None = None, public_slug: str | None = None):
+    """
+    Resolves and validates a Cart for item operations, enforcing shop activity and tenancy.
+    Returns (cart, error_response).
+    """
+    if public_slug:
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return None, error_res
+    else:
+        shop = None
+
+    resolved_id = cart_id or request.data.get("cart_id") or request.query_params.get("cart_id") or request.headers.get("X-Cart-ID")
+    if not resolved_id:
+        return None, Response(
+            {"detail": "Cart ID is required.", "code": "CART_ID_REQUIRED"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    cart = Cart.objects.filter(id=resolved_id).select_related("shop").first()
+    if not cart or cart.shop.status != Shop.Status.ACTIVE:
+        return None, Response(
+            {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if shop and cart.shop_id != shop.id:
+        return None, Response(
+            {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return cart, None
 
 
 class PublicShopCartView(APIView):
@@ -135,3 +176,115 @@ class PublicCartDetailView(APIView):
             )
 
         return Response(PublicCartSerializer(cart).data, status=status.HTTP_200_OK)
+
+
+class CartItemListView(APIView):
+    """
+    Public Cart Item list and add endpoint.
+    - GET: Lists all items in the resolved Cart.
+    - POST: Adds a product/variant to the Cart (increments quantity if already in Cart).
+    - DELETE: Clears all items from the Cart.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        items = cart.items.select_related("product", "variant").all()
+        return Response(PublicCartItemSerializer(items, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        serializer = CartItemAddSerializer(
+            data=request.data,
+            context={"request": request, "cart": cart},
+        )
+        serializer.is_valid(raise_exception=True)
+        item = serializer.save()
+
+        # Re-fetch item with relationships for serialization
+        item = CartItem.objects.filter(pk=item.pk).select_related("product", "variant").first()
+        return Response(PublicCartItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        cart.items.all().delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CartItemDetailView(APIView):
+    """
+    Public Cart Item detail, update, and remove endpoint.
+    - GET: Retrieves a single Cart Item.
+    - PATCH / PUT: Updates quantity of the Cart Item.
+    - DELETE: Removes the Cart Item from the Cart.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, item_id: int, cart_id: int | None = None, public_slug: str | None = None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        item = cart.items.filter(id=item_id).select_related("product", "variant").first()
+        if not item:
+            return Response(
+                {"detail": "Cart item not found.", "code": "CART_ITEM_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(PublicCartItemSerializer(item).data, status=status.HTTP_200_OK)
+
+    def patch(self, request, item_id: int, cart_id: int | None = None, public_slug: str | None = None):
+        return self._update_item(request, item_id, cart_id, public_slug)
+
+    def put(self, request, item_id: int, cart_id: int | None = None, public_slug: str | None = None):
+        return self._update_item(request, item_id, cart_id, public_slug)
+
+    def _update_item(self, request, item_id: int, cart_id: int | None, public_slug: str | None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        item = cart.items.filter(id=item_id).select_related("product", "variant").first()
+        if not item:
+            return Response(
+                {"detail": "Cart item not found.", "code": "CART_ITEM_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CartItemUpdateSerializer(
+            data=request.data,
+            context={"request": request, "cart_item": item},
+        )
+        serializer.is_valid(raise_exception=True)
+        item = serializer.save()
+
+        item = CartItem.objects.filter(pk=item.pk).select_related("product", "variant").first()
+        return Response(PublicCartItemSerializer(item).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, item_id: int, cart_id: int | None = None, public_slug: str | None = None):
+        cart, error_res = resolve_cart_for_request(request, cart_id=cart_id, public_slug=public_slug)
+        if error_res:
+            return error_res
+
+        item = cart.items.filter(id=item_id).first()
+        if not item:
+            return Response(
+                {"detail": "Cart item not found.", "code": "CART_ITEM_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+

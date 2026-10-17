@@ -7,6 +7,7 @@ from customers.models import Customer, normalize_whatsapp_number
 from shops.models import Shop
 
 from .models import Cart, CartItem, validate_positive_quantity
+from .validators import validate_product_orderable_and_available
 
 
 class CartItemProductSummarySerializer(serializers.ModelSerializer):
@@ -173,3 +174,113 @@ class CartCreateSerializer(serializers.Serializer):
             )
 
         return cart
+
+
+class CartItemAddSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField(required=True)
+    variant_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        required=False,
+        default=Decimal("1.000"),
+    )
+
+    def validate_quantity(self, value):
+        return validate_positive_quantity(value)
+
+    def validate(self, attrs):
+        cart = self.context.get("cart")
+        if not cart:
+            raise serializers.ValidationError({"cart": "Cart context is required."})
+
+        p_id = attrs["product_id"]
+        product = ShopProduct.objects.filter(id=p_id).first()
+        if not product:
+            raise serializers.ValidationError({"product_id": f"Product #{p_id} not found."})
+
+        v_id = attrs.get("variant_id")
+        variant = None
+        if v_id is not None:
+            variant = ProductVariant.objects.filter(id=v_id).first()
+            if not variant:
+                raise serializers.ValidationError({"variant_id": f"Variant #{v_id} not found."})
+
+        # Check if item already exists in the cart to check combined quantity against available stock
+        existing_item = CartItem.objects.filter(
+            cart=cart,
+            product=product,
+            variant=variant,
+        ).first()
+
+        current_qty = existing_item.quantity if existing_item else Decimal("0.000")
+        requested_qty = attrs.get("quantity", Decimal("1.000"))
+
+        # Domain orderability and availability validation
+        validate_product_orderable_and_available(
+            shop=cart.shop,
+            product=product,
+            variant=variant,
+            requested_quantity=requested_qty,
+            current_item_quantity=current_qty,
+        )
+
+        attrs["resolved_product"] = product
+        attrs["resolved_variant"] = variant
+        attrs["existing_item"] = existing_item
+        return attrs
+
+    def save(self):
+        cart = self.context["cart"]
+        product = self.validated_data["resolved_product"]
+        variant = self.validated_data["resolved_variant"]
+        quantity = self.validated_data["quantity"]
+        existing_item = self.validated_data.get("existing_item")
+
+        if existing_item:
+            existing_item.quantity += quantity
+            existing_item.save()
+            return existing_item
+        else:
+            return CartItem.objects.create(
+                cart=cart,
+                product=product,
+                variant=variant,
+                quantity=quantity,
+            )
+
+
+class CartItemUpdateSerializer(serializers.Serializer):
+    quantity = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        required=True,
+    )
+
+    def validate_quantity(self, value):
+        return validate_positive_quantity(value)
+
+    def validate(self, attrs):
+        cart_item = self.context.get("cart_item")
+        if not cart_item:
+            raise serializers.ValidationError({"cart_item": "CartItem context is required."})
+
+        target_quantity = attrs["quantity"]
+
+        # Validate orderable and available stock for the target quantity
+        validate_product_orderable_and_available(
+            shop=cart_item.cart.shop,
+            product=cart_item.product,
+            variant=cart_item.variant,
+            requested_quantity=target_quantity,
+            current_item_quantity=Decimal("0.000"),
+        )
+
+        return attrs
+
+    def save(self):
+        cart_item = self.context["cart_item"]
+        cart_item.quantity = self.validated_data["quantity"]
+        cart_item.save()
+        return cart_item
+
