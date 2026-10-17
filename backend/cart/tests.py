@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 
 from catalog.models import ProductVariant, ShopProduct
 from customers.models import Customer
+from inventory.models import InventoryItem
 from shops.models import Shop
 from users.models import Merchant, User
 
@@ -774,5 +775,577 @@ class PublicCartAPITests(TestCase):
         get_direct_url = f"/api/v1/cart/{cart_id}/"
         res_get_direct = self.client.get(get_direct_url)
         self.assertEqual(res_get_direct.status_code, status.HTTP_200_OK)
+
+
+class CartItemAPITests(TestCase):
+    """API tests for CART-004 Add/Update/Remove Cart Item APIs."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant 1 and Shop 1 (Active)
+        self.user1 = User.objects.create_user(
+            username="merchant_cart_1",
+            email="merchantcart1@example.com",
+            mobile_number="+919876543301",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Green Valley Grocers",
+            address_line="50 Market Road",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.user1.mobile_number,
+            status=Shop.Status.ACTIVE,
+        )
+
+        # Merchant 2 and Shop 2 (Active, for cross-shop tenancy checks)
+        self.user2 = User.objects.create_user(
+            username="merchant_cart_2",
+            email="merchantcart2@example.com",
+            mobile_number="+919876543302",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Coastal Fresh",
+            address_line="100 Sea Beach Road",
+            area="Bandra",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400050",
+            contact_number=self.user2.mobile_number,
+            status=Shop.Status.ACTIVE,
+        )
+
+        # Shop 1 Catalog Products & Inventory
+        # 1. Simple product (in stock: 10 on-hand, 2 reserved -> 8 available)
+        self.product_simple = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Apples 1kg",
+            price=Decimal("120.00"),
+            sku="APPLE-1KG",
+            is_visible=True,
+            is_available=True,
+        )
+        self.inv_simple = InventoryItem.objects.get(
+            shop=self.shop1,
+            product=self.product_simple,
+            variant__isnull=True,
+        )
+        self.inv_simple.quantity = Decimal("10.000")
+        self.inv_simple.reserved_quantity = Decimal("2.000")
+        self.inv_simple.save()
+
+        # 2. Variant-based product
+        self.product_var = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Basmati Premium Rice",
+            price=None,
+            sku="RICE-MAIN",
+            is_visible=True,
+            is_available=True,
+        )
+        # Variant 1 (in stock: 5 on-hand, 0 reserved -> 5 available)
+        self.var1 = ProductVariant.objects.create(
+            product=self.product_var,
+            name="1kg Bag",
+            price=Decimal("150.00"),
+            sku="RICE-1KG",
+            is_visible=True,
+            is_available=True,
+        )
+        self.inv_var1 = InventoryItem.objects.get(
+            shop=self.shop1,
+            variant=self.var1,
+        )
+        self.inv_var1.quantity = Decimal("5.000")
+        self.inv_var1.save()
+
+        # Variant 2 (out of stock: 0 on-hand -> 0 available)
+        self.var2_oos = ProductVariant.objects.create(
+            product=self.product_var,
+            name="5kg Bag",
+            price=Decimal("700.00"),
+            sku="RICE-5KG",
+            is_visible=True,
+            is_available=True,
+        )
+        self.inv_var2 = InventoryItem.objects.get(
+            shop=self.shop1,
+            variant=self.var2_oos,
+        )
+
+        # 3. Hidden product (not visible)
+        self.product_hidden = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Seasonal Strawberries",
+            price=Decimal("80.00"),
+            is_visible=False,
+            is_available=True,
+        )
+        inv_hidden = InventoryItem.objects.get(
+            shop=self.shop1,
+            product=self.product_hidden,
+            variant__isnull=True,
+        )
+        inv_hidden.quantity = Decimal("10.000")
+        inv_hidden.save()
+
+        # 4. Manually unavailable product
+        self.product_unavail = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Imported Cheese",
+            price=Decimal("250.00"),
+            is_visible=True,
+            is_available=False,
+        )
+        inv_unavail = InventoryItem.objects.get(
+            shop=self.shop1,
+            product=self.product_unavail,
+            variant__isnull=True,
+        )
+        inv_unavail.quantity = Decimal("10.000")
+        inv_unavail.save()
+
+        # 5. Product with no inventory record created
+        self.product_no_inv = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Exotic Kiwi",
+            price=Decimal("200.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        InventoryItem.objects.filter(
+            shop=self.shop1,
+            product=self.product_no_inv,
+        ).delete()
+
+        # 6. Hidden variant & unavailable variant
+        self.product_multi_var = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Honey",
+            is_visible=True,
+            is_available=True,
+        )
+        self.var_hidden = ProductVariant.objects.create(
+            product=self.product_multi_var,
+            name="Small Jar",
+            price=Decimal("90.00"),
+            is_visible=False,
+            is_available=True,
+        )
+        inv_var_hidden = InventoryItem.objects.get(
+            shop=self.shop1,
+            variant=self.var_hidden,
+        )
+        inv_var_hidden.quantity = Decimal("10.000")
+        inv_var_hidden.save()
+
+        self.var_unavail = ProductVariant.objects.create(
+            product=self.product_multi_var,
+            name="Large Jar",
+            price=Decimal("220.00"),
+            is_visible=True,
+            is_available=False,
+        )
+        inv_var_unavail = InventoryItem.objects.get(
+            shop=self.shop1,
+            variant=self.var_unavail,
+        )
+        inv_var_unavail.quantity = Decimal("10.000")
+        inv_var_unavail.save()
+
+        # Shop 2 Catalog Product & Inventory
+        self.product_s2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Alphonso Mangoes 1kg",
+            price=Decimal("500.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        inv_s2 = InventoryItem.objects.get(
+            shop=self.shop2,
+            product=self.product_s2,
+            variant__isnull=True,
+        )
+        inv_s2.quantity = Decimal("20.000")
+        inv_s2.save()
+
+        # Carts
+        self.cart1 = Cart.objects.create(shop=self.shop1)
+        self.cart2 = Cart.objects.create(shop=self.shop2)
+
+
+    # --- ADD ITEM TESTS ---
+
+    def test_add_simple_product_success(self):
+        """Customer can add an in-stock simple product with default quantity 1.000."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_simple.id}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["product"]["id"], self.product_simple.id)
+        self.assertIsNone(data["variant"])
+        self.assertEqual(Decimal(str(data["quantity"])), Decimal("1.000"))
+        self.assertEqual(Decimal(str(data["unit_price"])), Decimal("120.00"))
+        self.assertEqual(Decimal(str(data["line_total"])), Decimal("120.00"))
+
+        # Verify cart totals
+        self.cart1.refresh_from_db()
+        self.assertEqual(self.cart1.item_count, 1)
+        self.assertEqual(self.cart1.total_quantity, Decimal("1.000"))
+        self.assertEqual(self.cart1.subtotal, Decimal("120.00"))
+
+    def test_add_variant_product_success(self):
+        """Customer can add a variant of a product with specified decimal quantity."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {
+            "product_id": self.product_var.id,
+            "variant_id": self.var1.id,
+            "quantity": "2.500",
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["product"]["id"], self.product_var.id)
+        self.assertEqual(data["variant"]["id"], self.var1.id)
+        self.assertEqual(Decimal(str(data["quantity"])), Decimal("2.500"))
+        self.assertEqual(Decimal(str(data["unit_price"])), Decimal("150.00"))
+        # 2.5 * 150.00 = 375.00
+        self.assertEqual(Decimal(str(data["line_total"])), Decimal("375.00"))
+
+    def test_add_existing_item_increments_quantity(self):
+        """Adding a product already in the cart increments its quantity within available stock."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        # First add 2.000
+        res1 = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "2.000"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(str(res1.json()["quantity"])), Decimal("2.000"))
+
+        # Add 3.000 more
+        res2 = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "3.000"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Decimal(str(res2.json()["quantity"])), Decimal("5.000"))
+
+        # Verify database has exactly 1 CartItem with quantity 5.000
+        self.assertEqual(CartItem.objects.filter(cart=self.cart1).count(), 1)
+        item = CartItem.objects.get(cart=self.cart1)
+        self.assertEqual(item.quantity, Decimal("5.000"))
+
+    def test_add_existing_item_exceeding_stock_rejected(self):
+        """Adding more quantity to an existing item that causes combined total to exceed available stock is rejected."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        # Available stock is 8.000 (10 on hand - 2 reserved)
+        res1 = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "5.000"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+
+        # Adding 4.000 more makes 9.000, exceeding 8.000
+        res2 = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "4.000"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("exceeds available stock", str(res2.json()))
+
+        # CartItem remains at 5.000
+        item = CartItem.objects.get(cart=self.cart1)
+        self.assertEqual(item.quantity, Decimal("5.000"))
+
+    def test_add_out_of_stock_item_rejected(self):
+        """Adding an out-of-stock variant is rejected under finalized Catalog/Inventory rules."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_var.id, "variant_id": self.var2_oos.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("out of stock", str(response.json()).lower())
+
+    def test_add_item_with_no_inventory_record_rejected(self):
+        """A product with no inventory record initialized has 0 available stock and cannot be ordered."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_no_inv.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("out of stock", str(response.json()).lower())
+
+    def test_add_item_quantity_exceeding_available_stock_rejected(self):
+        """Adding a quantity greater than available stock (available: 8) is rejected."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_simple.id, "quantity": "8.001"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("exceeds available stock", str(response.json()))
+
+    def test_add_hidden_product_rejected(self):
+        """Hidden product (is_visible=False) cannot be ordered."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_hidden.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not visible", str(response.json()).lower())
+
+    def test_add_hidden_variant_rejected(self):
+        """Hidden variant (is_visible=False) cannot be ordered."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {
+            "product_id": self.product_multi_var.id,
+            "variant_id": self.var_hidden.id,
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not visible", str(response.json()).lower())
+
+    def test_add_unavailable_product_rejected(self):
+        """Manually unavailable product (is_available=False) cannot be ordered."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_unavail.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unavailable", str(response.json()).lower())
+
+    def test_add_unavailable_variant_rejected(self):
+        """Manually unavailable variant (is_available=False) cannot be ordered."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {
+            "product_id": self.product_multi_var.id,
+            "variant_id": self.var_unavail.id,
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("unavailable", str(response.json()).lower())
+
+    def test_add_variant_product_without_variant_id_rejected(self):
+        """Adding a product that has variants without specifying variant_id is rejected."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_var.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("variant", str(response.json()).lower())
+
+    def test_add_non_variant_product_with_variant_id_rejected(self):
+        """Adding a product that has no variants with a variant_id is rejected."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {
+            "product_id": self.product_simple.id,
+            "variant_id": self.var1.id,
+            "quantity": "1.000",
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cannot be specified", str(response.json()).lower())
+
+    def test_add_cross_shop_product_rejected(self):
+        """Adding a product from Shop 2 into Shop 1's Cart is strictly prohibited."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        payload = {"product_id": self.product_s2.id, "quantity": "1.000"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong to this shop", str(response.json()).lower())
+
+    def test_add_item_invalid_quantities_rejected(self):
+        """Zero, negative, or excessive precision decimal quantities are rejected."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+
+        # Zero quantity
+        res_zero = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "0.000"}, format="json")
+        self.assertEqual(res_zero.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Negative quantity
+        res_neg = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "-2.000"}, format="json")
+        self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Excessive precision (> 3 decimal places)
+        res_prec = self.client.post(url, {"product_id": self.product_simple.id, "quantity": "1.0005"}, format="json")
+        self.assertEqual(res_prec.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # --- LIST & DETAIL ITEMS TESTS ---
+
+    def test_list_cart_items(self):
+        """GET /api/v1/cart/<cart_id>/items/ lists all items currently in the cart."""
+        CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+        CartItem.objects.create(cart=self.cart1, product=self.product_var, variant=self.var1, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 2)
+        product_ids = [item["product"]["id"] for item in data]
+        self.assertIn(self.product_simple.id, product_ids)
+        self.assertIn(self.product_var.id, product_ids)
+
+    def test_get_single_cart_item(self):
+        """GET /api/v1/cart/<cart_id>/items/<item_id>/ retrieves a single cart item."""
+        item = CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["id"], item.id)
+        self.assertEqual(Decimal(str(data["quantity"])), Decimal("2.000"))
+
+    def test_get_cart_item_not_found(self):
+        """GET non-existent cart item returns 404."""
+        url = f"/api/v1/cart/{self.cart1.id}/items/99999/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # --- UPDATE ITEM TESTS ---
+
+    def test_update_cart_item_quantity_success(self):
+        """PATCH /api/v1/cart/<cart_id>/items/<item_id>/ updates quantity within available stock."""
+        item = CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item.id}/"
+        payload = {"quantity": "4.500"}
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(Decimal(str(data["quantity"])), Decimal("4.500"))
+        # 4.5 * 120.00 = 540.00
+        self.assertEqual(Decimal(str(data["line_total"])), Decimal("540.00"))
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("4.500"))
+
+    def test_update_cart_item_quantity_exceeding_stock_rejected(self):
+        """Updating quantity beyond available stock is rejected."""
+        item = CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+
+        # Available stock is 8.000
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item.id}/"
+        payload = {"quantity": "8.500"}
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("exceeds available stock", str(response.json()))
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("2.000"))
+
+    def test_update_cart_item_invalid_quantities_rejected(self):
+        """Zero or negative quantities on update are rejected."""
+        item = CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item.id}/"
+        res_zero = self.client.patch(url, {"quantity": "0.000"}, format="json")
+        self.assertEqual(res_zero.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res_neg = self.client.patch(url, {"quantity": "-1.000"}, format="json")
+        self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # --- REMOVE & CLEAR ITEM TESTS ---
+
+    def test_remove_cart_item_success(self):
+        """DELETE /api/v1/cart/<cart_id>/items/<item_id>/ deletes the item from the cart."""
+        item1 = CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+        item2 = CartItem.objects.create(cart=self.cart1, product=self.product_var, variant=self.var1, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item1.id}/"
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(CartItem.objects.filter(id=item1.id).exists())
+        self.assertTrue(CartItem.objects.filter(id=item2.id).exists())
+
+        self.cart1.refresh_from_db()
+        self.assertEqual(self.cart1.item_count, 1)
+
+    def test_remove_item_from_another_cart_rejected(self):
+        """Attempting to delete an item belonging to Cart 2 using Cart 1's URL returns 404."""
+        item2 = CartItem.objects.create(cart=self.cart2, product=self.product_s2, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/{item2.id}/"
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(CartItem.objects.filter(id=item2.id).exists())
+
+    def test_clear_all_cart_items_success(self):
+        """DELETE /api/v1/cart/<cart_id>/items/ removes all items from the cart."""
+        CartItem.objects.create(cart=self.cart1, product=self.product_simple, quantity=Decimal("2.000"))
+        CartItem.objects.create(cart=self.cart1, product=self.product_var, variant=self.var1, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{self.cart1.id}/items/"
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(CartItem.objects.filter(cart=self.cart1).count(), 0)
+
+        self.cart1.refresh_from_db()
+        self.assertEqual(self.cart1.item_count, 0)
+        self.assertEqual(self.cart1.total_quantity, Decimal("0.000"))
+        self.assertEqual(self.cart1.subtotal, Decimal("0.00"))
+
+    # --- SHOP-SCOPED PUBLIC URL TESTS ---
+
+    def test_shop_scoped_public_cart_items_flow(self):
+        """Full item lifecycle works via shop public slug URLs."""
+        slug = self.shop1.public_slug
+
+        # 1. Add item
+        add_url = f"/api/v1/shops/public/{slug}/cart/{self.cart1.id}/items/"
+        res_add = self.client.post(add_url, {"product_id": self.product_simple.id, "quantity": "1.000"}, format="json")
+        self.assertEqual(res_add.status_code, status.HTTP_201_CREATED)
+        item_id = res_add.json()["id"]
+
+        # 2. List items
+        list_url = f"/api/v1/shops/public/{slug}/cart/{self.cart1.id}/items/"
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_list.json()), 1)
+
+        # 3. Update item
+        detail_url = f"/api/v1/shops/public/{slug}/cart/{self.cart1.id}/items/{item_id}/"
+        res_patch = self.client.patch(detail_url, {"quantity": "3.000"}, format="json")
+        self.assertEqual(res_patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(str(res_patch.json()["quantity"])), Decimal("3.000"))
+
+        # 4. Delete item
+        res_del = self.client.delete(detail_url)
+        self.assertEqual(res_del.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(CartItem.objects.filter(cart=self.cart1).count(), 0)
+
+    def test_shop_scoped_cart_cross_shop_rejected(self):
+        """Accessing Cart 1 items using Shop 2's public slug is rejected with 404."""
+        slug_s2 = self.shop2.public_slug
+        url = f"/api/v1/shops/public/{slug_s2}/cart/{self.cart1.id}/items/"
+
+        # GET
+        res_get = self.client.get(url)
+        self.assertEqual(res_get.status_code, status.HTTP_404_NOT_FOUND)
+
+        # POST
+        res_post = self.client.post(url, {"product_id": self.product_simple.id}, format="json")
+        self.assertEqual(res_post.status_code, status.HTTP_404_NOT_FOUND)
 
 
