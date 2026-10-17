@@ -47,6 +47,7 @@ urlpatterns = [
     path('api/v1/shops/', include('shops.urls')),
     path('api/v1/catalog/', include('catalog.urls')),
     path('api/v1/inventory/', include('inventory.urls')),
+    path('api/v1/customers/', include('customers.urls')),
     path('api/v1/cart/', include('cart.urls')),
     path('api/v1/master-products/', include((catalog_direct_router.urls, 'master-products-direct'))),
 ]

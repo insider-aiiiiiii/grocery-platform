@@ -2,6 +2,8 @@ from django.contrib.auth.models import AbstractBaseUser, AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from cart.models import Cart
 from shops.models import Shop
@@ -510,4 +512,206 @@ class CustomerModelTests(TestCase):
             direct_cust.full_clean()
         with self.assertRaises(ValidationError):
             direct_cust.save()
+
+
+class PublicCustomerAPITests(TestCase):
+    """API tests for CUS-004 documented public Customer/profile operations."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.merchant_user = User.objects.create_user(
+            username="merchant_pub",
+            email="merchant_pub@example.com",
+            mobile_number="+919876543200",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Green Valley Organics",
+            address_line="500 High St",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.merchant_user.mobile_number,
+        )
+
+        self.merchant_user2 = User.objects.create_user(
+            username="merchant_pub2",
+            email="merchant_pub2@example.com",
+            mobile_number="+919876543201",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.merchant_user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="City Fresh Mart",
+            address_line="600 Low St",
+            area="Bandra",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400050",
+            contact_number=self.merchant_user2.mobile_number,
+        )
+
+    def test_create_customer_via_public_api_success(self):
+        """Unauthenticated customer can provide WhatsApp and name to create a Shop profile."""
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        payload = {
+            "whatsapp_number": "9123456789",
+            "name": "Pooja Hegde",
+        }
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res.data["created"])
+        self.assertEqual(res.data["customer"]["name"], "Pooja Hegde")
+        self.assertEqual(res.data["customer"]["whatsapp_number"], "+919123456789")
+        self.assertIn("id", res.data["customer"])
+        self.assertIn("created_at", res.data["customer"])
+
+        # Confirm no login, credentials, or private merchant fields leaked
+        for secret in ["password", "token", "access", "refresh", "jwt", "merchant", "user", "is_staff"]:
+            self.assertNotIn(secret, res.data)
+            self.assertNotIn(secret, res.data["customer"])
+
+    def test_recognize_existing_customer_via_create_or_recognize_api(self):
+        """Submitting an existing customer's number recognizes them without duplicate creation."""
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        Customer.objects.create(
+            shop=self.shop,
+            name="Existing Shopper",
+            whatsapp_number="9123456789",
+        )
+
+        res = self.client.post(url, {"whatsapp_number": "9123456789"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(res.data["created"])
+        self.assertEqual(res.data["customer"]["name"], "Existing Shopper")
+        self.assertEqual(res.data["customer"]["whatsapp_number"], "+919123456789")
+
+    def test_create_customer_with_cart_association_before_order(self):
+        """Public customer endpoint associates newly created customer with active Cart before an Order."""
+        cart = Cart.objects.create(shop=self.shop)
+        self.assertIsNone(cart.customer)
+
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        payload = {
+            "whatsapp_number": "9123456789",
+            "name": "Cart Visitor",
+            "cart_id": cart.id,
+        }
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        cart.refresh_from_db()
+        self.assertIsNotNone(cart.customer)
+        self.assertEqual(cart.customer.id, res.data["customer"]["id"])
+        self.assertEqual(cart.customer.shop, self.shop)
+
+    def test_reject_cart_from_different_shop(self):
+        """Passing a Cart belonging to a different shop is rejected with 400 CART_NOT_FOUND."""
+        cart_shop2 = Cart.objects.create(shop=self.shop2)
+
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        payload = {
+            "whatsapp_number": "9123456789",
+            "cart_id": cart_shop2.id,
+        }
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["code"], "CART_NOT_FOUND")
+
+    def test_unknown_public_slug_returns_404(self):
+        """Requests to an unknown public slug return 404 SHOP_NOT_FOUND."""
+        url = "/api/v1/shops/public/non-existent-shop-slug/customer/"
+        res = self.client.post(url, {"whatsapp_number": "9123456789"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["code"], "SHOP_NOT_FOUND")
+
+    def test_inactive_shop_returns_404(self):
+        """Requests to a deactivated or suspended shop return 404 SHOP_UNAVAILABLE."""
+        self.shop.deactivate()
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        res = self.client.post(url, {"whatsapp_number": "9123456789"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data["code"], "SHOP_UNAVAILABLE")
+
+    def test_authenticated_user_number_rejected_by_api(self):
+        """Supplying an authenticated merchant/admin mobile number is rejected with 400."""
+        url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/"
+        payload = {
+            "whatsapp_number": self.merchant_user.mobile_number,
+            "name": "Imposter",
+        }
+        res = self.client.post(url, payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["code"], "INVALID_CUSTOMER_DATA")
+
+    def test_recognize_endpoint_get_and_post(self):
+        """Public recognize endpoint recognizes returning customer via GET and POST."""
+        cust = Customer.objects.create(
+            shop=self.shop,
+            name="Returning Buyer",
+            whatsapp_number="9123456789",
+        )
+
+        rec_url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/recognize/"
+
+        # GET request with query param
+        res_get = self.client.get(rec_url, {"whatsapp_number": "9123456789"})
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_get.data["recognized"])
+        self.assertEqual(res_get.data["customer"]["name"], "Returning Buyer")
+        self.assertEqual(res_get.data["customer"]["id"], cust.id)
+
+        # POST request with body
+        res_post = self.client.post(rec_url, {"whatsapp_number": "+919123456789"}, format="json")
+        self.assertEqual(res_post.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_post.data["recognized"])
+        self.assertEqual(res_post.data["customer"]["id"], cust.id)
+
+    def test_recognize_endpoint_unknown_customer_returns_404(self):
+        """Recognize endpoint for an unknown customer returns 404 with CUSTOMER_NOT_FOUND."""
+        rec_url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/recognize/"
+        res = self.client.get(rec_url, {"whatsapp_number": "9999999999"})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(res.data["recognized"])
+        self.assertEqual(res.data["code"], "CUSTOMER_NOT_FOUND")
+
+    def test_cross_shop_isolation_in_public_api(self):
+        """Customer registered in Shop 1 is NOT recognized in Shop 2."""
+        c1 = Customer.objects.create(
+            shop=self.shop,
+            name="Shop 1 Shopper",
+            whatsapp_number="9123456789",
+        )
+
+        # Recognize in Shop 2 returns 404
+        rec_shop2_url = f"/api/v1/shops/public/{self.shop2.public_slug}/customer/recognize/"
+        res_s2 = self.client.get(rec_shop2_url, {"whatsapp_number": "9123456789"})
+        self.assertEqual(res_s2.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(res_s2.data["recognized"])
+
+        # Creating in Shop 2 creates a completely separate Customer
+        create_shop2_url = f"/api/v1/shops/public/{self.shop2.public_slug}/customer/"
+        res_create_s2 = self.client.post(create_shop2_url, {"whatsapp_number": "9123456789", "name": "Shop 2 Shopper"}, format="json")
+        self.assertEqual(res_create_s2.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(res_create_s2.data["customer"]["id"], c1.id)
+        self.assertEqual(res_create_s2.data["customer"]["name"], "Shop 2 Shopper")
+
+    def test_customers_app_url_alias(self):
+        """Endpoint is accessible via /api/v1/customers/public/<slug>/customer/ as well."""
+        url = f"/api/v1/customers/public/{self.shop.public_slug}/customer/"
+        res = self.client.post(url, {"whatsapp_number": "9123456789", "name": "Alias Shopper"}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["customer"]["name"], "Alias Shopper")
 

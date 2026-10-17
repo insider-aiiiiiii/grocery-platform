@@ -25,6 +25,9 @@ from .views import (
     SuperAdminShopReactivateView,
     SuperAdminShopRegenerateQRView,
 )
+from customers.views import (
+    PublicCustomerCreateOrRecognizeView,
+    PublicCustomerRecognizeView,
 from cart.views import (
     PublicShopCartDetailView,
     PublicShopCartView,
@@ -60,6 +63,9 @@ urlpatterns = [
     path("public/<slug:public_slug>/brands/", PublicShopBrandListView.as_view(), name="shop-public-brands-list"),
     path("public/<slug:public_slug>/custom-attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-custom-attributes-list"),
     path("public/<slug:public_slug>/attributes/", PublicShopCustomAttributeListView.as_view(), name="shop-public-attributes-list"),
+    path("public/<slug:public_slug>/customer/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customer"),
+    path("public/<slug:public_slug>/customer/recognize/", PublicCustomerRecognizeView.as_view(), name="shop-public-customer-recognize"),
+    path("public/<slug:public_slug>/customers/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customers"),
     path("public/<slug:public_slug>/cart/", PublicShopCartView.as_view(), name="shop-public-cart"),
     path("public/<slug:public_slug>/cart/<int:pk>/", PublicShopCartDetailView.as_view(), name="shop-public-cart-detail"),
     path("<int:pk>/", SuperAdminShopDeleteView.as_view(), name="shop-admin-delete"),
