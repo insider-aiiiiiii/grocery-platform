@@ -72,6 +72,50 @@ def get_variant_stock(variant: ProductVariant) -> dict:
     }
 
 
+def initialize_product_stock(product: ShopProduct) -> InventoryItem | None:
+    """
+    Initializes stock at zero (0.000) for a newly created ShopProduct without variants.
+    If the product has variants, raises a ValidationError because variant stock is authoritative.
+    """
+    if product.has_variants:
+        raise ValidationError(
+            "Variant-based products cannot have an independent product-level inventory record. Variant stock is authoritative."
+        )
+    item, _ = InventoryItem.objects.get_or_create(
+        shop=product.shop,
+        product=product,
+        variant=None,
+        defaults={
+            "quantity": Decimal("0.000"),
+            "reserved_quantity": Decimal("0.000"),
+        },
+    )
+    return item
+
+
+def initialize_variant_stock(variant: ProductVariant) -> InventoryItem:
+    """
+    Initializes stock at zero (0.000) for a newly created ProductVariant.
+    For variant-based products, variant stock is authoritative.
+    Any obsolete independent product-level stock record for the parent product is removed.
+    """
+    item, _ = InventoryItem.objects.get_or_create(
+        shop=variant.product.shop,
+        product=variant.product,
+        variant=variant,
+        defaults={
+            "quantity": Decimal("0.000"),
+            "reserved_quantity": Decimal("0.000"),
+        },
+    )
+    # Remove any obsolete independent product-level stock record
+    InventoryItem.objects.filter(
+        product=variant.product,
+        variant__isnull=True,
+    ).delete()
+    return item
+
+
 def _get_target_item_locked(
     shop,
     target: ShopProduct | ProductVariant,

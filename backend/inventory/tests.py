@@ -3,8 +3,10 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
 
-from catalog.models import ProductVariant, ShopProduct
+from catalog.models import MasterCategory, MasterProduct, ProductVariant, ShopProduct
 from shops.models import Shop
 from users.models import Merchant, User
 from .models import InventoryItem, quantize_quantity
@@ -14,6 +16,8 @@ from .services import (
     deduct_order_stock,
     get_product_stock,
     get_variant_stock,
+    initialize_product_stock,
+    initialize_variant_stock,
     reduce_and_accept_order_stock,
     release_order_items_stock,
     release_order_stock,
@@ -37,6 +41,7 @@ class InventoryBaseTestCase(TestCase):
         self.merchant1 = Merchant.objects.create(
             user=self.user1,
             status=Merchant.Status.ACTIVE,
+            must_change_password=False,
         )
         self.shop1 = Shop.objects.create(
             merchant=self.merchant1,
@@ -59,6 +64,7 @@ class InventoryBaseTestCase(TestCase):
         self.merchant2 = Merchant.objects.create(
             user=self.user2,
             status=Merchant.Status.ACTIVE,
+            must_change_password=False,
         )
         self.shop2 = Shop.objects.create(
             merchant=self.merchant2,
@@ -783,5 +789,229 @@ class DatabaseConstraintsAndIntegrityTests(InventoryBaseTestCase):
         self.assertTrue(InventoryItem.objects.filter(shop_id=temp_shop_id).exists())
         shop_test.delete()
         self.assertFalse(InventoryItem.objects.filter(shop_id=temp_shop_id).exists())
+
+
+class StockInitializationAndGranularityTests(InventoryBaseTestCase):
+    """
+    Dedicated verification for task INV-004:
+    - Newly created Shop Products and Variants initialize stock strictly at zero (0.000).
+    - Creation flows (ORM, from_master_product, API) cannot establish positive stock.
+    - Product/Variant granularity is strictly respected.
+    """
+
+    def test_new_shop_product_starts_with_zero_stock(self):
+        """Direct ShopProduct creation initializes InventoryItem with quantity 0.000 and out-of-stock."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Green Tea",
+            price=Decimal("150.00"),
+        )
+        item = InventoryItem.objects.filter(shop=self.shop1, product=product, variant__isnull=True).first()
+        self.assertIsNotNone(item)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+        stock_info = get_product_stock(product)
+        self.assertEqual(stock_info["quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("0.000"))
+        self.assertFalse(stock_info["has_variants"])
+        self.assertFalse(stock_info["is_derived"])
+        self.assertTrue(stock_info["is_out_of_stock"])
+
+    def test_new_variant_starts_with_zero_stock(self):
+        """Direct ProductVariant creation initializes variant-level InventoryItem at zero."""
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Sunflower Oil",
+            price=Decimal("180.00"),
+        )
+        variant = ProductVariant.objects.create(
+            product=product,
+            name="1 Litre Pouch",
+            price=Decimal("180.00"),
+        )
+        item = InventoryItem.objects.filter(shop=self.shop1, product=product, variant=variant).first()
+        self.assertIsNotNone(item)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+        var_stock = get_variant_stock(variant)
+        self.assertEqual(var_stock["quantity"], Decimal("0.000"))
+        self.assertEqual(var_stock["available_quantity"], Decimal("0.000"))
+        self.assertTrue(var_stock["is_out_of_stock"])
+
+        # Derived product stock is also zero
+        prod_stock = get_product_stock(product)
+        self.assertEqual(prod_stock["quantity"], Decimal("0.000"))
+        self.assertTrue(prod_stock["has_variants"])
+        self.assertTrue(prod_stock["is_derived"])
+        self.assertTrue(prod_stock["is_out_of_stock"])
+
+    def test_from_master_product_starts_at_zero_stock(self):
+        """Selecting from Master Catalog via factory initializes stock strictly at zero."""
+        master_category = MasterCategory.objects.create(
+            name="Dairy",
+            slug="dairy",
+            description="Dairy and eggs",
+        )
+        master_product = MasterProduct.objects.create(
+            name="Pasteurized Whole Milk 500ml",
+            category=master_category,
+            brand="Amul",
+            description="Fresh dairy milk",
+        )
+        shop_product = ShopProduct.from_master_product(
+            self.shop1,
+            master_product,
+            price=Decimal("32.00"),
+        )
+        item = InventoryItem.objects.filter(shop=self.shop1, product=shop_product, variant__isnull=True).first()
+        self.assertIsNotNone(item)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+    def test_api_creation_flow_ignores_positive_stock_payload(self):
+        """
+        Submitting stock/quantity fields in REST API product creation payload does not establish
+        positive stock. Stock starts strictly at 0.000.
+        """
+        api_client = APIClient()
+        login_res = api_client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.user1.mobile_number, "password": "testpassword123"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200)
+        token = login_res.data["access"]
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        create_res = api_client.post(
+            reverse("catalog:merchant-product-list"),
+            {
+                "name": "API Created Biscuits",
+                "price": "25.00",
+                "stock": 100,
+                "quantity": 100,
+                "initial_stock": 50,
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, 201)
+        product_id = create_res.data["id"]
+
+        product = ShopProduct.objects.get(id=product_id)
+        item = InventoryItem.objects.filter(product=product, variant__isnull=True).first()
+        self.assertIsNotNone(item)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+
+    def test_adding_variant_to_stocked_product_starts_variant_at_zero_and_supersedes_parent(self):
+        """
+        When a variant is added to a product that had positive product-level stock:
+        - The variant starts at 0.000 (does not inherit parent stock).
+        - The parent's obsolete non-variant record is removed.
+        - Aggregate product stock resets to 0.000.
+        """
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Wheat Flour",
+            price=Decimal("45.00"),
+        )
+        # Establish positive product-level stock before variants exist
+        adjust_stock(self.shop1, product, set_quantity=Decimal("50.000"))
+        self.assertEqual(get_product_stock(product)["quantity"], Decimal("50.000"))
+        self.assertFalse(get_product_stock(product)["has_variants"])
+
+        # Add first variant
+        variant1 = ProductVariant.objects.create(
+            product=product,
+            name="1 kg Bag",
+            price=Decimal("45.00"),
+        )
+
+        # Variant 1 starts strictly at 0.000
+        var1_stock = get_variant_stock(variant1)
+        self.assertEqual(var1_stock["quantity"], Decimal("0.000"))
+        self.assertEqual(var1_stock["available_quantity"], Decimal("0.000"))
+
+        # Obsolete non-variant record is gone
+        self.assertFalse(InventoryItem.objects.filter(product=product, variant__isnull=True).exists())
+
+        # Product-level aggregate is now 0.000
+        prod_stock = get_product_stock(product)
+        self.assertEqual(prod_stock["quantity"], Decimal("0.000"))
+        self.assertTrue(prod_stock["has_variants"])
+        self.assertTrue(prod_stock["is_derived"])
+        self.assertTrue(prod_stock["is_out_of_stock"])
+
+    def test_subsequent_variants_initialize_independently_at_zero(self):
+        """
+        When a product has an existing variant with positive stock, adding a new variant
+        initializes the new variant strictly at 0.000 without inheriting positive sibling stock.
+        """
+        product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Basmati Rice Gold",
+            price=Decimal("90.00"),
+        )
+        var1 = ProductVariant.objects.create(product=product, name="1 kg")
+        var2 = ProductVariant.objects.create(product=product, name="5 kg")
+
+        # Adjust variant 1 to 20.000 stock; variant 2 remains 0.000
+        adjust_stock(self.shop1, var1, set_quantity=Decimal("20.000"))
+        self.assertEqual(get_variant_stock(var1)["quantity"], Decimal("20.000"))
+        self.assertEqual(get_variant_stock(var2)["quantity"], Decimal("0.000"))
+        self.assertEqual(get_product_stock(product)["quantity"], Decimal("20.000"))
+
+        # Add variant 3
+        var3 = ProductVariant.objects.create(product=product, name="10 kg")
+
+        # Variant 3 must be initialized at 0.000 (does not inherit 20.000)
+        self.assertEqual(get_variant_stock(var3)["quantity"], Decimal("0.000"))
+        self.assertTrue(get_variant_stock(var3)["is_out_of_stock"])
+
+        # Product aggregate stock remains 20.000 (20 + 0 + 0)
+        self.assertEqual(get_product_stock(product)["quantity"], Decimal("20.000"))
+
+    def test_new_product_and_variant_cannot_be_reserved_due_to_zero_stock(self):
+        """Zero initial stock prevents reservations or orders immediately upon creation."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Honey")
+        variant = ProductVariant.objects.create(product=product, name="250g Jar")
+
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_stock(self.shop1, variant, quantity=Decimal("1.000"))
+        self.assertIn("Insufficient available stock", str(cm.exception))
+
+    def test_initialize_product_stock_service_raises_on_variant_product(self):
+        """Calling initialize_product_stock on a variant-based product raises ValidationError."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Variant Product")
+        ProductVariant.objects.create(product=product, name="Var 1")
+
+        with self.assertRaises(ValidationError) as cm:
+            initialize_product_stock(product)
+        self.assertIn("Variant-based products cannot have an independent product-level inventory record", str(cm.exception))
+
+    def test_initialize_variant_stock_service_removes_obsolete_parent_record(self):
+        """Calling initialize_variant_stock directly removes obsolete non-variant parent record."""
+        product = ShopProduct.objects.create(shop=self.shop1, name="Service Test Item")
+        # Ensure product-level item exists
+        self.assertTrue(InventoryItem.objects.filter(product=product, variant__isnull=True).exists())
+
+        variant = ProductVariant(product=product, name="Pack")
+        variant.save()  # signal calls initialize_variant_stock
+
+        self.assertFalse(InventoryItem.objects.filter(product=product, variant__isnull=True).exists())
+        var_item = InventoryItem.objects.filter(product=product, variant=variant).first()
+        self.assertIsNotNone(var_item)
+        self.assertEqual(var_item.quantity, Decimal("0.000"))
+
 
 
