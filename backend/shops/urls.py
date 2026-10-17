@@ -29,6 +29,7 @@ from customers.views import (
     MerchantCustomerViewSet,
     PublicCustomerCreateOrRecognizeView,
     PublicCustomerRecognizeView,
+)
 from cart.views import (
     CartItemDetailView,
     CartItemListView,

@@ -1003,3 +1003,584 @@ class MerchantCustomerAPITests(TestCase):
         self.assertEqual(res_delete.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
+class CustomerDomainVerificationTests(TestCase):
+    """
+    Comprehensive domain tests for CUS-007:
+    1. Shop-specific Customer creation/recognition lifecycle
+    2. Customer profile updates & strict one-Shop scope enforcement
+    3. Authorized Merchant access & server-derived Shop authorization
+    4. Cross-Shop isolation across database, service, public API, and merchant ERP
+    5. Gated global claim authority & phone normalization boundary verification
+    6. Verification of no number-only order history authorization
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant 1 & Shop 1
+        self.user1 = User.objects.create_user(
+            username="merchant_cus7_1",
+            email="merchant1_cus7@example.com",
+            mobile_number="+919811111101",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Alpha Grocery Hub",
+            address_line="101 Alpha Way",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.user1.mobile_number,
+        )
+
+        # Merchant 2 & Shop 2
+        self.user2 = User.objects.create_user(
+            username="merchant_cus7_2",
+            email="merchant2_cus7@example.com",
+            mobile_number="+919811111102",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Beta Grocery Mart",
+            address_line="202 Beta Avenue",
+            area="Bandra",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400050",
+            contact_number=self.user2.mobile_number,
+        )
+
+        # Super Admin
+        self.admin_user = User.objects.create_user(
+            username="superadmin_cus7",
+            email="superadmin_cus7@example.com",
+            mobile_number="+919811111199",
+            role=User.Role.SUPER_ADMIN,
+            password="testpassword123",
+        )
+
+    def authenticate_merchant(self, user):
+        res = self.client.post(
+            "/api/v1/auth/login/",
+            {"mobile_number": user.mobile_number, "password": "testpassword123"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, f"Login failed: {res.data}")
+        token = res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def authenticate_admin(self):
+        res = self.client.post(
+            "/api/v1/auth/super-admin/login/",
+            {"identifier": self.admin_user.email, "password": "testpassword123"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, f"Admin login failed: {res.data}")
+        token = res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    # =========================================================================
+    # 1. Shop-Specific Customer Creation & Recognition
+    # =========================================================================
+
+    def test_creation_and_recognition_lifecycle_in_shop(self):
+        """
+        Customer creation on first WhatsApp contact, followed by repeat-recognition
+        returning the exact same profile without duplicating rows.
+        """
+        phone = "9823456780"
+
+        # 1. Initial creation via domain service
+        cust1, created1 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number=phone,
+            name="Aarav Sharma",
+        )
+        self.assertTrue(created1)
+        self.assertEqual(cust1.shop, self.shop1)
+        self.assertEqual(cust1.whatsapp_number, "+919823456780")
+        self.assertEqual(cust1.name, "Aarav Sharma")
+        self.assertIsNotNone(cust1.created_at)
+        self.assertIsNotNone(cust1.updated_at)
+
+        # 2. Subsequent recognition via domain service
+        cust2, created2 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number=phone,
+        )
+        self.assertFalse(created2)
+        self.assertEqual(cust2.pk, cust1.pk)
+        self.assertEqual(cust2.name, "Aarav Sharma")
+
+        # 3. Model Manager helper methods
+        rec_mgr = Customer.objects.recognize(self.shop1, phone)
+        self.assertIsNotNone(rec_mgr)
+        self.assertEqual(rec_mgr.pk, cust1.pk)
+
+        cor_mgr, created3 = Customer.objects.create_or_recognize(self.shop1, phone)
+        self.assertFalse(created3)
+        self.assertEqual(cor_mgr.pk, cust1.pk)
+
+        # 4. Total customer count in Shop 1 is exactly 1
+        self.assertEqual(Customer.objects.filter(shop=self.shop1).count(), 1)
+
+    def test_public_api_customer_creation_and_recognition(self):
+        """
+        Unauthenticated shoppers can create or recognize their Shop-specific Customer profile
+        via public endpoints.
+        """
+        phone = "9823456781"
+        create_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/"
+        rec_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/recognize/"
+
+        # 1. Public creation
+        res_create = self.client.post(create_url, {"whatsapp_number": phone, "name": "Bhavna Patel"}, format="json")
+        self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res_create.data["created"])
+        self.assertEqual(res_create.data["customer"]["name"], "Bhavna Patel")
+        self.assertEqual(res_create.data["customer"]["whatsapp_number"], "+919823456781")
+        cust_id = res_create.data["customer"]["id"]
+
+        # 2. Public recognition via GET and POST
+        res_rec_get = self.client.get(rec_url, {"whatsapp_number": phone})
+        self.assertEqual(res_rec_get.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_rec_get.data["recognized"])
+        self.assertEqual(res_rec_get.data["customer"]["id"], cust_id)
+        self.assertEqual(res_rec_get.data["customer"]["name"], "Bhavna Patel")
+
+        res_rec_post = self.client.post(rec_url, {"whatsapp_number": f"+91{phone}"}, format="json")
+        self.assertEqual(res_rec_post.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_rec_post.data["recognized"])
+        self.assertEqual(res_rec_post.data["customer"]["id"], cust_id)
+
+    def test_customer_creation_before_order_with_cart(self):
+        """
+        Customer profile is created and linked to an active Cart before an Order exists.
+        Abandoned carts maintain this Shop-specific customer link.
+        """
+        cart = Cart.objects.create(shop=self.shop1)
+        self.assertIsNone(cart.customer)
+
+        cust, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9823456782",
+            name="Cart Shopper",
+            cart=cart,
+        )
+        self.assertTrue(created)
+        cart.refresh_from_db()
+        self.assertEqual(cart.customer, cust)
+        self.assertEqual(cart.customer.shop, self.shop1)
+
+    # =========================================================================
+    # 2. Customer Profile Updates & Scope Enforcement
+    # =========================================================================
+
+    def test_profile_name_update_via_recognition_when_initially_empty(self):
+        """
+        If a Customer profile was created with an empty name, subsequent recognition
+        supplying a name updates and saves the name.
+        """
+        cust1, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9823456783",
+            name="",
+        )
+        self.assertTrue(created)
+        self.assertEqual(cust1.name, "")
+
+        cust2, created2 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9823456783",
+            name="Captured Later",
+        )
+        self.assertFalse(created2)
+        self.assertEqual(cust2.pk, cust1.pk)
+        self.assertEqual(cust2.name, "Captured Later")
+
+        # Third recognition with different name does NOT overwrite already set name
+        cust3, created3 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9823456783",
+            name="Attempted Overwrite",
+        )
+        self.assertFalse(created3)
+        self.assertEqual(cust3.name, "Captured Later")
+
+    def test_profile_update_forbidden_shop_reassignment_clean_and_save(self):
+        """
+        Customer profiles are strictly scoped to one Shop. Attempting to reassign
+        customer.shop or customer.shop_id to another Shop raises ValidationError.
+        """
+        cust = Customer.objects.create(
+            shop=self.shop1,
+            name="Fixed Shop Customer",
+            whatsapp_number="9823456784",
+        )
+
+        cust.shop = self.shop2
+        with self.assertRaises(ValidationError) as ctx:
+            cust.full_clean()
+        self.assertIn("shop", ctx.exception.message_dict)
+        self.assertIn("Cannot reassign a Customer profile to a different Shop.", ctx.exception.message_dict["shop"])
+
+        with self.assertRaises(ValidationError):
+            cust.save()
+
+        # Database state remains unaltered
+        cust.refresh_from_db()
+        self.assertEqual(cust.shop, self.shop1)
+
+    def test_profile_update_in_one_shop_does_not_affect_profile_in_another_shop(self):
+        """
+        When the same WhatsApp contact exists in Shop 1 and Shop 2, updating a profile
+        attribute in Shop 1 does NOT alter Shop 2's profile.
+        """
+        shared_phone = "9823456785"
+        cust_s1 = Customer.objects.create(shop=self.shop1, name="Original Name S1", whatsapp_number=shared_phone)
+        cust_s2 = Customer.objects.create(shop=self.shop2, name="Original Name S2", whatsapp_number=shared_phone)
+
+        # Update Shop 1 profile directly
+        cust_s1.name = "Updated Name S1"
+        cust_s1.full_clean()
+        cust_s1.save()
+
+        # Verify Shop 2 profile is completely unaffected
+        cust_s2.refresh_from_db()
+        self.assertEqual(cust_s2.name, "Original Name S2")
+        self.assertEqual(cust_s2.shop, self.shop2)
+
+    # =========================================================================
+    # 3. Authorized Merchant Access & ERP Retrieval
+    # =========================================================================
+
+    def test_merchant_erp_customer_list_and_detail_strictly_scoped(self):
+        """
+        Merchant can only list and retrieve Customer profiles belonging to their own Shop.
+        Other shops' customers are excluded and detail requests return 404.
+        """
+        c1 = Customer.objects.create(shop=self.shop1, name="Customer Alpha 1", whatsapp_number="9823456701")
+        c2 = Customer.objects.create(shop=self.shop1, name="Customer Alpha 2", whatsapp_number="9823456702")
+        c_other = Customer.objects.create(shop=self.shop2, name="Customer Beta 1", whatsapp_number="9823456703")
+
+        self.authenticate_merchant(self.user1)
+
+        # Merchant 1 listing
+        res_list = self.client.get("/api/v1/customers/")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_list.data), 2)
+        returned_ids = {item["id"] for item in res_list.data}
+        self.assertEqual(returned_ids, {c1.id, c2.id})
+        self.assertNotIn(c_other.id, returned_ids)
+
+        # Merchant 1 retrieving own customer detail
+        res_detail = self.client.get(f"/api/v1/customers/{c1.id}/")
+        self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_detail.data["id"], c1.id)
+        self.assertEqual(res_detail.data["shop"], self.shop1.id)
+        self.assertEqual(res_detail.data["name"], "Customer Alpha 1")
+        self.assertEqual(res_detail.data["whatsapp_number"], "+919823456701")
+
+        # Merchant 1 retrieving Shop 2 customer returns 404
+        res_forbidden_detail = self.client.get(f"/api/v1/customers/{c_other.id}/")
+        self.assertEqual(res_forbidden_detail.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_merchant_erp_client_provided_shop_param_never_trusted(self):
+        """
+        Server authorization is derived strictly from the authenticated Merchant.
+        Passing a different shop_id in query parameters returns empty queryset and never leaks data.
+        """
+        Customer.objects.create(shop=self.shop1, name="Customer 1", whatsapp_number="9823456711")
+        Customer.objects.create(shop=self.shop2, name="Customer 2", whatsapp_number="9823456712")
+
+        self.authenticate_merchant(self.user1)
+
+        # Passing unmatching shop_id query param
+        res = self.client.get(f"/api/v1/customers/?shop_id={self.shop2.id}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 0)
+
+        # Passing unmatching shop query param
+        res2 = self.client.get(f"/api/v1/customers/?shop={self.shop2.id}")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res2.data), 0)
+
+    def test_merchant_erp_inactive_shop_returns_403(self):
+        """Inactive (suspended or deactivated) shop blocks customer retrieval."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        self.authenticate_merchant(self.user1)
+        res = self.client.get("/api/v1/customers/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data["code"], "SHOP_INACTIVE")
+
+    def test_merchant_erp_disallows_mutation_methods(self):
+        """ReadOnlyModelViewSet rejects POST, PUT, PATCH, DELETE operations with 405."""
+        cust = Customer.objects.create(shop=self.shop1, name="ReadOnly Cust", whatsapp_number="9823456720")
+        self.authenticate_merchant(self.user1)
+
+        for method, url, data in [
+            ("post", "/api/v1/customers/", {"name": "X", "whatsapp_number": "9823456721"}),
+            ("put", f"/api/v1/customers/{cust.id}/", {"name": "Y"}),
+            ("patch", f"/api/v1/customers/{cust.id}/", {"name": "Z"}),
+            ("delete", f"/api/v1/customers/{cust.id}/", {}),
+        ]:
+            with self.subTest(method=method):
+                caller = getattr(self.client, method)
+                res = caller(url, data, format="json") if method != "delete" else caller(url)
+                self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_merchant_erp_unauthenticated_and_super_admin_forbidden(self):
+        """Unauthenticated requests return 401; Super Admin requests return 403."""
+        # Unauthenticated
+        res_unauth = self.client.get("/api/v1/customers/")
+        self.assertEqual(res_unauth.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Super Admin
+        self.authenticate_admin()
+        res_admin = self.client.get("/api/v1/customers/")
+        self.assertEqual(res_admin.status_code, status.HTTP_403_FORBIDDEN)
+
+    # =========================================================================
+    # 4. Cross-Shop Isolation
+    # =========================================================================
+
+    def test_cross_shop_isolation_with_shared_phone_number(self):
+        """
+        When the same phone number is used in Shop 1 and Shop 2:
+        - Two independent Customer rows exist
+        - Merchant 1 sees only Customer 1
+        - Merchant 2 sees only Customer 2
+        - Public recognize in Shop 1 returns Customer 1 only
+        - Public recognize in Shop 2 returns Customer 2 only
+        """
+        shared_phone = "9823456730"
+        c1 = Customer.objects.create(shop=self.shop1, name="Shopper at Alpha", whatsapp_number=shared_phone)
+        c2 = Customer.objects.create(shop=self.shop2, name="Shopper at Beta", whatsapp_number=shared_phone)
+
+        # Distinct records
+        self.assertNotEqual(c1.pk, c2.pk)
+        self.assertEqual(c1.shop, self.shop1)
+        self.assertEqual(c2.shop, self.shop2)
+
+        # Merchant 1 view
+        self.authenticate_merchant(self.user1)
+        res_m1 = self.client.get("/api/v1/customers/")
+        self.assertEqual(len(res_m1.data), 1)
+        self.assertEqual(res_m1.data[0]["id"], c1.id)
+        self.assertEqual(res_m1.data[0]["name"], "Shopper at Alpha")
+
+        # Merchant 2 view
+        self.authenticate_merchant(self.user2)
+        res_m2 = self.client.get("/api/v1/customers/")
+        self.assertEqual(len(res_m2.data), 1)
+        self.assertEqual(res_m2.data[0]["id"], c2.id)
+        self.assertEqual(res_m2.data[0]["name"], "Shopper at Beta")
+
+        # Public recognize Shop 1
+        res_pub1 = self.client.get(
+            f"/api/v1/shops/public/{self.shop1.public_slug}/customer/recognize/",
+            {"whatsapp_number": shared_phone},
+        )
+        self.assertEqual(res_pub1.data["customer"]["id"], c1.id)
+        self.assertEqual(res_pub1.data["customer"]["name"], "Shopper at Alpha")
+
+        # Public recognize Shop 2
+        res_pub2 = self.client.get(
+            f"/api/v1/shops/public/{self.shop2.public_slug}/customer/recognize/",
+            {"whatsapp_number": shared_phone},
+        )
+        self.assertEqual(res_pub2.data["customer"]["id"], c2.id)
+        self.assertEqual(res_pub2.data["customer"]["name"], "Shopper at Beta")
+
+    def test_cross_shop_recognition_returns_404_if_not_in_shop(self):
+        """A customer registered only in Shop 1 is NOT recognized in Shop 2."""
+        Customer.objects.create(shop=self.shop1, name="Alpha Only", whatsapp_number="9823456731")
+
+        rec_url = f"/api/v1/shops/public/{self.shop2.public_slug}/customer/recognize/"
+        res = self.client.get(rec_url, {"whatsapp_number": "9823456731"})
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(res.data["recognized"])
+        self.assertEqual(res.data["code"], "CUSTOMER_NOT_FOUND")
+
+    def test_cross_shop_cart_binding_rejected_at_service_and_api(self):
+        """Binding a Cart belonging to Shop 2 to a customer in Shop 1 is rejected."""
+        cart_s2 = Cart.objects.create(shop=self.shop2)
+
+        # Service level rejection
+        with self.assertRaises(ValidationError) as ctx:
+            create_or_recognize_customer(
+                shop=self.shop1,
+                whatsapp_number="9823456732",
+                cart=cart_s2,
+            )
+        self.assertIn("cart", ctx.exception.message_dict)
+
+        # API level rejection
+        api_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/"
+        res = self.client.post(api_url, {"whatsapp_number": "9823456732", "cart_id": cart_s2.id}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["code"], "CART_NOT_FOUND")
+
+    # =========================================================================
+    # 5. Gated Global Claims & Normalization Decisions
+    # =========================================================================
+
+    def test_global_claims_and_cross_shop_link_models_are_unapproved_and_absent(self):
+        """
+        Global contact claims and cross-Shop identity linkage remain under review
+        and must NOT be introduced without explicit Product Owner/Privacy approval.
+        Only the shop-scoped Customer model must be present.
+        """
+        from django.apps import apps
+        customer_models = apps.get_app_config("customers").get_models()
+        model_names = {m.__name__ for m in customer_models}
+
+        self.assertEqual(model_names, {"Customer"})
+        for unapproved in [
+            "CustomerIdentity",
+            "ContactIdentityClaim",
+            "ShopCustomerProfile",
+            "GlobalCustomer",
+            "CustomerSession",
+            "HistoryLinkGrant",
+        ]:
+            with self.subTest(model=unapproved):
+                self.assertNotIn(unapproved, model_names)
+
+    def test_customer_model_fields_are_strictly_shop_scoped(self):
+        """
+        Customer model schema only contains Shop-scoped attributes and NO global identity
+        or user credential foreign keys.
+        """
+        field_names = {f.name for f in Customer._meta.fields}
+        expected_fields = {"id", "shop", "name", "whatsapp_number", "created_at", "updated_at"}
+        self.assertEqual(field_names, expected_fields)
+
+        for forbidden in ["identity", "global_identity", "contact_claim", "user", "account", "login", "password"]:
+            self.assertNotIn(forbidden, field_names)
+
+    def test_user_identity_boundary_enforced_against_authenticated_users(self):
+        """
+        A WhatsApp number claimed by an authenticated User (Merchant or Super Admin)
+        cannot be registered as a Customer profile.
+        """
+        # Merchant 1's number
+        with self.assertRaises(ValidationError):
+            create_or_recognize_customer(shop=self.shop1, whatsapp_number=self.user1.mobile_number)
+
+        # Super Admin's number
+        with self.assertRaises(ValidationError):
+            create_or_recognize_customer(shop=self.shop1, whatsapp_number=self.admin_user.mobile_number)
+
+        # Public API rejection
+        api_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/"
+        res = self.client.post(api_url, {"whatsapp_number": self.user1.mobile_number}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data["code"], "INVALID_CUSTOMER_DATA")
+
+    def test_normalization_rules_reject_international_and_invalid_formats(self):
+        """
+        Phone normalization strictly accepts 10-digit Indian numbers (+91) and
+        rejects international numbers outside the Indian dial plan (+1, +44, +971, etc.)
+        as well as malformed numbers.
+        """
+        for invalid in ["+12025550123", "+447911123456", "+971501234567", "5555555555", "12345", "98765432101"]:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValidationError):
+                    normalize_whatsapp_number(invalid)
+
+    # =========================================================================
+    # 6. Verify No Number-Only History Authorization
+    # =========================================================================
+
+    def test_public_customer_endpoints_never_authorize_or_expose_order_history(self):
+        """
+        Knowing or providing a WhatsApp number alone NEVER authorizes or exposes
+        order history, purchase data, or authenticated session credentials.
+        """
+        cust = Customer.objects.create(
+            shop=self.shop1,
+            name="History Guarded Customer",
+            whatsapp_number="9823456799",
+        )
+
+        create_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/"
+        rec_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/recognize/"
+
+        # 1. Post to create or recognize
+        res_create = self.client.post(create_url, {"whatsapp_number": cust.whatsapp_number}, format="json")
+        self.assertEqual(res_create.status_code, status.HTTP_200_OK)
+
+        # Verify no order history or credential keys leaked in create/recognize response
+        forbidden_keys = [
+            "orders",
+            "order_history",
+            "history",
+            "purchases",
+            "past_orders",
+            "order_ids",
+            "token",
+            "access",
+            "refresh",
+            "jwt",
+            "session_id",
+            "session_key",
+            "credentials",
+        ]
+        for key in forbidden_keys:
+            self.assertNotIn(key, res_create.data)
+            self.assertNotIn(key, res_create.data.get("customer", {}))
+
+        # 2. Get to recognize
+        res_rec = self.client.get(rec_url, {"whatsapp_number": cust.whatsapp_number})
+        self.assertEqual(res_rec.status_code, status.HTTP_200_OK)
+        for key in forbidden_keys:
+            self.assertNotIn(key, res_rec.data)
+            self.assertNotIn(key, res_rec.data.get("customer", {}))
+
+        # 3. Only safe public fields are returned
+        returned_fields = set(res_rec.data["customer"].keys())
+        expected_fields = {"id", "name", "whatsapp_number", "created_at"}
+        self.assertEqual(returned_fields, expected_fields)
+
+    def test_number_alone_cannot_authorize_private_data_or_act_as_credentials(self):
+        """
+        Customer profiles have no passwords, auth sessions, or credentials,
+        and providing a number alone does not authenticate the request.
+        """
+        cust = Customer.objects.create(
+            shop=self.shop1,
+            name="Shopper",
+            whatsapp_number="9823456798",
+        )
+
+        # Customer has no auth attributes
+        self.assertFalse(hasattr(cust, "password"))
+        self.assertFalse(hasattr(cust, "check_password"))
+        self.assertFalse(hasattr(cust, "set_password"))
+        self.assertFalse(hasattr(cust, "is_authenticated"))
+        self.assertFalse(hasattr(cust, "is_active"))
+        self.assertFalse(hasattr(cust, "is_staff"))
+
+        # Providing customer whatsapp_number to merchant ERP endpoint without JWT returns 401
+        res = self.client.get(f"/api/v1/customers/?whatsapp_number={cust.whatsapp_number}")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
