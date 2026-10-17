@@ -37,15 +37,15 @@ class Campaign(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                condition=Q(status__in=["DRAFT", "ACTIVE", "ENDED"]),
+                check=Q(status__in=["DRAFT", "ACTIVE", "ENDED"]),
                 name="campaigns_valid_status",
             ),
             models.CheckConstraint(
-                condition=Q(shop_scope__in=["ALL_SHOPS", "SELECTED_SHOPS"]),
+                check=Q(shop_scope__in=["ALL_SHOPS", "SELECTED_SHOPS"]),
                 name="campaigns_valid_shop_scope",
             ),
             models.CheckConstraint(
-                condition=(
+                check=(
                     Q(starts_at__isnull=True)
                     | Q(ends_at__isnull=True)
                     | Q(starts_at__lte=F("ends_at"))
