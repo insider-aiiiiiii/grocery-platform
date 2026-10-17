@@ -28,6 +28,9 @@ from .views import (
 from customers.views import (
     PublicCustomerCreateOrRecognizeView,
     PublicCustomerRecognizeView,
+from cart.views import (
+    PublicShopCartDetailView,
+    PublicShopCartView,
 )
 
 app_name = "shops"
@@ -63,6 +66,8 @@ urlpatterns = [
     path("public/<slug:public_slug>/customer/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customer"),
     path("public/<slug:public_slug>/customer/recognize/", PublicCustomerRecognizeView.as_view(), name="shop-public-customer-recognize"),
     path("public/<slug:public_slug>/customers/", PublicCustomerCreateOrRecognizeView.as_view(), name="shop-public-customers"),
+    path("public/<slug:public_slug>/cart/", PublicShopCartView.as_view(), name="shop-public-cart"),
+    path("public/<slug:public_slug>/cart/<int:pk>/", PublicShopCartDetailView.as_view(), name="shop-public-cart-detail"),
     path("<int:pk>/", SuperAdminShopDeleteView.as_view(), name="shop-admin-delete"),
     path("<int:pk>/deactivate/", SuperAdminShopDeactivateView.as_view(), name="shop-admin-deactivate"),
     path("<int:pk>/reactivate/", SuperAdminShopReactivateView.as_view(), name="shop-admin-reactivate"),

@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from catalog.models import ProductVariant, ShopProduct
 from customers.models import Customer
@@ -456,4 +458,321 @@ class CartModelTests(TestCase):
         self.assertEqual(cart_s2.item_count, 1)
         self.assertEqual(cart_s2.total_quantity, Decimal("5.000"))
         self.assertEqual(cart_s2.subtotal, Decimal("375.00"))  # 5 * 75.00
+
+
+class PublicCartAPITests(TestCase):
+    """API tests for CART-003 Public Create/Retrieve Cart APIs for a Shop."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant 1 and Shop 1
+        self.user1 = User.objects.create_user(
+            username="merchant_1",
+            email="merchant1@example.com",
+            mobile_number="+919876543211",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant1 = Merchant.objects.create(
+            user=self.user1,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop1 = Shop.objects.create(
+            merchant=self.merchant1,
+            name="Alpha Groceries",
+            address_line="100 First Street",
+            area="North",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=self.user1.mobile_number,
+            delivery_charge=Decimal("40.00"),
+        )
+
+        # Merchant 2 and Shop 2 (for multi-tenant isolation testing)
+        self.user2 = User.objects.create_user(
+            username="merchant_2",
+            email="merchant2@example.com",
+            mobile_number="+919876543212",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant2 = Merchant.objects.create(
+            user=self.user2,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop2 = Shop.objects.create(
+            merchant=self.merchant2,
+            name="Beta Mart",
+            address_line="200 Second Street",
+            area="South",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400001",
+            contact_number=self.user2.mobile_number,
+            delivery_charge=Decimal("50.00"),
+        )
+
+        # Products in Shop 1
+        self.product1_s1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Milk 1L",
+            price=Decimal("60.00"),
+            sku="MILK-001",
+        )
+        self.product2_s1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Basmati Rice",
+            price=Decimal("120.00"),
+            sku="RICE-001",
+        )
+        self.variant1_s1 = ProductVariant.objects.create(
+            product=self.product2_s1,
+            name="1kg Pack",
+            price=Decimal("130.00"),
+            sku="RICE-1KG",
+        )
+
+        # Product in Shop 2
+        self.product1_s2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Organic Milk 1L",
+            price=Decimal("75.00"),
+            sku="OMILK-001",
+        )
+
+        # Customer in Shop 1
+        self.customer_s1 = Customer.objects.create(
+            shop=self.shop1,
+            name="Anand Sharma",
+            whatsapp_number="+919876500001",
+        )
+
+        # Customer in Shop 2
+        self.customer_s2 = Customer.objects.create(
+            shop=self.shop2,
+            name="Pooja Verma",
+            whatsapp_number="+919876500002",
+        )
+
+    # 1. Public Create Cart
+    def test_public_create_anonymous_empty_cart(self):
+        """Unauthenticated customer can create an empty anonymous cart for an active shop."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertIn("id", data)
+        self.assertEqual(data["shop"]["id"], self.shop1.id)
+        self.assertEqual(data["shop"]["public_slug"], self.shop1.public_slug)
+        self.assertIsNone(data["customer"])
+        self.assertEqual(data["items"], [])
+        self.assertEqual(data["item_count"], 0)
+        self.assertEqual(Decimal(str(data["total_quantity"])), Decimal("0.000"))
+        self.assertEqual(Decimal(str(data["subtotal"])), Decimal("0.00"))
+
+    def test_public_create_cart_with_initial_items(self):
+        """Customer can create a cart pre-populated with valid products and variants."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        payload = {
+            "items": [
+                {"product_id": self.product1_s1.id, "quantity": "2.000"},
+                {"product_id": self.product2_s1.id, "variant_id": self.variant1_s1.id, "quantity": "1.500"},
+            ]
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["item_count"], 2)
+        self.assertEqual(Decimal(str(data["total_quantity"])), Decimal("3.500"))
+        # (2 * 60.00) + (1.5 * 130.00) = 120 + 195 = 315.00
+        self.assertEqual(Decimal(str(data["subtotal"])), Decimal("315.00"))
+
+        item1 = data["items"][0]
+        self.assertEqual(item1["product"]["id"], self.product1_s1.id)
+        self.assertIsNone(item1["variant"])
+        self.assertEqual(Decimal(str(item1["unit_price"])), Decimal("60.00"))
+        self.assertEqual(Decimal(str(item1["line_total"])), Decimal("120.00"))
+
+        item2 = data["items"][1]
+        self.assertEqual(item2["variant"]["id"], self.variant1_s1.id)
+        self.assertEqual(Decimal(str(item2["unit_price"])), Decimal("130.00"))
+        self.assertEqual(Decimal(str(item2["line_total"])), Decimal("195.00"))
+
+    def test_public_create_cart_with_customer_id(self):
+        """Customer can create a cart linked to an existing Customer in the same Shop."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        payload = {"customer_id": self.customer_s1.id}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertIsNotNone(data["customer"])
+        self.assertEqual(data["customer"]["id"], self.customer_s1.id)
+        self.assertEqual(data["customer"]["whatsapp_number"], self.customer_s1.whatsapp_number)
+
+    def test_public_create_cart_with_whatsapp_number(self):
+        """Customer providing whatsapp_number links or creates the shop-specific Customer profile."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        payload = {"whatsapp_number": "9876543299"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertIsNotNone(data["customer"])
+        self.assertEqual(data["customer"]["whatsapp_number"], "+919876543299")
+
+        # Verify Customer profile exists in shop1
+        self.assertTrue(Customer.objects.filter(shop=self.shop1, whatsapp_number="+919876543299").exists())
+
+    def test_public_create_cart_rejects_customer_from_different_shop(self):
+        """Cannot link a customer from another Shop to a new Cart."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        payload = {"customer_id": self.customer_s2.id}  # customer belonging to shop2
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("customer_id", response.json())
+
+    def test_public_create_cart_rejects_product_from_different_shop(self):
+        """Cannot add products from another Shop to a Cart."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        payload = {
+            "items": [{"product_id": self.product1_s2.id, "quantity": "1.000"}]
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not belong to this Shop", str(response.json()))
+
+    def test_public_create_cart_rejects_invalid_quantity(self):
+        """Cannot add item with zero, negative, or invalid decimal places."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+
+        # Zero quantity
+        res_zero = self.client.post(url, {"items": [{"product_id": self.product1_s1.id, "quantity": "0.000"}]}, format="json")
+        self.assertEqual(res_zero.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Negative quantity
+        res_neg = self.client.post(url, {"items": [{"product_id": self.product1_s1.id, "quantity": "-1.500"}]}, format="json")
+        self.assertEqual(res_neg.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Excessive decimal places
+        res_excess = self.client.post(url, {"items": [{"product_id": self.product1_s1.id, "quantity": "1.1234"}]}, format="json")
+        self.assertEqual(res_excess.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_public_create_cart_inactive_shop_returns_404(self):
+        """Cannot create a cart for an inactive, deactivated, or suspended shop."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        response = self.client.post(url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # 2. Public Retrieve Cart
+    def test_public_retrieve_cart_by_shop_slug_and_id(self):
+        """Retrieve cart by shop public slug and cart PK."""
+        cart = Cart.objects.create(shop=self.shop1, customer=self.customer_s1)
+        CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("3.000"))
+
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/{cart.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["id"], cart.id)
+        self.assertEqual(data["shop"]["public_slug"], self.shop1.public_slug)
+        self.assertEqual(data["customer"]["id"], self.customer_s1.id)
+        self.assertEqual(data["item_count"], 1)
+        self.assertEqual(Decimal(str(data["subtotal"])), Decimal("180.00"))
+
+    def test_public_retrieve_cart_via_query_param(self):
+        """Retrieve cart using ?cart_id=<id> query parameter."""
+        cart = Cart.objects.create(shop=self.shop1)
+        CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/?cart_id={cart.id}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["id"], cart.id)
+
+    def test_public_retrieve_cart_via_header(self):
+        """Retrieve cart using X-Cart-ID header."""
+        cart = Cart.objects.create(shop=self.shop1)
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        response = self.client.get(url, HTTP_X_CART_ID=str(cart.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["id"], cart.id)
+
+    def test_public_retrieve_cart_missing_param_returns_400(self):
+        """GET /public/<slug>/cart/ without cart_id query param or header returns 400."""
+        url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "CART_ID_REQUIRED")
+
+    def test_public_retrieve_cart_cross_shop_returns_404(self):
+        """Shop 2's public URL cannot retrieve Shop 1's cart (cross-shop leak prevention)."""
+        cart_s1 = Cart.objects.create(shop=self.shop1)
+
+        url = f"/api/v1/shops/public/{self.shop2.public_slug}/cart/{cart_s1.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        url_query = f"/api/v1/shops/public/{self.shop2.public_slug}/cart/?cart_id={cart_s1.id}"
+        response_query = self.client.get(url_query)
+        self.assertEqual(response_query.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_public_direct_cart_retrieve(self):
+        """Direct retrieval via /api/v1/cart/<pk>/ returns cart details for active shop."""
+        cart = Cart.objects.create(shop=self.shop1)
+        CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{cart.id}/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["id"], cart.id)
+        self.assertEqual(data["shop"]["id"], self.shop1.id)
+
+    def test_public_direct_cart_retrieve_inactive_shop_returns_404(self):
+        """Direct cart retrieval returns 404 if the cart's shop is deactivated."""
+        cart = Cart.objects.create(shop=self.shop1)
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        url = f"/api/v1/cart/{cart.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unauthenticated_client_can_perform_all_cart_operations(self):
+        """Clients require zero authentication headers or cookies to create or retrieve carts."""
+        self.client.credentials()  # clear all auth credentials
+
+        # 1. Create anonymous cart
+        create_url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/"
+        res_create = self.client.post(create_url, {"items": [{"product_id": self.product1_s1.id}]}, format="json")
+        self.assertEqual(res_create.status_code, status.HTTP_201_CREATED)
+        cart_id = res_create.json()["id"]
+
+        # 2. Retrieve by slug and ID
+        get_slug_url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/{cart_id}/"
+        res_get_slug = self.client.get(get_slug_url)
+        self.assertEqual(res_get_slug.status_code, status.HTTP_200_OK)
+
+        # 3. Direct retrieval by ID
+        get_direct_url = f"/api/v1/cart/{cart_id}/"
+        res_get_direct = self.client.get(get_direct_url)
+        self.assertEqual(res_get_direct.status_code, status.HTTP_200_OK)
+
 
