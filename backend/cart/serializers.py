@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 from catalog.models import ProductVariant, ShopProduct
 from customers.models import Customer, normalize_whatsapp_number
+from customers.services import create_or_recognize_customer
 from shops.models import Shop
 
 from .models import Cart, CartItem, validate_positive_quantity
@@ -113,7 +114,7 @@ class CartCreateSerializer(serializers.Serializer):
         elif attrs.get("whatsapp_number"):
             try:
                 wa = normalize_whatsapp_number(attrs["whatsapp_number"])
-                customer, _ = Customer.objects.get_or_create(
+                customer, _ = create_or_recognize_customer(
                     shop=shop,
                     whatsapp_number=wa,
                 )
@@ -316,4 +317,44 @@ class CartValidationResultSerializer(serializers.Serializer):
     items = CartValidationItemSerializer(many=True)
     summary = CartValidationSummarySerializer()
     orders_dependencies = serializers.DictField(child=serializers.CharField())
+
+
+class CartCustomerAssociateSerializer(serializers.Serializer):
+    whatsapp_number = serializers.CharField(required=True)
+    name = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_whatsapp_number(self, value):
+        from customers.models import normalize_whatsapp_number
+        try:
+            normalized = normalize_whatsapp_number(value)
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
+
+        from users.models import User
+        if User.objects.filter(mobile_number=normalized).exists():
+            raise serializers.ValidationError(
+                "This WhatsApp number is already registered as an authenticated user identity."
+            )
+        return normalized
+
+    def validate(self, attrs):
+        cart = self.context.get("cart")
+        if not cart:
+            raise serializers.ValidationError({"cart": "Cart context is required."})
+
+        # Check reassignment guard
+        if cart.customer_id is not None:
+            normalized = attrs.get("whatsapp_number")
+            if normalized and cart.customer.whatsapp_number != normalized:
+                raise serializers.ValidationError(
+                    {"cart": "Cart is already associated with another customer."}
+                )
+        return attrs
+
+
+class CartCustomerAssociateResponseSerializer(serializers.Serializer):
+    cart = PublicCartSerializer()
+    customer = PublicCartCustomerSummarySerializer()
+    customer_created = serializers.BooleanField()
+
 

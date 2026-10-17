@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -8,13 +9,15 @@ from shops.models import Shop
 from .models import Cart, CartItem
 from .serializers import (
     CartCreateSerializer,
+    CartCustomerAssociateSerializer,
     CartItemAddSerializer,
     CartItemUpdateSerializer,
     CartValidationResultSerializer,
+    PublicCartCustomerSummarySerializer,
     PublicCartItemSerializer,
     PublicCartSerializer,
 )
-from .services import validate_cart_state
+from .services import associate_cart_customer, validate_cart_state
 
 
 def get_public_active_shop(public_slug: str):
@@ -340,5 +343,77 @@ class PublicCartValidateView(APIView):
         result = validate_cart_state(cart)
         serializer = CartValidationResultSerializer(result)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class CartCustomerAssociateView(APIView):
+    """
+    Public customer-facing Cart Customer Association endpoint.
+    Associates an anonymous cart with a Shop-specific Customer derived from WhatsApp.
+    Enforces that:
+    1. The cart's Shop is active.
+    2. The WhatsApp number is a valid Indian mobile number (+91...).
+    3. The WhatsApp number does not collide with authenticated Users (Merchants/Super Admins).
+    4. The cart cannot be reassigned if already associated with another customer.
+    5. A permanent Shop-specific Customer record is created or recognized before checkout.
+    6. No customer authentication (sessions, tokens, passwords) is generated or required.
+    - POST: Associates WhatsApp contact with the resolved cart.
+    - PATCH: Supports partial update semantics for the cart's customer contact.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        return self._associate(request, cart_id=cart_id, public_slug=public_slug)
+
+    def patch(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        return self._associate(request, cart_id=cart_id, public_slug=public_slug)
+
+    def _associate(self, request, cart_id: int | None, public_slug: str | None):
+        cart, error_res = resolve_cart_for_request(
+            request,
+            cart_id=cart_id,
+            public_slug=public_slug,
+        )
+        if error_res:
+            return error_res
+
+        serializer = CartCustomerAssociateSerializer(
+            data=request.data,
+            context={"request": request, "cart": cart},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        whatsapp_number = serializer.validated_data["whatsapp_number"]
+        name = serializer.validated_data.get("name", "")
+
+        try:
+            cart, customer, created = associate_cart_customer(
+                cart=cart,
+                whatsapp_number=whatsapp_number,
+                name=name,
+            )
+        except DjangoValidationError as err:
+            detail = err.message_dict if hasattr(err, "message_dict") else err.messages
+            return Response(
+                {"detail": detail, "code": "INVALID_CUSTOMER_DATA"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prefetch relations for serialization
+        cart = (
+            Cart.objects.filter(pk=cart.pk)
+            .select_related("shop", "customer")
+            .prefetch_related("items__product", "items__variant")
+            .first()
+        )
+
+        response_data = {
+            "cart": PublicCartSerializer(cart).data,
+            "customer": PublicCartCustomerSummarySerializer(customer).data,
+            "customer_created": created,
+        }
+        res_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(response_data, status=res_status)
+
 
 
