@@ -26,6 +26,7 @@ from .views import (
     SuperAdminShopRegenerateQRView,
 )
 from customers.views import (
+    MerchantCustomerViewSet,
     PublicCustomerCreateOrRecognizeView,
     PublicCustomerRecognizeView,
 from cart.views import (
@@ -50,6 +51,9 @@ urlpatterns = [
     path("me/custom-attributes/", MerchantShopCustomAttributeViewSet.as_view({"get": "list", "post": "create"}), name="shop-me-custom-attributes-list"),
     path("me/custom-attributes/<int:pk>/", MerchantShopCustomAttributeViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}), name="shop-me-custom-attributes-detail"),
     path("me/inventory/", include("inventory.urls")),
+    path("me/customers/", MerchantCustomerViewSet.as_view({"get": "list"}), name="shop-me-customers-list"),
+    path("me/customers/<int:pk>/", MerchantCustomerViewSet.as_view({"get": "retrieve"}), name="shop-me-customers-detail"),
+
 
     path("me/deactivate/", MerchantShopDeactivationForbiddenView.as_view(), name="shop-me-deactivate"),
     path("deactivate/", MerchantShopDeactivationForbiddenView.as_view(), name="shop-deactivate"),
