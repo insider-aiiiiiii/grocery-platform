@@ -61,6 +61,10 @@ class Customer(models.Model):
                 fields=["shop", "whatsapp_number"],
                 name="customers_customer_unique_shop_whatsapp",
             ),
+            models.CheckConstraint(
+                check=~models.Q(whatsapp_number=""),
+                name="customers_customer_whatsapp_not_empty",
+            ),
         ]
         indexes = [
             models.Index(
@@ -80,6 +84,12 @@ class Customer(models.Model):
 
         self.whatsapp_number = normalize_whatsapp_number(self.whatsapp_number)
 
+        # CUS-002: Preserve one-Shop profile scope - prevent reassigning shop
+        if self.pk:
+            orig = Customer.objects.filter(pk=self.pk).values("shop_id").first()
+            if orig and orig["shop_id"] != self.shop_id:
+                raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
+
         if self.shop_id:
             qs = Customer.objects.filter(shop_id=self.shop_id, whatsapp_number=self.whatsapp_number)
             if self.pk:
@@ -93,4 +103,8 @@ class Customer(models.Model):
         if not self.whatsapp_number:
             raise ValidationError({"whatsapp_number": "WhatsApp number is required."})
         self.whatsapp_number = normalize_whatsapp_number(self.whatsapp_number)
+        if self.pk:
+            orig = Customer.objects.filter(pk=self.pk).values("shop_id").first()
+            if orig and orig["shop_id"] != self.shop_id:
+                raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
         super().save(*args, **kwargs)
