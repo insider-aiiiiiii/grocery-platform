@@ -26,7 +26,10 @@ from .services import (
     reserve_order_stock,
     restore_cancelled_order_stock,
     restore_order_items_stock,
+    set_exact_stock,
+    set_stock,
     subtract_stock,
+    update_exact_stock,
 )
 
 
@@ -1277,6 +1280,263 @@ class MerchantStockAddSubtractTests(InventoryBaseTestCase):
         self.assertNotIn("inventorymovement", inventory_models)
         self.assertNotIn("stockmovement", inventory_models)
         self.assertNotIn("history", inventory_models)
+
+
+class MerchantExactStockUpdateTests(InventoryBaseTestCase):
+    """
+    Test suite for Task INV-006: Merchant exact-quantity stock updates.
+    Validates Shop ownership, non-negative decimal quantity, reserved-stock rules,
+    variant granularity, and MVP no-reason/no-movement policy.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.product1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Whole Wheat Flour 5kg",
+            price=Decimal("250.00"),
+        )
+        self.variant_product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cold Pressed Coconut Oil",
+            price=Decimal("180.00"),
+        )
+        self.variant_500ml = ProductVariant.objects.create(
+            product=self.variant_product,
+            name="500 ml Bottle",
+        )
+        self.variant_1l = ProductVariant.objects.create(
+            product=self.variant_product,
+            name="1 Litre Bottle",
+        )
+
+        # Shop 2 product and variant for cross-tenant testing
+        self.shop2_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Mustard Oil",
+            price=Decimal("150.00"),
+        )
+        self.shop2_variant_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Sugar",
+            price=Decimal("45.00"),
+        )
+        self.shop2_variant = ProductVariant.objects.create(
+            product=self.shop2_variant_product,
+            name="1 kg Bag",
+        )
+
+    def test_merchant_set_exact_stock_non_variant_product(self):
+        """Active shop owner merchant sets exact stock on a non-variant product."""
+        # Initial stock is 0.000
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("0.000"))
+
+        item = set_stock(self.shop1, self.product1, Decimal("45.500"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("45.500"))
+        self.assertEqual(item.available_quantity, Decimal("45.500"))
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("45.500"))
+
+        # Update to another exact quantity (e.g. 12.000) using User actor
+        item = set_stock(self.shop1, self.product1, Decimal("12.000"), actor=self.user1)
+        self.assertEqual(item.quantity, Decimal("12.000"))
+        self.assertEqual(item.available_quantity, Decimal("12.000"))
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("12.000"))
+
+    def test_merchant_set_exact_stock_to_zero(self):
+        """Setting exact stock to 0.000 succeeds when reserved quantity is zero and marks out of stock."""
+        # First set stock to 15.000
+        set_stock(self.shop1, self.product1, Decimal("15.000"), actor=self.merchant1)
+        self.assertFalse(get_product_stock(self.product1)["is_out_of_stock"])
+
+        # Set exact stock to 0.000
+        item = set_stock(self.shop1, self.product1, Decimal("0.000"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+        stock_info = get_product_stock(self.product1)
+        self.assertEqual(stock_info["quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("0.000"))
+        self.assertTrue(stock_info["is_out_of_stock"])
+
+    def test_merchant_set_exact_stock_variant(self):
+        """Setting exact stock on variants updates authoritative balances and parent derived aggregate."""
+        item_500ml = set_stock(self.shop1, self.variant_500ml, Decimal("25.000"), actor=self.merchant1)
+        item_1l = set_stock(self.shop1, self.variant_1l, Decimal("10.000"), actor=self.merchant1)
+
+        self.assertEqual(item_500ml.quantity, Decimal("25.000"))
+        self.assertEqual(item_1l.quantity, Decimal("10.000"))
+
+        self.assertEqual(get_variant_stock(self.variant_500ml)["quantity"], Decimal("25.000"))
+        self.assertEqual(get_variant_stock(self.variant_1l)["quantity"], Decimal("10.000"))
+
+        parent_stock = get_product_stock(self.variant_product)
+        self.assertEqual(parent_stock["quantity"], Decimal("35.000"))
+        self.assertTrue(parent_stock["is_derived"])
+
+    def test_set_exact_stock_rejects_negative_quantity(self):
+        """Setting negative exact quantity is strictly rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("-1.000"), actor=self.merchant1)
+        self.assertIn("Quantity cannot be negative.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, "-0.001", actor=self.merchant1)
+        self.assertIn("Quantity cannot be negative.", str(cm.exception))
+
+        # Balance remains 0.000
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("0.000"))
+
+    def test_set_exact_stock_cannot_bypass_reserved_stock(self):
+        """Cannot set exact stock lower than currently reserved quantity."""
+        set_stock(self.shop1, self.product1, Decimal("20.000"), actor=self.merchant1)
+        reserve_order_stock(self.shop1, self.product1, Decimal("8.000"))
+
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("20.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item.available_quantity, Decimal("12.000"))
+
+        # Setting exact stock to 7.999 is strictly rejected
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("7.999"), actor=self.merchant1)
+        self.assertIn("Cannot set quantity lower than currently reserved quantity.", str(cm.exception))
+
+        # Setting exact stock to 0.000 while reservations exist is strictly rejected
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("0.000"), actor=self.merchant1)
+        self.assertIn("Cannot set quantity lower than currently reserved quantity.", str(cm.exception))
+
+        # Stock remains unchanged
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("20.000"))
+
+    def test_set_exact_stock_equal_to_reserved_stock_succeeds(self):
+        """Setting exact stock equal to reserved quantity succeeds and leaves available quantity at zero."""
+        set_stock(self.shop1, self.product1, Decimal("20.000"), actor=self.merchant1)
+        reserve_order_stock(self.shop1, self.product1, Decimal("8.000"))
+
+        # Setting exact quantity to exactly 8.000
+        item = set_stock(self.shop1, self.product1, Decimal("8.000"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("8.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+        self.assertTrue(item.is_out_of_stock)
+
+        # Increasing exact stock above reserved quantity restores availability
+        item = set_stock(self.shop1, self.product1, Decimal("15.000"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("15.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item.available_quantity, Decimal("7.000"))
+        self.assertFalse(item.is_out_of_stock)
+
+    def test_set_exact_stock_rejects_excess_decimal_places(self):
+        """Quantities with more than 3 decimal places are rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, "10.1234", actor=self.merchant1)
+        self.assertIn("Quantity cannot have more than 3 decimal places.", str(cm.exception))
+
+    def test_set_exact_stock_cross_shop_target_rejection(self):
+        """Setting stock on products/variants belonging to another shop is rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.shop2_product, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Target product does not belong to the authorized shop.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.shop2_variant, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Target variant does not belong to the authorized shop.", str(cm.exception))
+
+    def test_set_exact_stock_unauthorized_merchant_rejection(self):
+        """Merchant 2 cannot modify inventory for Shop 1."""
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant2)
+        self.assertIn("Merchant is not authorized to modify inventory for this shop.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.user2)
+        self.assertIn("Merchant is not authorized to modify inventory for this shop.", str(cm.exception))
+
+    def test_set_exact_stock_super_admin_explicitly_rejected(self):
+        """Super Admin is strictly prohibited from modifying Merchant inventory per Section 3."""
+        admin_user = User.objects.create_user(
+            username="superadmin_inv006",
+            email="admin_inv006@example.com",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=admin_user)
+        self.assertIn("Super Admin is not authorized to modify Merchant inventory.", str(cm.exception))
+
+    def test_set_exact_stock_invalid_actor_rejected(self):
+        """Customer profile or invalid actor cannot modify merchant inventory."""
+        from customers.models import Customer
+
+        customer = Customer.objects.create(
+            shop=self.shop1,
+            name="Bob Customer",
+            whatsapp_number="+919876543201",
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=customer)
+        self.assertIn("Invalid actor for inventory modification.", str(cm.exception))
+
+    def test_set_exact_stock_deactivated_or_suspended_shop_rejection(self):
+        """Cannot modify inventory for a deactivated or suspended shop."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Cannot modify inventory for a deactivated or suspended shop.", str(cm.exception))
+
+        self.shop1.status = Shop.Status.SUSPENDED
+        self.shop1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Cannot modify inventory for a deactivated or suspended shop.", str(cm.exception))
+
+    def test_set_exact_stock_inactive_merchant_rejection(self):
+        """Deactivated merchant cannot modify inventory."""
+        self.merchant1.status = Merchant.Status.DEACTIVATED
+        self.merchant1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Only active merchants can modify shop inventory.", str(cm.exception))
+
+    def test_set_exact_stock_variant_based_parent_product_rejected(self):
+        """Attempting to set exact stock directly on a parent variant-based product is rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            set_stock(self.shop1, self.variant_product, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted.", str(cm.exception))
+
+    def test_set_stock_aliases_and_anti_bloat_mvp(self):
+        """update_exact_stock and set_exact_stock work identically; no reason or movement tables exist."""
+        import inspect
+        from django.apps import apps
+
+        # Test aliases work identically
+        item1 = update_exact_stock(self.shop1, self.product1, Decimal("30.000"), actor=self.merchant1)
+        self.assertEqual(item1.quantity, Decimal("30.000"))
+
+        item2 = set_exact_stock(self.shop1, self.product1, Decimal("22.000"), actor=self.merchant1)
+        self.assertEqual(item2.quantity, Decimal("22.000"))
+
+        # Anti-bloat signature check
+        set_params = inspect.signature(set_stock).parameters
+        self.assertNotIn("reason", set_params)
+
+        # Anti-bloat models check
+        inventory_models = [m.__name__.lower() for m in apps.get_app_config("inventory").get_models()]
+        self.assertNotIn("movement", inventory_models)
+        self.assertNotIn("inventorymovement", inventory_models)
+        self.assertNotIn("stockmovement", inventory_models)
+        self.assertNotIn("history", inventory_models)
+
 
 
 

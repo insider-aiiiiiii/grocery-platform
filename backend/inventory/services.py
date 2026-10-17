@@ -291,7 +291,31 @@ def subtract_stock(
     return adjust_stock(shop, target, delta=-qty, actor=actor)
 
 
+def set_stock(
+    shop,
+    target: ShopProduct | ProductVariant,
+    quantity: Decimal | str | int | float,
+    *,
+    actor=None,
+) -> InventoryItem:
+    """
+    Sets the exact stock quantity for a non-variant ShopProduct or an authoritative ProductVariant.
+    Enforces Shop authorization, validates non-negative quantity and <=3 decimal places,
+    strictly prevents setting stock below currently reserved stock, and enforces
+    authoritative variant granularity rules.
+    No adjustment reason is required and no persistent movement history is created in MVP.
+    """
+    validate_shop_merchant_authorization(shop, actor)
+    qty = quantize_quantity(quantity)
+    return adjust_stock(shop, target, set_quantity=qty, actor=actor)
+
+
+update_exact_stock = set_stock
+set_exact_stock = set_stock
+
+
 # --- Approved Order Flow Stock Services (Atomic & Concurrency-Safe) ---
+
 
 
 def reserve_order_stock(
