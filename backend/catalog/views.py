@@ -3,7 +3,7 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from shops.models import Shop
@@ -20,6 +20,11 @@ from .models import (
 from .serializers import (
     MasterProductSerializer,
     PromoteShopProductSerializer,
+    PublicBrandSerializer,
+    PublicCategorySerializer,
+    PublicCustomAttributeSerializer,
+    PublicProductVariantSerializer,
+    PublicShopProductSerializer,
     ShopBrandSerializer,
     ShopCategorySerializer,
     ShopCustomAttributeSerializer,
@@ -514,4 +519,221 @@ class MerchantShopCustomAttributeViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(shop=self._shop)
+
+
+def get_public_active_shop(public_slug: str):
+    """
+    Resolve and validate an active Shop by its public_slug for customer-facing requests.
+    Returns (shop, error_response).
+    """
+    shop = Shop.objects.filter(public_slug=public_slug).first()
+    if not shop:
+        return None, Response(
+            {"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if shop.status != Shop.Status.ACTIVE:
+        return None, Response(
+            {"detail": "Shop is unavailable.", "code": "SHOP_UNAVAILABLE"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    return shop, None
+
+
+class PublicShopProductListView(APIView):
+    """
+    Public customer-facing endpoint listing visible products for an addressed active Shop.
+    Enforces tenant boundaries; filters out hidden products.
+    Inventory determines stock quantities, is_orderable, and Out of Stock indicators.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        queryset = (
+            ShopProduct.objects.filter(shop=shop, is_visible=True)
+            .select_related("brand_ref")
+            .prefetch_related("categories", "variants")
+            .order_by("name", "id")
+        )
+
+        category_param = request.query_params.get("category")
+        if category_param:
+            if category_param.isdigit():
+                queryset = queryset.filter(categories__id=int(category_param))
+            else:
+                queryset = queryset.filter(categories__slug=category_param)
+
+        brand_param = request.query_params.get("brand")
+        if brand_param:
+            if brand_param.isdigit():
+                queryset = queryset.filter(brand_ref_id=int(brand_param))
+            else:
+                queryset = queryset.filter(Q(brand_ref__slug=brand_param) | Q(brand__iexact=brand_param))
+
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(sku__icontains=search) | Q(brand__icontains=search)
+            )
+
+        from inventory.models import InventoryItem
+
+        inv_items = InventoryItem.objects.filter(shop=shop)
+        stock_map = {(item.product_id, item.variant_id): item.available_quantity for item in inv_items}
+
+        serializer = PublicShopProductSerializer(
+            queryset,
+            many=True,
+            context={"request": request, "stock_map": stock_map},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicShopProductDetailView(APIView):
+    """
+    Public customer-facing endpoint retrieving a single visible product for an active Shop.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str, pk: int):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        product = (
+            ShopProduct.objects.filter(shop=shop, pk=pk, is_visible=True)
+            .select_related("brand_ref")
+            .prefetch_related("categories", "variants")
+            .first()
+        )
+        if not product:
+            return Response(
+                {"detail": "Product not found.", "code": "PRODUCT_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from inventory.models import InventoryItem
+
+        inv_items = InventoryItem.objects.filter(shop=shop, product=product)
+        stock_map = {(item.product_id, item.variant_id): item.available_quantity for item in inv_items}
+
+        serializer = PublicShopProductSerializer(
+            product,
+            context={"request": request, "stock_map": stock_map},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicShopCategoryListView(APIView):
+    """
+    Public customer-facing endpoint listing active categories for an active Shop.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        queryset = (
+            ShopCategory.objects.filter(shop=shop, is_active=True)
+            .select_related("parent")
+            .order_by("name", "id")
+        )
+
+        parent_param = request.query_params.get("parent")
+        if parent_param is not None:
+            if parent_param.lower() in ("null", "none", "root"):
+                queryset = queryset.filter(parent__isnull=True)
+            elif parent_param.isdigit():
+                queryset = queryset.filter(parent_id=int(parent_param))
+
+        serializer = PublicCategorySerializer(queryset, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicShopBrandListView(APIView):
+    """
+    Public customer-facing endpoint listing active brands for an active Shop.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        queryset = ShopBrand.objects.filter(shop=shop, is_active=True).order_by("name", "id")
+        serializer = PublicBrandSerializer(queryset, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicShopCustomAttributeListView(APIView):
+    """
+    Public customer-facing endpoint listing active custom attributes for an active Shop.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        queryset = ShopCustomAttribute.objects.filter(shop=shop, is_active=True).order_by("name", "id")
+        serializer = PublicCustomAttributeSerializer(queryset, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicShopCatalogSummaryView(APIView):
+    """
+    Public customer-facing endpoint returning an integrated overview of the Shop Catalog:
+    active categories, active brands, and visible products with stock/availability status.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, public_slug: str):
+        shop, error_res = get_public_active_shop(public_slug)
+        if error_res:
+            return error_res
+
+        from inventory.models import InventoryItem
+
+        inv_items = InventoryItem.objects.filter(shop=shop)
+        stock_map = {(item.product_id, item.variant_id): item.available_quantity for item in inv_items}
+
+        categories = ShopCategory.objects.filter(shop=shop, is_active=True).order_by("name", "id")
+        brands = ShopBrand.objects.filter(shop=shop, is_active=True).order_by("name", "id")
+        products = (
+            ShopProduct.objects.filter(shop=shop, is_visible=True)
+            .select_related("brand_ref")
+            .prefetch_related("categories", "variants")
+            .order_by("name", "id")
+        )
+
+        return Response(
+            {
+                "shop": {
+                    "name": shop.name,
+                    "public_slug": shop.public_slug,
+                    "is_accepting_orders": shop.is_accepting_orders,
+                },
+                "categories": PublicCategorySerializer(categories, many=True, context={"request": request}).data,
+                "brands": PublicBrandSerializer(brands, many=True, context={"request": request}).data,
+                "products": PublicShopProductSerializer(
+                    products, many=True, context={"request": request, "stock_map": stock_map}
+                ).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
