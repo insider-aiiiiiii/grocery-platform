@@ -284,3 +284,36 @@ class CartItemUpdateSerializer(serializers.Serializer):
         cart_item.save()
         return cart_item
 
+
+class CartValidationItemSerializer(serializers.Serializer):
+    item_id = serializers.IntegerField()
+    product_id = serializers.IntegerField(allow_null=True)
+    product_name = serializers.CharField(allow_blank=True)
+    variant_id = serializers.IntegerField(allow_null=True)
+    variant_name = serializers.CharField(allow_null=True, allow_blank=True)
+    requested_quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+    available_quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+    current_unit_price = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    line_total = serializers.DecimalField(max_digits=12, decimal_places=2, allow_null=True)
+    is_valid = serializers.BooleanField()
+    issues = serializers.ListField(child=serializers.CharField())
+
+
+class CartValidationSummarySerializer(serializers.Serializer):
+    item_count = serializers.IntegerField()
+    valid_item_count = serializers.IntegerField()
+    invalid_item_count = serializers.IntegerField()
+    total_quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+    current_subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+class CartValidationResultSerializer(serializers.Serializer):
+    cart_id = serializers.IntegerField()
+    shop_id = serializers.IntegerField(allow_null=True)
+    is_valid = serializers.BooleanField()
+    can_checkout = serializers.BooleanField()
+    errors = serializers.ListField(child=serializers.CharField())
+    items = CartValidationItemSerializer(many=True)
+    summary = CartValidationSummarySerializer()
+    orders_dependencies = serializers.DictField(child=serializers.CharField())
+

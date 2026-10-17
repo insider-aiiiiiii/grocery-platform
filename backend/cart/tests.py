@@ -1349,3 +1349,311 @@ class CartItemAPITests(TestCase):
         self.assertEqual(res_post.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class CartValidationAPITests(TestCase):
+    """API tests for CART-005 Cart validation against Catalog and Inventory."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant & Active Shop
+        self.user = User.objects.create_user(
+            username="merchant_val",
+            email="merchantval@example.com",
+            mobile_number="+919876543401",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Sunrise Market",
+            address_line="12 Sunrise Way",
+            area="Aundh",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411007",
+            contact_number=self.user.mobile_number,
+            status=Shop.Status.ACTIVE,
+        )
+
+        # Other Merchant & Shop (for cross-shop isolation test)
+        self.user_other = User.objects.create_user(
+            username="merchant_other",
+            email="merchantother@example.com",
+            mobile_number="+919876543402",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant_other = Merchant.objects.create(
+            user=self.user_other,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop_other = Shop.objects.create(
+            merchant=self.merchant_other,
+            name="Sunset Supermarket",
+            address_line="88 Sunset Blvd",
+            area="Colaba",
+            city="Mumbai",
+            state="Maharashtra",
+            pincode="400005",
+            contact_number=self.user_other.mobile_number,
+            status=Shop.Status.ACTIVE,
+        )
+
+        # Catalog Products & Inventory in self.shop
+        # 1. Simple Product
+        self.prod_apple = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Crisp Apples 1kg",
+            price=Decimal("120.00"),
+            sku="APL-01",
+            is_visible=True,
+            is_available=True,
+        )
+        self.inv_apple = InventoryItem.objects.get(
+            shop=self.shop,
+            product=self.prod_apple,
+            variant__isnull=True,
+        )
+        self.inv_apple.quantity = Decimal("10.000")
+        self.inv_apple.save()
+
+        # 2. Product with Variants
+        self.prod_rice = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Sona Masoori Rice",
+            price=None,
+            sku="RICE-SONA",
+            is_visible=True,
+            is_available=True,
+        )
+        self.var_rice_1kg = ProductVariant.objects.create(
+            product=self.prod_rice,
+            name="1kg Pouch",
+            price=Decimal("80.00"),
+            sku="RICE-SONA-1KG",
+            is_visible=True,
+            is_available=True,
+        )
+        self.inv_rice_1kg = InventoryItem.objects.get(
+            shop=self.shop,
+            variant=self.var_rice_1kg,
+        )
+        self.inv_rice_1kg.quantity = Decimal("6.000")
+        self.inv_rice_1kg.save()
+
+        # Carts
+        self.cart = Cart.objects.create(shop=self.shop)
+        self.empty_cart = Cart.objects.create(shop=self.shop)
+        self.cart_other = Cart.objects.create(shop=self.shop_other)
+
+    def test_validate_fully_valid_cart(self):
+        """A cart with available in-stock items returns is_valid=True and can_checkout=True."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("2.000"))
+        CartItem.objects.create(cart=self.cart, product=self.prod_rice, variant=self.var_rice_1kg, quantity=Decimal("3.000"))
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertTrue(data["can_checkout"])
+        self.assertEqual(data["errors"], [])
+        self.assertEqual(len(data["items"]), 2)
+
+        # Verify summary
+        summary = data["summary"]
+        self.assertEqual(summary["item_count"], 2)
+        self.assertEqual(summary["valid_item_count"], 2)
+        self.assertEqual(summary["invalid_item_count"], 0)
+        self.assertEqual(Decimal(str(summary["total_quantity"])), Decimal("5.000"))
+        # (2 * 120.00) + (3 * 80.00) = 240.00 + 240.00 = 480.00
+        self.assertEqual(Decimal(str(summary["current_subtotal"])), Decimal("480.00"))
+
+        # Verify Orders dependencies notes
+        deps = data["orders_dependencies"]
+        self.assertIn("price_snapshot_strategy", deps)
+        self.assertIn("cart_expiration", deps)
+        self.assertIn("quantity_limits", deps)
+        self.assertIn("checkout_fulfillment", deps)
+        self.assertIn("stock_reservation", deps)
+        self.assertIn("cart_clearing", deps)
+
+    def test_validate_empty_cart(self):
+        """Validating an empty cart returns is_valid=False, can_checkout=False, and CART_EMPTY error."""
+        url = f"/api/v1/cart/{self.empty_cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertFalse(data["can_checkout"])
+        self.assertIn("CART_EMPTY", data["errors"])
+        self.assertEqual(data["items"], [])
+
+    def test_validate_out_of_stock_item_remains_visible_with_issue(self):
+        """When an item in the cart becomes out of stock, it remains in the output with OUT_OF_STOCK flag."""
+        item = CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("2.000"))
+
+        # Stock is reduced to 0
+        self.inv_apple.set_quantity(Decimal("0.000"))
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertFalse(data["can_checkout"])
+
+        item_data = data["items"][0]
+        self.assertEqual(item_data["item_id"], item.id)
+        self.assertFalse(item_data["is_valid"])
+        self.assertIn("OUT_OF_STOCK", item_data["issues"])
+        self.assertEqual(Decimal(str(item_data["requested_quantity"])), Decimal("2.000"))
+        self.assertEqual(Decimal(str(item_data["available_quantity"])), Decimal("0.000"))
+
+    def test_validate_insufficient_stock_item(self):
+        """When cart quantity exceeds available stock, it is flagged with INSUFFICIENT_STOCK."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("5.000"))
+
+        # Available stock dropped to 3
+        self.inv_apple.set_quantity(Decimal("3.000"))
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertFalse(data["can_checkout"])
+
+        item_data = data["items"][0]
+        self.assertFalse(item_data["is_valid"])
+        self.assertIn("INSUFFICIENT_STOCK", item_data["issues"])
+        self.assertEqual(Decimal(str(item_data["available_quantity"])), Decimal("3.000"))
+
+    def test_validate_hidden_product(self):
+        """A product hidden in catalog is flagged with PRODUCT_HIDDEN."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("1.000"))
+
+        self.prod_apple.is_visible = False
+        self.prod_apple.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertIn("PRODUCT_HIDDEN", data["items"][0]["issues"])
+
+    def test_validate_unavailable_product(self):
+        """A product marked manually unavailable is flagged with PRODUCT_UNAVAILABLE."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("1.000"))
+
+        self.prod_apple.is_available = False
+        self.prod_apple.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertIn("PRODUCT_UNAVAILABLE", data["items"][0]["issues"])
+
+    def test_validate_hidden_and_unavailable_variant(self):
+        """Variants hidden or marked unavailable are flagged accordingly."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_rice, variant=self.var_rice_1kg, quantity=Decimal("1.000"))
+
+        self.var_rice_1kg.is_visible = False
+        self.var_rice_1kg.is_available = False
+        self.var_rice_1kg.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        issues = data["items"][0]["issues"]
+        self.assertIn("VARIANT_HIDDEN", issues)
+        self.assertIn("VARIANT_UNAVAILABLE", issues)
+
+    def test_validate_recalculates_latest_catalog_price(self):
+        """Subtotal and line totals use current Shop Catalog price rather than add-time price."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("2.000"))
+
+        # Merchant updates price from 120.00 to 150.00
+        self.prod_apple.price = Decimal("150.00")
+        self.prod_apple.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+
+        item_data = data["items"][0]
+        self.assertEqual(Decimal(str(item_data["current_unit_price"])), Decimal("150.00"))
+        self.assertEqual(Decimal(str(item_data["line_total"])), Decimal("300.00"))
+        self.assertEqual(Decimal(str(data["summary"]["current_subtotal"])), Decimal("300.00"))
+
+    def test_validate_deactivated_shop(self):
+        """If shop is deactivated, validation flags SHOP_UNAVAILABLE and can_checkout=False."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("1.000"))
+
+        self.shop.status = Shop.Status.DEACTIVATED
+        self.shop.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["is_valid"])
+        self.assertFalse(data["can_checkout"])
+        self.assertIn("SHOP_UNAVAILABLE", data["errors"])
+
+    def test_validate_post_method_supported(self):
+        """POST /api/v1/cart/<cart_id>/validate/ returns the same validation result as GET."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("1.000"))
+
+        url = f"/api/v1/cart/{self.cart.id}/validate/"
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_valid"])
+
+    def test_validate_shop_public_slug_endpoints(self):
+        """Validation is accessible under the shop's public slug routes."""
+        CartItem.objects.create(cart=self.cart, product=self.prod_apple, quantity=Decimal("1.000"))
+        slug = self.shop.public_slug
+
+        # 1. /api/v1/shops/public/<slug>/cart/<cart_id>/validate/
+        url_detail = f"/api/v1/shops/public/{slug}/cart/{self.cart.id}/validate/"
+        res1 = self.client.get(url_detail)
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertTrue(res1.json()["is_valid"])
+
+        # 2. /api/v1/shops/public/<slug>/cart/validate/?cart_id=<cart_id>
+        url_query = f"/api/v1/shops/public/{slug}/cart/validate/?cart_id={self.cart.id}"
+        res2 = self.client.get(url_query)
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertTrue(res2.json()["is_valid"])
+
+    def test_validate_cross_shop_access_rejected(self):
+        """Attempting to validate Cart 1 using Shop 2's slug is rejected with 404."""
+        slug_other = self.shop_other.public_slug
+        url = f"/api/v1/shops/public/{slug_other}/cart/{self.cart.id}/validate/"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+

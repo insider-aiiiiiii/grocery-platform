@@ -10,9 +10,11 @@ from .serializers import (
     CartCreateSerializer,
     CartItemAddSerializer,
     CartItemUpdateSerializer,
+    CartValidationResultSerializer,
     PublicCartItemSerializer,
     PublicCartSerializer,
 )
+from .services import validate_cart_state
 
 
 def get_public_active_shop(public_slug: str):
@@ -34,15 +36,28 @@ def get_public_active_shop(public_slug: str):
     return shop, None
 
 
-def resolve_cart_for_request(request, cart_id: int | None = None, public_slug: str | None = None):
+def resolve_cart_for_request(
+    request,
+    cart_id: int | None = None,
+    public_slug: str | None = None,
+    allow_inactive_shop: bool = False,
+):
     """
     Resolves and validates a Cart for item operations, enforcing shop activity and tenancy.
     Returns (cart, error_response).
     """
     if public_slug:
-        shop, error_res = get_public_active_shop(public_slug)
-        if error_res:
-            return None, error_res
+        shop = Shop.objects.filter(public_slug=public_slug).first()
+        if not shop:
+            return None, Response(
+                {"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not allow_inactive_shop and shop.status != Shop.Status.ACTIVE:
+            return None, Response(
+                {"detail": "Shop is unavailable.", "code": "SHOP_UNAVAILABLE"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
     else:
         shop = None
 
@@ -54,7 +69,13 @@ def resolve_cart_for_request(request, cart_id: int | None = None, public_slug: s
         )
 
     cart = Cart.objects.filter(id=resolved_id).select_related("shop").first()
-    if not cart or cart.shop.status != Shop.Status.ACTIVE:
+    if not cart:
+        return None, Response(
+            {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not allow_inactive_shop and cart.shop.status != Shop.Status.ACTIVE:
         return None, Response(
             {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
             status=status.HTTP_404_NOT_FOUND,
@@ -287,4 +308,37 @@ class CartItemDetailView(APIView):
 
         item.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PublicCartValidateView(APIView):
+    """
+    Public customer-facing Cart validation endpoint.
+    Re-validates the entire Cart against real-time Shop, Catalog, and Inventory states.
+    - GET: Evaluates and returns cart validity, can_checkout flag, per-item status,
+           recalculated subtotal, and orders dependencies demarcation.
+    - POST: Supports action-triggered validation checks (e.g. pre-checkout flow).
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        return self._validate(request, cart_id=cart_id, public_slug=public_slug)
+
+    def post(self, request, cart_id: int | None = None, public_slug: str | None = None):
+        return self._validate(request, cart_id=cart_id, public_slug=public_slug)
+
+    def _validate(self, request, cart_id: int | None, public_slug: str | None):
+        cart, error_res = resolve_cart_for_request(
+            request,
+            cart_id=cart_id,
+            public_slug=public_slug,
+            allow_inactive_shop=True,
+        )
+        if error_res:
+            return error_res
+
+        result = validate_cart_state(cart)
+        serializer = CartValidationResultSerializer(result)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
