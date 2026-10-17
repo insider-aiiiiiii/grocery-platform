@@ -166,17 +166,57 @@ def _get_target_item_locked(
     raise ValidationError("Target must be a ShopProduct or ProductVariant.")
 
 
+def validate_shop_merchant_authorization(shop, actor=None):
+    """
+    Validates that the actor (if provided) is authorized to modify inventory for the shop.
+    - Super Admins are explicitly forbidden from modifying merchant inventory in MVP (Section 3).
+    - Actor must be an active Merchant.
+    - Merchant must be the owner of the specified shop.
+    - Shop must not be deactivated or suspended.
+    """
+    if actor is None:
+        return
+
+    from users.models import Merchant, User
+    from shops.models import Shop
+
+    if isinstance(actor, User):
+        user = actor
+        if getattr(user, "role", None) == User.Role.SUPER_ADMIN:
+            raise ValidationError("Super Admin is not authorized to modify Merchant inventory.")
+        if getattr(user, "role", None) != User.Role.MERCHANT:
+            raise ValidationError("Only authorized merchants can modify shop inventory.")
+        merchant = getattr(user, "merchant", None)
+        if not merchant or merchant.status != Merchant.Status.ACTIVE:
+            raise ValidationError("Only active merchants can modify shop inventory.")
+    elif isinstance(actor, Merchant):
+        merchant = actor
+        if merchant.status != Merchant.Status.ACTIVE:
+            raise ValidationError("Only active merchants can modify shop inventory.")
+    else:
+        raise ValidationError("Invalid actor for inventory modification.")
+
+    if shop.merchant_id != merchant.id:
+        raise ValidationError("Merchant is not authorized to modify inventory for this shop.")
+
+    if getattr(shop, "status", None) in (Shop.Status.DEACTIVATED, Shop.Status.SUSPENDED):
+        raise ValidationError("Cannot modify inventory for a deactivated or suspended shop.")
+
+
 def adjust_stock(
     shop,
     target: ShopProduct | ProductVariant,
     *,
     set_quantity: Decimal | str | int | float | None = None,
     delta: Decimal | str | int | float | None = None,
+    actor=None,
 ) -> InventoryItem:
     """
     Adjusts stock for a non-variant product or an individual variant.
-    Enforces tenant boundaries and authoritative variant rules.
+    Enforces tenant boundaries, authoritative variant rules, and non-negative stock.
+    No adjustment reason is required and no persistent movement history is created in MVP.
     """
+    validate_shop_merchant_authorization(shop, actor)
     if set_quantity is not None and delta is not None:
         raise ValidationError("Provide either set_quantity or delta, not both.")
     if set_quantity is None and delta is None:
@@ -185,14 +225,70 @@ def adjust_stock(
     with transaction.atomic():
         item = _get_target_item_locked(shop, target)
         if set_quantity is not None:
-            item.set_quantity(set_quantity)
+            set_dec = quantize_quantity(set_quantity)
+            if set_dec < item.reserved_quantity:
+                raise ValidationError("Cannot set quantity lower than currently reserved quantity.")
+            item.set_quantity(set_dec)
         elif delta is not None:
-            delta_dec = quantize_quantity(abs(Decimal(str(delta))))
-            if Decimal(str(delta)) >= Decimal("0.000"):
+            delta_val = Decimal(str(delta))
+            if delta_val >= Decimal("0.000"):
+                delta_dec = quantize_quantity(delta_val)
                 item.add_stock(delta_dec)
             else:
+                delta_dec = quantize_quantity(abs(delta_val))
+                if delta_dec > item.quantity:
+                    raise ValidationError("Cannot subtract stock below zero.")
+                if item.quantity - delta_dec < item.reserved_quantity:
+                    raise ValidationError("Cannot subtract stock below reserved quantity.")
                 item.subtract_stock(delta_dec)
         return item
+
+
+def add_stock(
+    shop,
+    target: ShopProduct | ProductVariant,
+    quantity: Decimal | str | int | float,
+    *,
+    actor=None,
+) -> InventoryItem:
+    """
+    Adds stock to a non-variant ShopProduct or an authoritative ProductVariant.
+    Enforces Shop authorization, validates positive quantity, and preserves decimal precision.
+    No adjustment reason is required and no persistent movement history is created.
+    """
+    validate_shop_merchant_authorization(shop, actor)
+    try:
+        dec = Decimal(str(quantity))
+    except Exception as e:
+        raise ValidationError(f"Invalid decimal quantity: {quantity}") from e
+    if dec <= Decimal("0.000"):
+        raise ValidationError("Quantity to add must be greater than zero.")
+    qty = quantize_quantity(dec)
+    return adjust_stock(shop, target, delta=qty, actor=actor)
+
+
+def subtract_stock(
+    shop,
+    target: ShopProduct | ProductVariant,
+    quantity: Decimal | str | int | float,
+    *,
+    actor=None,
+) -> InventoryItem:
+    """
+    Subtracts stock from a non-variant ShopProduct or an authoritative ProductVariant.
+    Enforces Shop authorization, strictly prevents negative resulting stock, prevents
+    reducing stock below currently reserved stock, and preserves decimal precision.
+    No adjustment reason is required and no persistent movement history is created.
+    """
+    validate_shop_merchant_authorization(shop, actor)
+    try:
+        dec = Decimal(str(quantity))
+    except Exception as e:
+        raise ValidationError(f"Invalid decimal quantity: {quantity}") from e
+    if dec <= Decimal("0.000"):
+        raise ValidationError("Quantity to subtract must be greater than zero.")
+    qty = quantize_quantity(dec)
+    return adjust_stock(shop, target, delta=-qty, actor=actor)
 
 
 # --- Approved Order Flow Stock Services (Atomic & Concurrency-Safe) ---
