@@ -6,9 +6,13 @@ Enforces multi-tenancy, catalog visibility, manual availability, variant integri
 and real-time stock availability without deciding unresolved Orders-domain rules.
 """
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+
+from django.core.exceptions import ValidationError
 
 from catalog.models import ProductVariant, ShopProduct
+from customers.models import Customer, normalize_whatsapp_number
+from customers.services import create_or_recognize_customer
 from inventory.models import InventoryItem
 from shops.models import Shop
 
@@ -186,3 +190,63 @@ def validate_cart_state(cart: Cart) -> Dict[str, Any]:
         },
         "orders_dependencies": ORDERS_DEPENDENCIES_NOTE,
     }
+
+
+def associate_cart_customer(
+    cart: Cart,
+    whatsapp_number: str,
+    name: Optional[str] = None,
+) -> Tuple[Cart, Customer, bool]:
+    """
+    Associates an anonymous (or currently customer-associated) Cart with a Shop-specific Customer
+    derived from the provided WhatsApp number.
+
+    Business Invariants:
+    1. Scope: Scoped strictly to the cart's Shop context.
+    2. Shop Status: The cart's Shop must be ACTIVE.
+    3. WhatsApp Validation & Normalization: Validates and normalizes to E.164 (+91XXXXXXXXXX).
+    4. Global Identity Boundary: Rejects numbers claimed by authenticated Users (Merchants/Super Admins).
+    5. Reassignment Guard: If the cart is already associated with another customer (different WhatsApp number),
+       reassignment is prohibited.
+    6. Idempotent: If already associated with the same customer, succeeds idempotently (and updates name if provided).
+    7. Permanent Record: Creates a permanent Shop-specific Customer record if one does not exist,
+       or recognizes an existing Customer within the Shop.
+    8. No Customer Authentication: Does not issue tokens, sessions, passwords, or create User accounts.
+    """
+    if not cart or not cart.shop:
+        raise ValidationError({"cart": "A valid Cart with an associated Shop is required."})
+
+    shop = cart.shop
+    if shop.status != Shop.Status.ACTIVE:
+        raise ValidationError({"shop": "Shop is unavailable."})
+
+    if not whatsapp_number:
+        raise ValidationError({"whatsapp_number": "WhatsApp number is required."})
+
+    normalized_wa = normalize_whatsapp_number(whatsapp_number)
+
+    # Check global identity boundary against authenticated Users
+    from users.models import User
+    if User.objects.filter(mobile_number=normalized_wa).exists():
+        raise ValidationError(
+            {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
+        )
+
+    # Check if cart is already associated with a different customer
+    if cart.customer_id is not None:
+        if cart.customer.whatsapp_number != normalized_wa:
+            raise ValidationError(
+                {"cart": "Cart is already associated with another customer."}
+            )
+
+    # Delegate to Customers domain service to create or recognize and bind
+    customer, created = create_or_recognize_customer(
+        shop=shop,
+        whatsapp_number=normalized_wa,
+        name=name,
+        cart=cart,
+    )
+
+    # Refresh cart relation
+    cart.refresh_from_db(fields=["customer", "updated_at"])
+    return cart, customer, created

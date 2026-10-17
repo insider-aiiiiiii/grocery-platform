@@ -1657,3 +1657,245 @@ class CartValidationAPITests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class CartCustomerAssociationAPITests(TestCase):
+    """API tests for CART-006 Associate an anonymous cart with Customer when WhatsApp is provided."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant and Active Shop
+        self.merchant_user = User.objects.create_user(
+            username="merchant_cart_assoc",
+            email="merchant_assoc@example.com",
+            mobile_number="+919999900001",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Super Fresh Market",
+            address_line="200 Main Road",
+            area="Kothrud",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411038",
+            contact_number=self.merchant_user.mobile_number,
+            delivery_charge=Decimal("25.00"),
+        )
+
+        # Other Shop for multi-tenancy tests
+        self.merchant_other_user = User.objects.create_user(
+            username="merchant_other_cart",
+            email="merchant_other_cart@example.com",
+            mobile_number="+919999900002",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant_other = Merchant.objects.create(
+            user=self.merchant_other_user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop_other = Shop.objects.create(
+            merchant=self.merchant_other,
+            name="Other Shop",
+            address_line="300 Side Road",
+            area="Baner",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411045",
+            contact_number=self.merchant_other_user.mobile_number,
+        )
+
+        # Anonymous cart in self.shop
+        self.cart = Cart.objects.create(shop=self.shop)
+
+    def test_associate_anonymous_cart_with_new_whatsapp_creates_customer(self):
+        """Associating WhatsApp with an anonymous cart creates a permanent Shop-specific Customer."""
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {
+            "whatsapp_number": "9876543210",
+            "name": "Rohan Deshmukh",
+        }
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertTrue(data["customer_created"])
+        self.assertEqual(data["customer"]["whatsapp_number"], "+919876543210")
+        self.assertEqual(data["customer"]["name"], "Rohan Deshmukh")
+        self.assertEqual(data["cart"]["id"], self.cart.id)
+        self.assertEqual(data["cart"]["customer"]["id"], data["customer"]["id"])
+
+        # Verify DB persistence
+        self.cart.refresh_from_db()
+        self.assertIsNotNone(self.cart.customer)
+        self.assertEqual(self.cart.customer.whatsapp_number, "+919876543210")
+        self.assertEqual(self.cart.customer.name, "Rohan Deshmukh")
+        self.assertEqual(self.cart.customer.shop_id, self.shop.id)
+
+    def test_associate_anonymous_cart_with_existing_customer(self):
+        """Associating WhatsApp of an existing Customer recognizes and binds that profile."""
+        existing_cust = Customer.objects.create(
+            shop=self.shop,
+            whatsapp_number="+919876543215",
+            name="Anita Roy",
+        )
+
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": "+91 98765 43215"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["customer_created"])
+        self.assertEqual(data["customer"]["id"], existing_cust.id)
+        self.assertEqual(data["customer"]["whatsapp_number"], "+919876543215")
+        self.assertEqual(data["customer"]["name"], "Anita Roy")
+
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.customer_id, existing_cust.id)
+
+    def test_associate_idempotent_same_customer(self):
+        """Repeated association calls with the same WhatsApp number succeed idempotently."""
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": "9876543220", "name": "Pooja Patel"}
+
+        # First call: creates customer
+        res1 = self.client.post(url, payload, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res1.json()["customer_created"])
+        cust_id = res1.json()["customer"]["id"]
+
+        # Second call: idempotent
+        res2 = self.client.post(url, payload, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertFalse(res2.json()["customer_created"])
+        self.assertEqual(res2.json()["customer"]["id"], cust_id)
+        self.assertEqual(Customer.objects.filter(shop=self.shop, whatsapp_number="+919876543220").count(), 1)
+
+    def test_associate_updates_name_if_previously_empty(self):
+        """Associating with a name updates an existing customer profile whose name was empty."""
+        cust = Customer.objects.create(
+            shop=self.shop,
+            whatsapp_number="+919876543230",
+            name="",
+        )
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": "9876543230", "name": "Rahul Verma"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cust.refresh_from_db()
+        self.assertEqual(cust.name, "Rahul Verma")
+
+    def test_associate_rejects_reassigning_cart_to_different_customer(self):
+        """A cart already associated with Customer A cannot be reassigned to Customer B."""
+        cust_a = Customer.objects.create(
+            shop=self.shop,
+            whatsapp_number="+919876543240",
+            name="Customer A",
+        )
+        self.cart.customer = cust_a
+        self.cart.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": "9876543250", "name": "Customer B"}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already associated with another customer", str(response.json()))
+
+        # Verify cart customer did not change
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.customer_id, cust_a.id)
+
+    def test_associate_rejects_whatsapp_claimed_by_authenticated_user(self):
+        """Rejects WhatsApp numbers that are already registered to authenticated Users."""
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": self.merchant_user.mobile_number}
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already registered as an authenticated user", str(response.json()))
+
+    def test_associate_rejects_invalid_whatsapp_number(self):
+        """Rejects non-Indian or improperly formatted mobile numbers."""
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        invalid_numbers = ["12345", "09876543210", "+14155552671", "invalid_text", ""]
+        for num in invalid_numbers:
+            response = self.client.post(url, {"whatsapp_number": num}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_associate_shop_public_slug_endpoints(self):
+        """Supports associating via shop-scoped public URLs and query/body routing."""
+        slug = self.shop.public_slug
+
+        # 1. /api/v1/shops/public/<slug>/cart/<cart_id>/customer/
+        url1 = f"/api/v1/shops/public/{slug}/cart/{self.cart.id}/customer/"
+        res1 = self.client.post(url1, {"whatsapp_number": "9876543260"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.cart.refresh_from_db()
+        self.assertEqual(self.cart.customer.whatsapp_number, "+919876543260")
+
+        # 2. /api/v1/shops/public/<slug>/cart/customer/ with cart_id in payload
+        cart2 = Cart.objects.create(shop=self.shop)
+        url2 = f"/api/v1/shops/public/{slug}/cart/customer/"
+        res2 = self.client.post(
+            url2,
+            {"cart_id": cart2.id, "whatsapp_number": "9876543261"},
+            format="json",
+        )
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        cart2.refresh_from_db()
+        self.assertEqual(cart2.customer.whatsapp_number, "+919876543261")
+
+    def test_associate_cross_shop_access_rejected(self):
+        """Cannot associate a Cart via another Shop's public slug route."""
+        slug_other = self.shop_other.public_slug
+        url = f"/api/v1/shops/public/{slug_other}/cart/{self.cart.id}/customer/"
+        response = self.client.post(url, {"whatsapp_number": "9876543270"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_associate_inactive_shop_rejected(self):
+        """Cannot associate a cart whose shop is inactive."""
+        self.shop.status = Shop.Status.DEACTIVATED
+        self.shop.save()
+
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        response = self.client.post(url, {"whatsapp_number": "9876543280"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_associate_patch_method_supported(self):
+        """PATCH /api/v1/cart/<cart_id>/customer/ is supported with partial updates."""
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        payload = {"whatsapp_number": "9876543290", "name": "Patch User"}
+        response = self.client.patch(url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["customer"]["whatsapp_number"], "+919876543290")
+        self.assertEqual(response.json()["customer"]["name"], "Patch User")
+
+    def test_no_customer_authentication_required_or_returned(self):
+        """Associating customer does not require or return any authentication credentials."""
+        self.client.credentials()  # Ensure completely unauthenticated
+        url = f"/api/v1/cart/{self.cart.id}/customer/"
+        response = self.client.post(url, {"whatsapp_number": "9876543295"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        # Verify no auth artifacts returned
+        self.assertNotIn("token", data)
+        self.assertNotIn("access", data)
+        self.assertNotIn("refresh", data)
+        self.assertNotIn("session", data)
+        self.assertNotIn("password", data)
+        self.assertNotIn("otp", data)
+
+
+
