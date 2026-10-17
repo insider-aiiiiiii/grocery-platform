@@ -3,10 +3,12 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 
+from cart.models import Cart
 from shops.models import Shop
 from users.models import Merchant, User
 
 from .models import Customer, normalize_whatsapp_number
+from .services import create_or_recognize_customer, recognize_customer
 
 
 class CustomerModelTests(TestCase):
@@ -364,4 +366,148 @@ class CustomerModelTests(TestCase):
         self.assertEqual(len(s2_customers), 1)
         self.assertEqual(s2_customers[0].pk, c2.pk)
         self.assertEqual(s2_customers[0].name, "Shop 2 Cust")
+
+    # 8. CUS-003 Customer Profile Creation & Recognition
+    def test_create_customer_when_whatsapp_first_provided(self):
+        """A Shop-specific Customer profile is created when WhatsApp is first provided for that Shop."""
+        customer, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="Rohan Sharma",
+        )
+        self.assertTrue(created)
+        self.assertEqual(customer.shop, self.shop1)
+        self.assertEqual(customer.whatsapp_number, "+919876543210")
+        self.assertEqual(customer.name, "Rohan Sharma")
+
+    def test_recognize_existing_customer_in_same_shop(self):
+        """A customer is recognized within the same Shop when WhatsApp is provided again."""
+        c1, created1 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="Original Name",
+        )
+        self.assertTrue(created1)
+
+        c2, created2 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="+919876543210",
+        )
+        self.assertFalse(created2)
+        self.assertEqual(c1.pk, c2.pk)
+        self.assertEqual(c2.name, "Original Name")
+
+        # Test recognize_customer standalone function
+        recognized = recognize_customer(self.shop1, "9876543210")
+        self.assertIsNotNone(recognized)
+        self.assertEqual(recognized.pk, c1.pk)
+
+        # Test Customer.objects.recognize model manager method
+        manager_recognized = Customer.objects.recognize(self.shop1, "9876543210")
+        self.assertIsNotNone(manager_recognized)
+        self.assertEqual(manager_recognized.pk, c1.pk)
+
+    def test_recognize_customer_updates_name_if_previously_empty(self):
+        """If a customer profile was created without a name, providing a name on recognition updates it."""
+        c1, _ = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="",
+        )
+        self.assertEqual(c1.name, "")
+
+        c2, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="New Captured Name",
+        )
+        self.assertFalse(created)
+        self.assertEqual(c2.pk, c1.pk)
+        self.assertEqual(c2.name, "New Captured Name")
+
+    def test_customer_creation_before_successful_order_with_cart(self):
+        """Customer profile can be created/recognized and associated with an active Cart before an Order."""
+        cart = Cart.objects.create(shop=self.shop1)
+        self.assertIsNone(cart.customer)
+
+        customer, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="Cart Shopper",
+            cart=cart,
+        )
+        self.assertTrue(created)
+        cart.refresh_from_db()
+        self.assertEqual(cart.customer, customer)
+        self.assertEqual(cart.customer.shop, self.shop1)
+
+    def test_cart_cross_shop_mismatch_rejected(self):
+        """Associating a customer with a Cart belonging to a different Shop is rejected."""
+        cart_shop2 = Cart.objects.create(shop=self.shop2)
+
+        with self.assertRaises(ValidationError) as ctx:
+            create_or_recognize_customer(
+                shop=self.shop1,
+                whatsapp_number="9876543210",
+                cart=cart_shop2,
+            )
+        self.assertIn("cart", ctx.exception.message_dict)
+
+    def test_matching_contact_at_another_shop_does_not_share_profile_data(self):
+        """
+        A matching contact at another Shop creates an independent profile and does NOT share
+        profile data or history.
+        """
+        # Register in Shop 1 with Shop 1 specific name
+        c_shop1, created1 = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number="9876543210",
+            name="Alice at Alpha Groceries",
+        )
+        self.assertTrue(created1)
+
+        # Register in Shop 2 with the same phone but Shop 2 specific name
+        c_shop2, created2 = create_or_recognize_customer(
+            shop=self.shop2,
+            whatsapp_number="9876543210",
+            name="Bob at Beta Mart",
+        )
+        self.assertTrue(created2)
+
+        # Must be distinct customer profiles
+        self.assertNotEqual(c_shop1.pk, c_shop2.pk)
+        self.assertEqual(c_shop1.shop, self.shop1)
+        self.assertEqual(c_shop2.shop, self.shop2)
+
+        # Profile data is NOT shared
+        self.assertEqual(c_shop1.name, "Alice at Alpha Groceries")
+        self.assertEqual(c_shop2.name, "Bob at Beta Mart")
+
+        # Recognition in Shop 1 returns ONLY Shop 1 profile
+        self.assertEqual(recognize_customer(self.shop1, "9876543210").pk, c_shop1.pk)
+        # Recognition in Shop 2 returns ONLY Shop 2 profile
+        self.assertEqual(recognize_customer(self.shop2, "9876543210").pk, c_shop2.pk)
+
+    def test_global_identity_boundary_rejects_authenticated_user_number(self):
+        """Customer profile creation rejects WhatsApp numbers claimed by authenticated Users."""
+        # self.user1 is a Merchant with mobile_number="+919876543211"
+        with self.assertRaises(ValidationError) as ctx:
+            create_or_recognize_customer(
+                shop=self.shop1,
+                whatsapp_number=self.user1.mobile_number,
+                name="Imposter",
+            )
+        self.assertIn("whatsapp_number", ctx.exception.message_dict)
+        self.assertTrue(any("already registered as an authenticated user" in msg for msg in ctx.exception.message_dict["whatsapp_number"]))
+
+        # Also rejected on direct Customer.save() and clean()
+        direct_cust = Customer(
+            shop=self.shop1,
+            whatsapp_number=self.user1.mobile_number,
+            name="Direct Imposter",
+        )
+        with self.assertRaises(ValidationError):
+            direct_cust.full_clean()
+        with self.assertRaises(ValidationError):
+            direct_cust.save()
 

@@ -32,6 +32,30 @@ def normalize_whatsapp_number(value: str) -> str:
     return f"+91{match.group(2)}"
 
 
+class CustomerManager(models.Manager):
+    """Custom manager for Shop-specific Customer profiles."""
+
+    def create_or_recognize(
+        self,
+        shop: models.Model,
+        whatsapp_number: str,
+        name: str = "",
+        cart: models.Model = None,
+    ):
+        """Domain convenience method to create or recognize a customer for a shop."""
+        from .services import create_or_recognize_customer
+        return create_or_recognize_customer(shop=shop, whatsapp_number=whatsapp_number, name=name, cart=cart)
+
+    def recognize(
+        self,
+        shop: models.Model,
+        whatsapp_number: str,
+    ):
+        """Domain convenience method to recognize an existing customer in a shop."""
+        from .services import recognize_customer
+        return recognize_customer(shop=shop, whatsapp_number=whatsapp_number)
+
+
 class Customer(models.Model):
     """
     Shop-specific Customer profile.
@@ -40,6 +64,8 @@ class Customer(models.Model):
     Customer profiles are completely distinct from authenticated User accounts
     and do not have login credentials (passwords, usernames, etc.).
     """
+
+    objects = CustomerManager()
 
     shop = models.ForeignKey(
         "shops.Shop",
@@ -90,6 +116,13 @@ class Customer(models.Model):
             if orig and orig["shop_id"] != self.shop_id:
                 raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
 
+        # Global identity boundary: number cannot be claimed by authenticated User (Merchant/Super Admin)
+        from users.models import User
+        if User.objects.filter(mobile_number=self.whatsapp_number).exists():
+            raise ValidationError(
+                {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
+            )
+
         if self.shop_id:
             qs = Customer.objects.filter(shop_id=self.shop_id, whatsapp_number=self.whatsapp_number)
             if self.pk:
@@ -107,4 +140,12 @@ class Customer(models.Model):
             orig = Customer.objects.filter(pk=self.pk).values("shop_id").first()
             if orig and orig["shop_id"] != self.shop_id:
                 raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
+
+        # Global identity boundary check
+        from users.models import User
+        if User.objects.filter(mobile_number=self.whatsapp_number).exists():
+            raise ValidationError(
+                {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
+            )
+
         super().save(*args, **kwargs)
