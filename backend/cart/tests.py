@@ -368,3 +368,92 @@ class CartModelTests(TestCase):
         self.assertNotIn("orders", cart_field_names)
         self.assertNotIn("order", item_field_names)
         self.assertNotIn("orders", item_field_names)
+
+    # 8. CART-002 Advanced constraint & anti-leakage tests
+    def test_cannot_change_cart_shop_when_items_exist(self):
+        """A Cart cannot change its Shop if it already contains items."""
+        cart = Cart.objects.create(shop=self.shop1)
+        CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
+
+        cart.shop = self.shop2
+        with self.assertRaises(ValidationError) as ctx:
+            cart.full_clean()
+        self.assertIn("shop", ctx.exception.message_dict)
+
+        with self.assertRaises(ValidationError):
+            cart.save()
+
+    def test_can_change_cart_shop_when_empty(self):
+        """An empty Cart can update its Shop before items are added."""
+        cart = Cart.objects.create(shop=self.shop1)
+        cart.shop = self.shop2
+        cart.save()
+        cart.refresh_from_db()
+        self.assertEqual(cart.shop, self.shop2)
+
+    def test_cannot_reassign_cart_item_to_different_shop_cart(self):
+        """A CartItem cannot be moved to a Cart belonging to a different Shop."""
+        cart1 = Cart.objects.create(shop=self.shop1)
+        cart2 = Cart.objects.create(shop=self.shop2)
+        item = CartItem.objects.create(cart=cart1, product=self.product1_s1, quantity=Decimal("1.000"))
+
+        item.cart = cart2  # product belongs to shop1, cart2 belongs to shop2
+        with self.assertRaises(ValidationError) as ctx:
+            item.full_clean()
+        self.assertIn("product", ctx.exception.message_dict)
+
+        with self.assertRaises(ValidationError):
+            item.save()
+
+    def test_cannot_update_cart_item_product_to_different_shop(self):
+        """A CartItem cannot be updated to reference a product from a different Shop."""
+        cart = Cart.objects.create(shop=self.shop1)
+        item = CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
+
+        item.product = self.product1_s2  # product from shop2
+        with self.assertRaises(ValidationError) as ctx:
+            item.full_clean()
+        self.assertIn("product", ctx.exception.message_dict)
+
+        with self.assertRaises(ValidationError):
+            item.save()
+
+    def test_variant_must_match_both_product_and_cart_shop(self):
+        """Variant must strictly belong to the specified product and the cart's shop."""
+        cart = Cart.objects.create(shop=self.shop1)
+
+        # Variant from shop2 attached to product from shop1
+        item_bad_variant = CartItem(
+            cart=cart,
+            product=self.product1_s1,
+            variant=self.variant1_s2,
+            quantity=Decimal("1.000"),
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            item_bad_variant.full_clean()
+        self.assertIn("variant", ctx.exception.message_dict)
+
+    def test_database_check_constraint_blocks_negative_quantity_on_bulk_create(self):
+        """Database check constraint strictly prohibits negative quantities on bulk_create."""
+        cart = Cart.objects.create(shop=self.shop1)
+        with self.assertRaises(IntegrityError):
+            CartItem.objects.bulk_create([
+                CartItem(cart=cart, product=self.product1_s1, quantity=Decimal("-2.000"))
+            ])
+
+    def test_no_cross_shop_cart_composition_in_totals(self):
+        """Cart totals, item counts, and subtotals never mix or leak across shops."""
+        cart_s1 = Cart.objects.create(shop=self.shop1)
+        CartItem.objects.create(cart=cart_s1, product=self.product1_s1, quantity=Decimal("2.000"))
+
+        cart_s2 = Cart.objects.create(shop=self.shop2)
+        CartItem.objects.create(cart=cart_s2, product=self.product1_s2, quantity=Decimal("5.000"))
+
+        self.assertEqual(cart_s1.item_count, 1)
+        self.assertEqual(cart_s1.total_quantity, Decimal("2.000"))
+        self.assertEqual(cart_s1.subtotal, Decimal("120.00"))  # 2 * 60.00
+
+        self.assertEqual(cart_s2.item_count, 1)
+        self.assertEqual(cart_s2.total_quantity, Decimal("5.000"))
+        self.assertEqual(cart_s2.subtotal, Decimal("375.00"))  # 5 * 75.00
+
