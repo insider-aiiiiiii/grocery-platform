@@ -1538,6 +1538,398 @@ class MerchantExactStockUpdateTests(InventoryBaseTestCase):
         self.assertNotIn("history", inventory_models)
 
 
+class MerchantInventoryAPITests(InventoryBaseTestCase):
+    """
+    Test suite for Task INV-007: Merchant inventory retrieval and update APIs.
+    Validates standardized DRF API patterns, approved visibility values,
+    strict Shop isolation, negative stock prevention, and variant granularity.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Non-variant product in Shop 1
+        self.product1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Whole Wheat Flour",
+            sku="FLOUR-01",
+            price=Decimal("250.00"),
+        )
+        # Variant product in Shop 1
+        self.var_product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cold Pressed Coconut Oil",
+            sku="OIL-01",
+            price=Decimal("180.00"),
+        )
+        self.variant_500ml = ProductVariant.objects.create(
+            product=self.var_product,
+            name="500 ml Bottle",
+            sku="OIL-500ML",
+        )
+        self.variant_1l = ProductVariant.objects.create(
+            product=self.var_product,
+            name="1 Litre Bottle",
+            sku="OIL-1L",
+        )
+
+        # Products in Shop 2 for cross-tenant testing
+        self.shop2_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Olive Oil",
+            sku="SH2-OIL",
+            price=Decimal("500.00"),
+        )
+        self.shop2_var_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Sugar",
+            sku="SH2-SUGAR",
+            price=Decimal("45.00"),
+        )
+        self.shop2_variant = ProductVariant.objects.create(
+            product=self.shop2_var_product,
+            name="1 kg Bag",
+            sku="SH2-SUGAR-1KG",
+        )
+
+        # Super Admin user for security testing
+        self.super_admin_user = User.objects.create_user(
+            username="super_admin_inv007",
+            email="superadmin007@example.com",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+    def _get_authenticated_client(self, user, mobile_number, password="testpassword123"):
+        client = APIClient()
+        login_res = client.post(
+            reverse("auth-login"),
+            {"mobile_number": mobile_number, "password": password},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200, f"Login failed for {mobile_number}: {login_res.data}")
+        token = login_res.data["access"]
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    def _get_super_admin_client(self):
+        client = APIClient()
+        login_res = client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin_user.email, "password": "adminpassword123"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, 200, f"Super Admin login failed: {login_res.data}")
+        token = login_res.data["access"]
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    def test_merchant_list_inventory_returns_only_own_shop_items(self):
+        """Merchant inventory list returns only items belonging to their own Shop."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+
+        # Test primary route: /api/v1/inventory/
+        res = client1.get(reverse("inventory:merchant-inventory-list"))
+        self.assertEqual(res.status_code, 200)
+
+        data = res.data if isinstance(res.data, list) else res.data.get("results", res.data)
+        self.assertGreater(len(data), 0)
+
+        # All items must belong to Shop 1 (product1, variant_500ml, variant_1l)
+        returned_products = [item["product"] for item in data]
+        self.assertIn(self.product1.id, returned_products)
+        self.assertIn(self.var_product.id, returned_products)
+        self.assertNotIn(self.shop2_product.id, returned_products)
+        self.assertNotIn(self.shop2_var_product.id, returned_products)
+
+        # Test shop convenience route: /api/v1/shops/me/inventory/
+        res_me = client1.get("/api/v1/shops/me/inventory/")
+        self.assertEqual(res_me.status_code, 200)
+
+    def test_merchant_retrieve_item_detail(self):
+        """Merchant retrieves an inventory item with approved visibility attributes."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        res = client1.get(reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}))
+        self.assertEqual(res.status_code, 200)
+
+        expected_fields = [
+            "id",
+            "product",
+            "product_name",
+            "variant",
+            "variant_name",
+            "sku",
+            "quantity",
+            "reserved_quantity",
+            "available_quantity",
+            "is_out_of_stock",
+            "has_variants",
+        ]
+        for field in expected_fields:
+            self.assertIn(field, res.data, f"Field '{field}' missing from response")
+
+        self.assertEqual(res.data["product_name"], "Organic Whole Wheat Flour")
+        self.assertEqual(res.data["sku"], "FLOUR-01")
+        self.assertEqual(Decimal(str(res.data["quantity"])), Decimal("0.000"))
+        self.assertEqual(Decimal(str(res.data["reserved_quantity"])), Decimal("0.000"))
+        self.assertEqual(Decimal(str(res.data["available_quantity"])), Decimal("0.000"))
+        self.assertTrue(res.data["is_out_of_stock"])
+
+    def test_merchant_cannot_retrieve_another_shop_item(self):
+        """Merchant cannot retrieve an inventory item belonging to another Shop (returns 404)."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        shop2_item = InventoryItem.objects.get(product=self.shop2_product, variant__isnull=True)
+
+        res = client1.get(reverse("inventory:merchant-inventory-detail", kwargs={"pk": shop2_item.pk}))
+        self.assertEqual(res.status_code, 404)
+
+    def test_merchant_set_exact_stock_api(self):
+        """Merchant sets exact stock via PATCH and via /set-stock/ action."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        # 1. Standard PATCH /api/v1/inventory/<id>/ with quantity
+        res = client1.patch(
+            reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}),
+            {"quantity": "50.000"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(Decimal(str(res.data["quantity"])), Decimal("50.000"))
+        self.assertEqual(Decimal(str(res.data["available_quantity"])), Decimal("50.000"))
+        self.assertFalse(res.data["is_out_of_stock"])
+
+        # 2. Detail action POST /api/v1/inventory/<id>/set-stock/
+        res_action = client1.post(
+            reverse("inventory:merchant-inventory-set-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "25.000"},
+            format="json",
+        )
+        self.assertEqual(res_action.status_code, 200)
+        self.assertEqual(Decimal(str(res_action.data["quantity"])), Decimal("25.000"))
+
+    def test_merchant_add_and_subtract_stock_actions(self):
+        """Merchant adds and subtracts stock via dedicated detail action endpoints."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        # Add 30.000
+        res_add = client1.post(
+            reverse("inventory:merchant-inventory-add-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "30.000"},
+            format="json",
+        )
+        self.assertEqual(res_add.status_code, 200)
+        self.assertEqual(Decimal(str(res_add.data["quantity"])), Decimal("30.000"))
+
+        # Subtract 10.500
+        res_sub = client1.post(
+            reverse("inventory:merchant-inventory-subtract-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "10.500"},
+            format="json",
+        )
+        self.assertEqual(res_sub.status_code, 200)
+        self.assertEqual(Decimal(str(res_sub.data["quantity"])), Decimal("19.500"))
+        self.assertEqual(Decimal(str(res_sub.data["available_quantity"])), Decimal("19.500"))
+
+    def test_subtract_below_zero_returns_400_bad_request(self):
+        """Subtracting more stock than on-hand balance returns 400 Bad Request."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+        set_stock(self.shop1, self.product1, Decimal("10.000"))
+
+        res = client1.post(
+            reverse("inventory:merchant-inventory-subtract-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "10.001"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Cannot subtract stock below zero.", str(res.data))
+
+    def test_update_below_reserved_stock_returns_400_bad_request(self):
+        """Setting or subtracting stock below reserved quantity returns 400 Bad Request."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+        set_stock(self.shop1, self.product1, Decimal("20.000"))
+        reserve_order_stock(self.shop1, self.product1, Decimal("8.000"))
+
+        # Setting exact stock to 5.000 (< reserved 8.000)
+        res_set = client1.post(
+            reverse("inventory:merchant-inventory-set-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "5.000"},
+            format="json",
+        )
+        self.assertEqual(res_set.status_code, 400)
+        self.assertIn("Cannot set quantity lower than currently reserved quantity.", str(res_set.data))
+
+        # Subtracting 15.000 (leaves 5.000 < reserved 8.000)
+        res_sub = client1.post(
+            reverse("inventory:merchant-inventory-subtract-stock-action", kwargs={"pk": item.pk}),
+            {"quantity": "15.000"},
+            format="json",
+        )
+        self.assertEqual(res_sub.status_code, 400)
+        self.assertIn("Cannot subtract stock below reserved quantity.", str(res_sub.data))
+
+    def test_negative_quantity_returns_400_bad_request(self):
+        """Submitting negative quantities returns 400 Bad Request."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        res = client1.patch(
+            reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}),
+            {"quantity": "-5.000"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_excess_decimal_places_returns_400_bad_request(self):
+        """Submitting quantities with >3 decimal places returns 400 Bad Request."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        res = client1.patch(
+            reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}),
+            {"quantity": "10.1234"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_super_admin_cannot_access_or_modify_merchant_inventory_api(self):
+        """Super Admin cannot access or modify Merchant inventory APIs per Section 3."""
+        admin_client = self._get_super_admin_client()
+
+        res_list = admin_client.get(reverse("inventory:merchant-inventory-list"))
+        self.assertEqual(res_list.status_code, 403)
+
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+        res_update = admin_client.patch(
+            reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}),
+            {"quantity": "50.000"},
+            format="json",
+        )
+        self.assertEqual(res_update.status_code, 403)
+
+    def test_customer_or_unauthenticated_cannot_access_api(self):
+        """Anonymous callers are rejected with 401 Unauthorized."""
+        anon_client = APIClient()
+        res = anon_client.get(reverse("inventory:merchant-inventory-list"))
+        self.assertEqual(res.status_code, 401)
+
+    def test_deactivated_shop_returns_403_forbidden(self):
+        """Deactivated shop returns 403 Forbidden with SHOP_INACTIVE."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        res = client1.get(reverse("inventory:merchant-inventory-list"))
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_product_scoped_inventory_endpoint(self):
+        """Product-scoped endpoint returns stock details and allows non-variant stock updates."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+
+        # 1. Non-variant product stock retrieval
+        res_non_var = client1.get(
+            reverse("inventory:merchant-inventory-product-stock", kwargs={"product_id": self.product1.pk})
+        )
+        self.assertEqual(res_non_var.status_code, 200)
+        self.assertEqual(res_non_var.data["product_id"], self.product1.pk)
+        self.assertFalse(res_non_var.data["has_variants"])
+
+        # Update non-variant product stock via POST
+        res_update = client1.post(
+            reverse("inventory:merchant-inventory-product-stock", kwargs={"product_id": self.product1.pk}),
+            {"quantity": "40.000"},
+            format="json",
+        )
+        self.assertEqual(res_update.status_code, 200)
+        self.assertEqual(Decimal(str(res_update.data["quantity"])), Decimal("40.000"))
+
+        # 2. Variant-based product stock retrieval
+        set_stock(self.shop1, self.variant_500ml, Decimal("15.000"))
+        set_stock(self.shop1, self.variant_1l, Decimal("10.000"))
+
+        res_var = client1.get(
+            reverse("inventory:merchant-inventory-product-stock", kwargs={"product_id": self.var_product.pk})
+        )
+        self.assertEqual(res_var.status_code, 200)
+        self.assertTrue(res_var.data["has_variants"])
+        self.assertTrue(res_var.data["is_derived"])
+        self.assertEqual(Decimal(str(res_var.data["quantity"])), Decimal("25.000"))
+        self.assertEqual(len(res_var.data["variants"]), 2)
+
+    def test_variant_scoped_inventory_endpoint(self):
+        """Variant-scoped endpoint returns variant stock and allows variant stock updates."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+
+        # GET variant stock
+        res = client1.get(
+            reverse("inventory:merchant-inventory-variant-stock", kwargs={"variant_id": self.variant_500ml.pk})
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["variant_id"], self.variant_500ml.pk)
+
+        # POST update variant stock
+        res_update = client1.post(
+            reverse("inventory:merchant-inventory-variant-stock", kwargs={"variant_id": self.variant_500ml.pk}),
+            {"action": "set", "quantity": "35.000"},
+            format="json",
+        )
+        self.assertEqual(res_update.status_code, 200)
+        self.assertEqual(Decimal(str(res_update.data["quantity"])), Decimal("35.000"))
+
+        # Derived aggregate updates
+        parent_stock = get_product_stock(self.var_product)
+        self.assertEqual(parent_stock["quantity"], Decimal("35.000"))
+
+    def test_variant_based_parent_product_direct_stock_modification_rejected(self):
+        """Direct stock modification on a variant-based parent product is strictly rejected."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+
+        res = client1.post(
+            reverse("inventory:merchant-inventory-product-stock", kwargs={"product_id": self.var_product.pk}),
+            {"quantity": "100.000"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted.", str(res.data))
+
+    def test_direct_create_and_destroy_not_allowed(self):
+        """Direct POST to /inventory/ and DELETE to /inventory/<id>/ are not allowed (405)."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        res_post = client1.post(reverse("inventory:merchant-inventory-list"), {"quantity": "10.000"}, format="json")
+        self.assertEqual(res_post.status_code, 405)
+
+        res_delete = client1.delete(reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}))
+        self.assertEqual(res_delete.status_code, 405)
+
+    def test_no_thresholds_or_movement_history_exposed(self):
+        """Response payloads never expose low-stock thresholds, alerts, or movement history ledgers."""
+        client1 = self._get_authenticated_client(self.user1, self.user1.mobile_number)
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+
+        res_detail = client1.get(reverse("inventory:merchant-inventory-detail", kwargs={"pk": item.pk}))
+        data = res_detail.data
+
+        forbidden_keys = [
+            "low_stock_threshold",
+            "threshold",
+            "alert",
+            "movements",
+            "movement_history",
+            "history",
+            "reason",
+        ]
+        for key in forbidden_keys:
+            self.assertNotIn(key, data, f"Forbidden key '{key}' exposed in API response")
+
+
+
 
 
 
