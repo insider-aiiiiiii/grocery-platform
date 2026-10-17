@@ -3065,6 +3065,598 @@ class MerchantShopCategoryAPITests(TestCase):
         self.assertEqual(get2.data["name"], "Alias Cat 2")
 
 
+class MerchantShopBrandAPITests(TestCase):
+    """
+    Unit and integration tests for Merchant CRUD APIs on Shop Brands (CAT-013).
+
+    Validates:
+    - Merchant CRUD control over Shop-owned brands.
+    - Server-side shop binding preserving shop ownership; client shop_id ignored.
+    - Deleting a brand preserves assigned products, setting brand_ref to NULL.
+    - Multi-tenant isolation for list, retrieve, update, and delete (404 on other shop brands).
+    - Unique slug validation per Shop.
+    - Filtering by active status and search query.
+    - Authorization checks (401 unauthenticated, 403 non-merchant, 404 no shop, 403 inactive shop).
+    - URL aliases: /api/v1/catalog/brands/, /api/v1/catalog/shop-brands/, and /api/v1/shops/me/brands/.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant A and Shop A
+        self.user_a = User.objects.create_user(
+            username="merchant_brand_a",
+            mobile_number="+919876543510",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
+            name="Shop A Brand Store",
+        )
+
+        # Merchant B and Shop B
+        self.user_b = User.objects.create_user(
+            username="merchant_brand_b",
+            mobile_number="+919876543520",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Shop B Brand Store",
+        )
+
+        # Super Admin
+        self.super_admin = User.objects.create_user(
+            username="super_admin_brand",
+            mobile_number="+919876543530",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        self.base_url = "/api/v1/catalog/brands/"
+
+    def _auth_merchant(self, user):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "password123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_merchant_create_brand(self):
+        """
+        Merchant can create a brand in their Shop Catalog. Server preserves
+        Shop ownership and ignores client-provided shop IDs.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Heritage Valley",
+            "slug": "heritage-valley",
+            "description": "Authentic organic farm goods",
+            "shop": self.shop_b.id,
+            "shop_id": self.shop_b.id,
+        }
+        res = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["name"], "Heritage Valley")
+        self.assertEqual(res.data["slug"], "heritage-valley")
+        self.assertEqual(res.data["shop"], self.shop_a.id)
+
+        brand = ShopBrand.objects.get(id=res.data["id"])
+        self.assertEqual(brand.shop, self.shop_a)
+
+    def test_merchant_crud_brand(self):
+        """
+        Merchant can list, retrieve, update (PUT/PATCH), and delete their brands.
+        """
+        self._auth_merchant(self.user_a)
+        brand = ShopBrand.objects.create(
+            shop=self.shop_a,
+            name="Daily Fresh",
+            slug="daily-fresh",
+            description="Dairy and baked goods",
+        )
+
+        # Retrieve
+        get_res = self.client.get(f"{self.base_url}{brand.id}/")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["name"], "Daily Fresh")
+        self.assertEqual(get_res.data["products_count"], 0)
+
+        # Update via PATCH
+        patch_res = self.client.patch(
+            f"{self.base_url}{brand.id}/",
+            {"description": "Fresh dairy daily", "is_active": False},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        brand.refresh_from_db()
+        self.assertEqual(brand.description, "Fresh dairy daily")
+        self.assertFalse(brand.is_active)
+
+        # Update via PUT
+        put_res = self.client.put(
+            f"{self.base_url}{brand.id}/",
+            {"name": "Daily Fresh Organics", "slug": "daily-fresh-organics", "is_active": True},
+            format="json",
+        )
+        self.assertEqual(put_res.status_code, status.HTTP_200_OK)
+        brand.refresh_from_db()
+        self.assertEqual(brand.name, "Daily Fresh Organics")
+        self.assertTrue(brand.is_active)
+
+        # Delete
+        del_res = self.client.delete(f"{self.base_url}{brand.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ShopBrand.objects.filter(id=brand.id).exists())
+
+    def test_brand_deletion_preserves_products_and_clears_brand_ref(self):
+        """
+        Deleting a ShopBrand preserves all assigned products, leaving their
+        brand_ref cleared (NULL) per finalized domain rules.
+        """
+        self._auth_merchant(self.user_a)
+        brand = ShopBrand.objects.create(
+            shop=self.shop_a,
+            name="CrispFarm",
+            slug="crispfarm",
+        )
+        product = ShopProduct.objects.create(
+            shop=self.shop_a,
+            name="Crisp Apples",
+            price=Decimal("2.99"),
+            brand_ref=brand,
+            brand="CrispFarm Direct",
+        )
+        self.assertEqual(product.brand_ref, brand)
+        self.assertEqual(product.effective_brand, "CrispFarm")
+
+        # Delete brand via API
+        del_res = self.client.delete(f"{self.base_url}{brand.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Product remains intact with brand_ref cleared
+        product.refresh_from_db()
+        self.assertTrue(ShopProduct.objects.filter(id=product.id).exists())
+        self.assertIsNone(product.brand_ref)
+        self.assertEqual(product.effective_brand, "CrispFarm Direct")
+
+    def test_multi_tenant_isolation_brand(self):
+        """
+        Merchant A cannot view, retrieve, update, or delete Merchant B's brands.
+        """
+        brand_a = ShopBrand.objects.create(shop=self.shop_a, name="Brand A", slug="brand-a")
+        brand_b = ShopBrand.objects.create(shop=self.shop_b, name="Brand B", slug="brand-b")
+
+        self._auth_merchant(self.user_a)
+
+        # List
+        list_res = self.client.get(self.base_url)
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+        ids = [b["id"] for b in list_res.data]
+        self.assertIn(brand_a.id, ids)
+        self.assertNotIn(brand_b.id, ids)
+
+        # Retrieve
+        self.assertEqual(self.client.get(f"{self.base_url}{brand_b.id}/").status_code, status.HTTP_404_NOT_FOUND)
+
+        # Update
+        self.assertEqual(
+            self.client.patch(f"{self.base_url}{brand_b.id}/", {"name": "Hacked"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # Delete
+        self.assertEqual(
+            self.client.delete(f"{self.base_url}{brand_b.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertTrue(ShopBrand.objects.filter(id=brand_b.id).exists())
+
+    def test_filter_brands(self):
+        """
+        Filter brands by is_active and search query.
+        """
+        self._auth_merchant(self.user_a)
+        b1 = ShopBrand.objects.create(shop=self.shop_a, name="Alpha Co", slug="alpha-co", is_active=True)
+        b2 = ShopBrand.objects.create(shop=self.shop_a, name="Beta Co", slug="beta-co", is_active=False)
+
+        # Filter is_active
+        res_act = self.client.get(f"{self.base_url}?is_active=false")
+        self.assertEqual(res_act.status_code, status.HTTP_200_OK)
+        ids_act = [b["id"] for b in res_act.data]
+        self.assertIn(b2.id, ids_act)
+        self.assertNotIn(b1.id, ids_act)
+
+        # Search
+        res_search = self.client.get(f"{self.base_url}?search=Alpha")
+        self.assertEqual(res_search.status_code, status.HTTP_200_OK)
+        ids_search = [b["id"] for b in res_search.data]
+        self.assertIn(b1.id, ids_search)
+        self.assertNotIn(b2.id, ids_search)
+
+    def test_brand_authorization_checks(self):
+        """
+        Validate unauthenticated (401), non-merchant (403), merchant without shop (404),
+        and merchant with inactive shop (403).
+        """
+        # 1. Unauthenticated -> 401
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(self.base_url, {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Super Admin -> 403
+        self._auth_super_admin()
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Merchant without Shop -> 404
+        user_no_shop = User.objects.create_user(
+            username="merchant_brand_no_shop",
+            mobile_number="+919876543540",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=user_no_shop, status=Merchant.Status.ACTIVE, must_change_password=False)
+        self._auth_merchant(user_no_shop)
+        no_shop_res = self.client.get(self.base_url)
+        self.assertEqual(no_shop_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(no_shop_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # 4. Merchant with Inactive Shop -> 403
+        self.shop_a.status = Shop.Status.DEACTIVATED
+        self.shop_a.save()
+        self._auth_merchant(self.user_a)
+        inactive_res = self.client.get(self.base_url)
+        self.assertEqual(inactive_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(inactive_res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_brand_url_aliases(self):
+        """
+        Verify /api/v1/catalog/shop-brands/ and /api/v1/shops/me/brands/ route properly.
+        """
+        self._auth_merchant(self.user_a)
+
+        # /api/v1/catalog/shop-brands/
+        url1 = "/api/v1/catalog/shop-brands/"
+        res1 = self.client.post(url1, {"name": "Alias Brand 1"}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res1.data["name"], "Alias Brand 1")
+
+        # /api/v1/shops/me/brands/
+        url2 = "/api/v1/shops/me/brands/"
+        res2 = self.client.post(url2, {"name": "Alias Brand 2"}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res2.data["name"], "Alias Brand 2")
+        brand2_id = res2.data["id"]
+
+        get2 = self.client.get(f"{url2}{brand2_id}/")
+        self.assertEqual(get2.status_code, status.HTTP_200_OK)
+        self.assertEqual(get2.data["name"], "Alias Brand 2")
+
+
+class MerchantShopCustomAttributeAPITests(TestCase):
+    """
+    Unit and integration tests for Merchant CRUD APIs on Shop Custom Attributes and values (CAT-013).
+
+    Validates:
+    - Merchant CRUD control over Shop-owned custom attributes and basic values.
+    - Server-side shop binding preserving shop ownership; client shop_id ignored.
+    - Validation of values (must be a list of primitive items).
+    - Attribute name uniqueness per Shop.
+    - Multi-tenant isolation for list, retrieve, update, and delete.
+    - Filtering by active status and search query.
+    - Authorization checks (401 unauthenticated, 403 non-merchant, 404 no shop, 403 inactive shop).
+    - URL aliases: /api/v1/catalog/custom-attributes/, /api/v1/catalog/attributes/, and /api/v1/shops/me/custom-attributes/.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Merchant A and Shop A
+        self.user_a = User.objects.create_user(
+            username="merchant_attr_a",
+            mobile_number="+919876543610",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.user_a,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
+            name="Shop A Attribute Mart",
+        )
+
+        # Merchant B and Shop B
+        self.user_b = User.objects.create_user(
+            username="merchant_attr_b",
+            mobile_number="+919876543620",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.user_b,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
+            name="Shop B Attribute Mart",
+        )
+
+        # Super Admin
+        self.super_admin = User.objects.create_user(
+            username="super_admin_attr",
+            mobile_number="+919876543630",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        self.base_url = "/api/v1/catalog/custom-attributes/"
+
+    def _auth_merchant(self, user):
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": user.mobile_number, "password": "password123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _auth_super_admin(self):
+        login_res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": self.super_admin.mobile_number, "password": "adminpassword123"},
+            format="json",
+        )
+        token = login_res.data["access"]
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_merchant_create_custom_attribute_and_values(self):
+        """
+        Merchant can create a custom attribute with a list of values.
+        """
+        self._auth_merchant(self.user_a)
+        payload = {
+            "name": "Storage Condition",
+            "description": "Temperature and storage instructions",
+            "values": ["Refrigerated", "Ambient", "Frozen"],
+            "shop": self.shop_b.id,
+            "shop_id": self.shop_b.id,
+        }
+        res = self.client.post(self.base_url, payload, format="json")
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data["name"], "Storage Condition")
+        self.assertEqual(res.data["values"], ["Refrigerated", "Ambient", "Frozen"])
+        self.assertEqual(res.data["shop"], self.shop_a.id)
+
+        attr = ShopCustomAttribute.objects.get(id=res.data["id"])
+        self.assertEqual(attr.shop, self.shop_a)
+        self.assertEqual(attr.values, ["Refrigerated", "Ambient", "Frozen"])
+
+    def test_merchant_crud_custom_attribute(self):
+        """
+        Merchant can list, retrieve, update (PUT/PATCH), and delete custom attributes.
+        """
+        self._auth_merchant(self.user_a)
+        attr = ShopCustomAttribute.objects.create(
+            shop=self.shop_a,
+            name="Packaging Material",
+            values=["Glass", "Plastic", "Paper"],
+        )
+
+        # Retrieve
+        get_res = self.client.get(f"{self.base_url}{attr.id}/")
+        self.assertEqual(get_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_res.data["name"], "Packaging Material")
+        self.assertEqual(get_res.data["values"], ["Glass", "Plastic", "Paper"])
+
+        # Update via PATCH
+        patch_res = self.client.patch(
+            f"{self.base_url}{attr.id}/",
+            {"values": ["Glass", "Paper", "Compostable"], "is_active": False},
+            format="json",
+        )
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        attr.refresh_from_db()
+        self.assertEqual(attr.values, ["Glass", "Paper", "Compostable"])
+        self.assertFalse(attr.is_active)
+
+        # Update via PUT
+        put_res = self.client.put(
+            f"{self.base_url}{attr.id}/",
+            {"name": "Packaging", "values": ["Tin", "Tetra Pak"], "is_active": True},
+            format="json",
+        )
+        self.assertEqual(put_res.status_code, status.HTTP_200_OK)
+        attr.refresh_from_db()
+        self.assertEqual(attr.name, "Packaging")
+        self.assertEqual(attr.values, ["Tin", "Tetra Pak"])
+
+        # Delete
+        del_res = self.client.delete(f"{self.base_url}{attr.id}/")
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(ShopCustomAttribute.objects.filter(id=attr.id).exists())
+
+    def test_custom_attribute_values_validation(self):
+        """
+        Values field must be a list containing primitive items. Non-list and
+        nested dictionaries must be rejected with 400.
+        """
+        self._auth_merchant(self.user_a)
+
+        # Non-list values
+        res_non_list = self.client.post(
+            self.base_url,
+            {"name": "Bad Attr", "values": "not a list"},
+            format="json",
+        )
+        self.assertEqual(res_non_list.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("values", res_non_list.data)
+
+        # Non-primitive items (dictionary)
+        res_dict = self.client.post(
+            self.base_url,
+            {"name": "Bad Attr Dict", "values": [{"nested": "dict"}]},
+            format="json",
+        )
+        self.assertEqual(res_dict.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("values", res_dict.data)
+
+    def test_duplicate_attribute_name_within_shop_rejected(self):
+        """
+        Merchants cannot create duplicate custom attribute names within the same Shop.
+        """
+        self._auth_merchant(self.user_a)
+        ShopCustomAttribute.objects.create(shop=self.shop_a, name="Certification")
+
+        res_dup = self.client.post(
+            self.base_url,
+            {"name": "Certification", "values": ["ISO", "FSSAI"]},
+            format="json",
+        )
+        self.assertEqual(res_dup.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("name", res_dup.data)
+
+    def test_multi_tenant_isolation_custom_attribute(self):
+        """
+        Merchant A cannot view, retrieve, update, or delete Merchant B's custom attributes.
+        Merchant A can reuse the same attribute name as Merchant B.
+        """
+        attr_a = ShopCustomAttribute.objects.create(shop=self.shop_a, name="Grade", values=["A", "B"])
+        attr_b = ShopCustomAttribute.objects.create(shop=self.shop_b, name="Grade", values=["1", "2"])
+
+        self._auth_merchant(self.user_a)
+
+        # List
+        list_res = self.client.get(self.base_url)
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+        ids = [a["id"] for a in list_res.data]
+        self.assertIn(attr_a.id, ids)
+        self.assertNotIn(attr_b.id, ids)
+
+        # Retrieve Merchant B's attribute -> 404
+        self.assertEqual(self.client.get(f"{self.base_url}{attr_b.id}/").status_code, status.HTTP_404_NOT_FOUND)
+
+        # Update Merchant B's attribute -> 404
+        self.assertEqual(
+            self.client.patch(f"{self.base_url}{attr_b.id}/", {"name": "Hacked"}).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        # Delete Merchant B's attribute -> 404
+        self.assertEqual(
+            self.client.delete(f"{self.base_url}{attr_b.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        self.assertTrue(ShopCustomAttribute.objects.filter(id=attr_b.id).exists())
+
+    def test_filter_custom_attributes(self):
+        """
+        Filter custom attributes by is_active and search query.
+        """
+        self._auth_merchant(self.user_a)
+        a1 = ShopCustomAttribute.objects.create(shop=self.shop_a, name="Sweetness Level", is_active=True)
+        a2 = ShopCustomAttribute.objects.create(shop=self.shop_a, name="Spice Level", is_active=False)
+
+        # Filter is_active
+        res_act = self.client.get(f"{self.base_url}?is_active=false")
+        self.assertEqual(res_act.status_code, status.HTTP_200_OK)
+        ids_act = [a["id"] for a in res_act.data]
+        self.assertIn(a2.id, ids_act)
+        self.assertNotIn(a1.id, ids_act)
+
+        # Search
+        res_search = self.client.get(f"{self.base_url}?search=Sweetness")
+        self.assertEqual(res_search.status_code, status.HTTP_200_OK)
+        ids_search = [a["id"] for a in res_search.data]
+        self.assertIn(a1.id, ids_search)
+        self.assertNotIn(a2.id, ids_search)
+
+    def test_custom_attribute_authorization_checks(self):
+        """
+        Validate unauthenticated (401), non-merchant (403), merchant without shop (404),
+        and merchant with inactive shop (403).
+        """
+        # 1. Unauthenticated -> 401
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self.client.post(self.base_url, {"name": "X"}).status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Super Admin -> 403
+        self._auth_super_admin()
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+
+        # 3. Merchant without Shop -> 404
+        user_no_shop = User.objects.create_user(
+            username="merchant_attr_no_shop",
+            mobile_number="+919876543640",
+            password="password123",
+            role=User.Role.MERCHANT,
+        )
+        Merchant.objects.create(user=user_no_shop, status=Merchant.Status.ACTIVE, must_change_password=False)
+        self._auth_merchant(user_no_shop)
+        no_shop_res = self.client.get(self.base_url)
+        self.assertEqual(no_shop_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(no_shop_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # 4. Merchant with Inactive Shop -> 403
+        self.shop_a.status = Shop.Status.DEACTIVATED
+        self.shop_a.save()
+        self._auth_merchant(self.user_a)
+        inactive_res = self.client.get(self.base_url)
+        self.assertEqual(inactive_res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(inactive_res.data.get("code"), "SHOP_INACTIVE")
+
+    def test_custom_attribute_url_aliases(self):
+        """
+        Verify /api/v1/catalog/attributes/ and /api/v1/shops/me/custom-attributes/ route properly.
+        """
+        self._auth_merchant(self.user_a)
+
+        # /api/v1/catalog/attributes/
+        url1 = "/api/v1/catalog/attributes/"
+        res1 = self.client.post(url1, {"name": "Alias Attr 1", "values": ["V1"]}, format="json")
+        self.assertEqual(res1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res1.data["name"], "Alias Attr 1")
+
+        # /api/v1/shops/me/custom-attributes/
+        url2 = "/api/v1/shops/me/custom-attributes/"
+        res2 = self.client.post(url2, {"name": "Alias Attr 2", "values": ["V2"]}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res2.data["name"], "Alias Attr 2")
+        attr2_id = res2.data["id"]
+
+        get2 = self.client.get(f"{url2}{attr2_id}/")
+        self.assertEqual(get2.status_code, status.HTTP_200_OK)
+        self.assertEqual(get2.data["name"], "Alias Attr 2")
+
+
+
 
 
 
