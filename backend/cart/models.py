@@ -72,6 +72,13 @@ class Cart(models.Model):
             if self.customer.shop_id != self.shop_id:
                 raise ValidationError({"customer": "Customer must belong to the same Shop as the Cart."})
 
+        # Prevent mutating shop if cart already contains items (prevents cross-shop corruption)
+        if self.pk:
+            orig = Cart.objects.filter(pk=self.pk).values("shop_id").first()
+            if orig and orig["shop_id"] != self.shop_id:
+                if self.items.exists():
+                    raise ValidationError({"shop": "Cannot change the Shop of a Cart that contains items."})
+
     def save(self, *args, **kwargs) -> None:
         self.full_clean()
         super().save(*args, **kwargs)
@@ -192,10 +199,12 @@ class CartItem(models.Model):
             if self.product.shop_id != self.cart.shop_id:
                 raise ValidationError({"product": "Product must belong to the same Shop as the Cart."})
 
-        # Variant integrity check: Variant must belong to the selected Product
-        if self.variant_id and self.product_id:
-            if self.variant.product_id != self.product_id:
+        # Variant integrity checks
+        if self.variant_id:
+            if self.product_id and self.variant.product_id != self.product_id:
                 raise ValidationError({"variant": "Variant must belong to the selected Product."})
+            if self.cart_id and self.variant.product.shop_id != self.cart.shop_id:
+                raise ValidationError({"variant": "Variant must belong to the same Shop as the Cart."})
 
     def save(self, *args, **kwargs) -> None:
         if self.quantity is not None:
