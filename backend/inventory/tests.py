@@ -11,6 +11,7 @@ from shops.models import Shop
 from users.models import Merchant, User
 from .models import InventoryItem, quantize_quantity
 from .services import (
+    add_stock,
     adjust_stock,
     deduct_order_items_stock,
     deduct_order_stock,
@@ -25,7 +26,9 @@ from .services import (
     reserve_order_stock,
     restore_cancelled_order_stock,
     restore_order_items_stock,
+    subtract_stock,
 )
+
 
 
 class InventoryBaseTestCase(TestCase):
@@ -1012,6 +1015,269 @@ class StockInitializationAndGranularityTests(InventoryBaseTestCase):
         var_item = InventoryItem.objects.filter(product=product, variant=variant).first()
         self.assertIsNotNone(var_item)
         self.assertEqual(var_item.quantity, Decimal("0.000"))
+
+
+class MerchantStockAddSubtractTests(InventoryBaseTestCase):
+    """
+    Test suite for Task INV-005: Merchant stock add and subtract operations.
+    Validates Shop authorization, prevents negative resulting stock, prevents
+    reducing below reserved stock, enforces MVP no-reason/no-movement policy.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.product1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Milk 1L",
+            price=Decimal("60.00"),
+        )
+        self.variant_product = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Premium Basmati Rice",
+            price=Decimal("120.00"),
+        )
+        self.variant_1kg = ProductVariant.objects.create(
+            product=self.variant_product,
+            name="1 kg Pouch",
+        )
+        self.variant_5kg = ProductVariant.objects.create(
+            product=self.variant_product,
+            name="5 kg Bag",
+        )
+
+        # Shop 2 product and variant for cross-tenant testing
+        self.shop2_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Olive Oil",
+            price=Decimal("500.00"),
+        )
+        self.shop2_variant_product = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop 2 Salt",
+            price=Decimal("20.00"),
+        )
+        self.shop2_variant = ProductVariant.objects.create(
+            product=self.shop2_variant_product,
+            name="1 kg",
+        )
+
+    def test_merchant_add_stock_non_variant_product(self):
+        """Active shop owner merchant successfully adds stock to a non-variant product."""
+        # Initial stock is 0.000
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("0.000"))
+
+        item = add_stock(self.shop1, self.product1, Decimal("25.500"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("25.500"))
+        self.assertEqual(item.available_quantity, Decimal("25.500"))
+
+        # Add additional stock with user actor
+        item = add_stock(self.shop1, self.product1, Decimal("10.250"), actor=self.user1)
+        self.assertEqual(item.quantity, Decimal("35.750"))
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("35.750"))
+
+    def test_merchant_add_stock_variant(self):
+        """Active shop owner merchant adds stock to a variant; derived product aggregate updates."""
+        item1 = add_stock(self.shop1, self.variant_1kg, Decimal("15.000"), actor=self.merchant1)
+        item5 = add_stock(self.shop1, self.variant_5kg, Decimal("5.000"), actor=self.merchant1)
+
+        self.assertEqual(item1.quantity, Decimal("15.000"))
+        self.assertEqual(item5.quantity, Decimal("5.000"))
+        self.assertEqual(get_variant_stock(self.variant_1kg)["quantity"], Decimal("15.000"))
+        self.assertEqual(get_variant_stock(self.variant_5kg)["quantity"], Decimal("5.000"))
+
+        # Parent product aggregate stock is derived: 15 + 5 = 20.000
+        parent_stock = get_product_stock(self.variant_product)
+        self.assertEqual(parent_stock["quantity"], Decimal("20.000"))
+        self.assertTrue(parent_stock["is_derived"])
+
+    def test_merchant_subtract_stock_non_variant_product(self):
+        """Active shop owner merchant subtracts stock from a non-variant product."""
+        add_stock(self.shop1, self.product1, Decimal("50.000"), actor=self.merchant1)
+
+        item = subtract_stock(self.shop1, self.product1, Decimal("18.500"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("31.500"))
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("31.500"))
+
+    def test_merchant_subtract_stock_variant(self):
+        """Active shop owner merchant subtracts stock from a variant; derived aggregate updates."""
+        add_stock(self.shop1, self.variant_1kg, Decimal("30.000"), actor=self.merchant1)
+        add_stock(self.shop1, self.variant_5kg, Decimal("10.000"), actor=self.merchant1)
+
+        item = subtract_stock(self.shop1, self.variant_1kg, Decimal("12.000"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("18.000"))
+
+        parent_stock = get_product_stock(self.variant_product)
+        self.assertEqual(parent_stock["quantity"], Decimal("28.000"))  # 18 + 10
+
+    def test_subtract_stock_cannot_reduce_below_zero(self):
+        """Subtracting more stock than available balance raises ValidationError."""
+        add_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("10.001"), actor=self.merchant1)
+        self.assertIn("Cannot subtract stock below zero.", str(cm.exception))
+
+        # Balance remains unaffected
+        self.assertEqual(get_product_stock(self.product1)["quantity"], Decimal("10.000"))
+
+    def test_subtract_stock_cannot_reduce_below_reserved_quantity(self):
+        """Subtracting stock cannot reduce total quantity below currently reserved quantity."""
+        add_stock(self.shop1, self.product1, Decimal("20.000"), actor=self.merchant1)
+        # Reserve 8.000
+        reserve_order_stock(self.shop1, self.product1, Decimal("8.000"))
+
+        item = InventoryItem.objects.get(product=self.product1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("20.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item.available_quantity, Decimal("12.000"))
+
+        # Subtracting 15.000 would leave quantity at 5.000, which is < reserved 8.000
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("15.000"), actor=self.merchant1)
+        self.assertIn("Cannot subtract stock below reserved quantity.", str(cm.exception))
+
+        # Subtracting 12.000 leaves exactly 8.000 == reserved 8.000, which is valid
+        item = subtract_stock(self.shop1, self.product1, Decimal("12.000"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("8.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item.available_quantity, Decimal("0.000"))
+
+    def test_add_and_subtract_reject_non_positive_quantity(self):
+        """Adding or subtracting zero or negative quantities is strictly rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("0.000"), actor=self.merchant1)
+        self.assertIn("Quantity to add must be greater than zero.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("-5.000"), actor=self.merchant1)
+        self.assertIn("Quantity to add must be greater than zero.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("0.000"), actor=self.merchant1)
+        self.assertIn("Quantity to subtract must be greater than zero.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("-5.000"), actor=self.merchant1)
+        self.assertIn("Quantity to subtract must be greater than zero.", str(cm.exception))
+
+    def test_cross_shop_target_rejection(self):
+        """Attempting to add or subtract stock on a product/variant belonging to another shop is rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.shop2_product, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Target product does not belong to the authorized shop.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.shop2_variant, Decimal("5.000"), actor=self.merchant1)
+        self.assertIn("Target variant does not belong to the authorized shop.", str(cm.exception))
+
+    def test_unauthorized_merchant_rejection(self):
+        """Merchant from Shop 2 cannot modify inventory for Shop 1."""
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant2)
+        self.assertIn("Merchant is not authorized to modify inventory for this shop.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("5.000"), actor=self.user2)
+        self.assertIn("Merchant is not authorized to modify inventory for this shop.", str(cm.exception))
+
+    def test_super_admin_explicitly_rejected(self):
+        """Super Admin is strictly prohibited from modifying Merchant inventory per Section 3."""
+        admin_user = User.objects.create_user(
+            username="superadmin_test",
+            email="admin@example.com",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("10.000"), actor=admin_user)
+        self.assertIn("Super Admin is not authorized to modify Merchant inventory.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("5.000"), actor=admin_user)
+        self.assertIn("Super Admin is not authorized to modify Merchant inventory.", str(cm.exception))
+
+    def test_customer_actor_rejected(self):
+        """Customer actor or non-user/merchant actor cannot modify merchant inventory."""
+        from customers.models import Customer
+
+        customer = Customer.objects.create(
+            shop=self.shop1,
+            name="Alice Customer",
+            whatsapp_number="+919123456789",
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("5.000"), actor=customer)
+        self.assertIn("Invalid actor for inventory modification.", str(cm.exception))
+
+    def test_deactivated_or_suspended_shop_rejection(self):
+        """Cannot modify inventory for a deactivated or suspended shop."""
+        self.shop1.status = Shop.Status.DEACTIVATED
+        self.shop1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Cannot modify inventory for a deactivated or suspended shop.", str(cm.exception))
+
+        self.shop1.status = Shop.Status.SUSPENDED
+        self.shop1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.product1, Decimal("5.000"), actor=self.merchant1)
+        self.assertIn("Cannot modify inventory for a deactivated or suspended shop.", str(cm.exception))
+
+    def test_inactive_merchant_rejection(self):
+        """Deactivated or non-active merchant cannot modify inventory."""
+        self.merchant1.status = Merchant.Status.DEACTIVATED
+        self.merchant1.save()
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Only active merchants can modify shop inventory.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, Decimal("10.000"), actor=self.user1)
+        self.assertIn("Only active merchants can modify shop inventory.", str(cm.exception))
+
+    def test_variant_based_parent_product_manual_adjustment_rejected(self):
+        """Attempting to add or subtract stock directly on a parent variant-based product is rejected."""
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.variant_product, Decimal("10.000"), actor=self.merchant1)
+        self.assertIn("Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted.", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            subtract_stock(self.shop1, self.variant_product, Decimal("5.000"), actor=self.merchant1)
+        self.assertIn("Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted.", str(cm.exception))
+
+    def test_decimal_precision_preservation(self):
+        """Decimal quantities preserve 3 decimal places and reject >3 decimal places."""
+        item = add_stock(self.shop1, self.product1, Decimal("12.345"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("12.345"))
+
+        item = subtract_stock(self.shop1, self.product1, Decimal("2.345"), actor=self.merchant1)
+        self.assertEqual(item.quantity, Decimal("10.000"))
+
+        with self.assertRaises(ValidationError) as cm:
+            add_stock(self.shop1, self.product1, "12.3456", actor=self.merchant1)
+        self.assertIn("Quantity cannot have more than 3 decimal places.", str(cm.exception))
+
+    def test_no_adjustment_reason_or_movement_history_mvp(self):
+        """MVP strictly enforces no adjustment reason argument and no movement history ledger."""
+        import inspect
+        from django.apps import apps
+
+        add_params = inspect.signature(add_stock).parameters
+        sub_params = inspect.signature(subtract_stock).parameters
+        self.assertNotIn("reason", add_params)
+        self.assertNotIn("reason", sub_params)
+
+        inventory_models = [m.__name__.lower() for m in apps.get_app_config("inventory").get_models()]
+        self.assertNotIn("movement", inventory_models)
+        self.assertNotIn("inventorymovement", inventory_models)
+        self.assertNotIn("stockmovement", inventory_models)
+        self.assertNotIn("history", inventory_models)
+
 
 
 
