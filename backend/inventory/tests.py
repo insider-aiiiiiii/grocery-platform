@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -3273,6 +3273,472 @@ class CustomerFacingStockAvailabilityIntegrationTests(InventoryBaseTestCase):
         self.assertFalse(rice_entry["is_out_of_stock"])
         self.assertEqual(rice_entry["display_status"], "AVAILABLE")
         self.assertNotIn("reserved_quantity", rice_entry)
+
+
+class InventoryDomainComprehensiveVerificationTests(InventoryBaseTestCase):
+    """
+    Test suite for INV-012: Comprehensive domain verification and multi-step permutation testing.
+
+    Consolidates and validates tasks INV-001 through INV-011:
+    1. Inventory initialization & decimal precision (INV-001, INV-002).
+    2. Add/subtract/exact manual stock adjustments (INV-004, INV-005, INV-007).
+    3. Non-negative limits and database CheckConstraints (INV-003).
+    4. Order reservation & partial merchant adjustment (INV-008).
+    5. Order acceptance stock deduction (INV-009).
+    6. Order rejection release, pending cancellation, and pre-preparation restoration (INV-010).
+    7. Customer catalog available stock exposure and out-of-stock ordering block (INV-011).
+    8. Multi-tenant Shop isolation under concurrent operations.
+    9. Strict negative boundary: unfinalized order behavior is not treated as finalized.
+    """
+
+    class DummyOrderItem:
+        def __init__(self, product=None, variant=None, reserved_quantity=Decimal("0.000"), accepted_quantity=None, quantity=None):
+            self.product = product
+            self.variant = variant
+            self.reserved_quantity = quantize_quantity(reserved_quantity)
+            self.accepted_quantity = quantize_quantity(accepted_quantity) if accepted_quantity is not None else None
+            self.quantity = quantize_quantity(quantity if quantity is not None else reserved_quantity)
+
+    class DummyOrder:
+        def __init__(self, shop, items, status="PENDING", preparation_started=False):
+            self.shop = shop
+            self.shop_id = shop.id
+            self._items = items
+            self.status = status
+            self.preparation_started = preparation_started
+            self.stock_released = False
+            self.stock_restored = False
+            self.inventory_handled = False
+
+        class Manager:
+            def __init__(self, items):
+                self._items = items
+            def all(self):
+                return self._items
+
+        @property
+        def items(self):
+            return self.Manager(self._items)
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+
+        # Non-variant product in Shop 1
+        self.prod1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Basmati Rice 5kg",
+            price=Decimal("450.00"),
+            is_visible=True,
+            is_available=True,
+            sku="RICE-001",
+        )
+
+        # Variant product in Shop 1
+        self.prod_milk = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Farm Milk",
+            price=Decimal("50.00"),
+            is_visible=True,
+            is_available=True,
+            sku="MILK-PARENT",
+        )
+        self.var_500ml = ProductVariant.objects.create(
+            product=self.prod_milk,
+            name="500ml Bottle",
+            price=Decimal("30.00"),
+            is_visible=True,
+            is_available=True,
+            sku="MILK-500ML",
+        )
+        self.var_1l = ProductVariant.objects.create(
+            product=self.prod_milk,
+            name="1L Bottle",
+            price=Decimal("55.00"),
+            is_visible=True,
+            is_available=True,
+            sku="MILK-1L",
+        )
+
+    def test_permutation_full_inventory_lifecycle(self):
+        """
+        Permutation 1: Full end-to-end stock lifecycle.
+        Init (0.000) -> Add (+25.375) -> Exact Set (30.500) -> Reserve (10.500)
+        -> Reject illegal under-stock override -> Partial adjustment (reduce to 8.000 & accept)
+        -> Cancellation before prep (restore 8.000) -> Idempotency check.
+        """
+        # 1. Product initialized at 0.000 by post_save signal
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("0.000"))
+        self.assertTrue(stock_info["is_out_of_stock"])
+
+        # 2. Add decimal stock
+        add_stock(self.shop1, self.prod1, Decimal("25.375"))
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("25.375"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("25.375"))
+        self.assertFalse(stock_info["is_out_of_stock"])
+
+        # 3. Exact stock override
+        set_exact_stock(self.shop1, self.prod1, Decimal("30.500"))
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("30.500"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("30.500"))
+
+        # 4. Customer Order 1 reserves 10.500
+        reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("10.500"))])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("30.500"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("10.500"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("20.000"))
+
+        # 5. Merchant attempts manual stock update below reserved quantity -> Rejected
+        with self.assertRaises(ValidationError) as ctx:
+            adjust_stock(self.shop1, self.prod1, set_quantity=Decimal("5.000"))
+        self.assertIn("cannot set quantity lower", str(ctx.exception).lower())
+        # Stock remains untouched
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("30.500"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("10.500"))
+
+        # 6. Merchant partial quantity adjustment on acceptance: reduce fulfillable from 10.500 to 8.000
+        reduce_and_accept_order_items_stock(
+            self.shop1,
+            [(self.prod1, Decimal("10.500"), Decimal("8.000"))],
+        )
+        stock_info = get_product_stock(self.prod1)
+        # On-hand: 30.500 - 8.000 = 22.500
+        self.assertEqual(stock_info["quantity"], Decimal("22.500"))
+        # Reserved: 0.000 (8.000 deducted, 2.500 unfulfilled released)
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("0.000"))
+        # Available: 22.500
+        self.assertEqual(stock_info["available_quantity"], Decimal("22.500"))
+
+        # 7. Merchant cancellation before preparation restores accepted 8.000
+        restore_order_items_stock(
+            self.shop1,
+            [(self.prod1, Decimal("8.000"))],
+        )
+        stock_info = get_product_stock(self.prod1)
+        # On-hand restored: 22.500 + 8.000 = 30.500
+        self.assertEqual(stock_info["quantity"], Decimal("30.500"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["available_quantity"], Decimal("30.500"))
+
+        # 8. Idempotency test using Order instance and restore_accepted_order_stock
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, accepted_quantity=Decimal("8.000"))],
+            status="ACCEPTED",
+        )
+        # First call restores stock
+        restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertTrue(order.stock_restored)
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("38.500"))
+
+        # Duplicate call returns [] and performs no double restoration
+        dup_result = restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(dup_result, [])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["quantity"], Decimal("38.500"))
+
+    def test_permutation_multi_order_concurrency_and_out_of_stock_transitions(self):
+        """
+        Permutation 2: Multi-order reservations, Out of Stock transition,
+        customer catalog visibility, order blocking, and cancellation recovery.
+        """
+        # Initial stock: 15.000
+        set_exact_stock(self.shop1, self.prod1, Decimal("15.000"))
+
+        # Customer A reserves 10.000
+        reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["available_quantity"], Decimal("5.000"))
+
+        # Customer B reserves 5.000 (Available reaches 0.000)
+        reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("5.000"))])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["available_quantity"], Decimal("0.000"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("15.000"))
+
+        # Customer-facing catalog detail immediately reflects OUT_OF_STOCK
+        detail_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod1.id}/"
+        res = self.client.get(detail_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["display_status"], "OUT_OF_STOCK")
+        self.assertTrue(res.data["is_out_of_stock"])
+        self.assertFalse(res.data["is_orderable"])
+        self.assertEqual(Decimal(str(res.data["available_quantity"])), Decimal("0.000"))
+        # Reservation confidentiality check
+        self.assertNotIn("reserved_quantity", res.data)
+        self.assertNotIn("reserved_stock", res.data)
+
+        # Product remains visible in public catalog listing
+        list_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/"
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        p_ids = [p["id"] for p in res_list.data]
+        self.assertIn(self.prod1.id, p_ids)
+
+        # Customer C attempts to reserve 1.000 -> Blocked by inventory validation
+        with self.assertRaises(ValidationError) as ctx:
+            reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("1.000"))])
+        self.assertIn("insufficient stock", str(ctx.exception).lower())
+
+        # Customer B cancels pending order -> stock released
+        release_order_items_stock(self.shop1, [(self.prod1, Decimal("5.000"))])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["available_quantity"], Decimal("5.000"))
+        self.assertEqual(stock_info["reserved_quantity"], Decimal("10.000"))
+
+        # Public catalog immediately transitions back to AVAILABLE and orderable
+        res_after = self.client.get(detail_url)
+        self.assertEqual(res_after.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_after.data["display_status"], "AVAILABLE")
+        self.assertFalse(res_after.data["is_out_of_stock"])
+        self.assertTrue(res_after.data["is_orderable"])
+        self.assertEqual(Decimal(str(res_after.data["available_quantity"])), Decimal("5.000"))
+
+        # Customer C can now successfully reserve 5.000
+        reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("5.000"))])
+        stock_info = get_product_stock(self.prod1)
+        self.assertEqual(stock_info["available_quantity"], Decimal("0.000"))
+
+    def test_permutation_multi_variant_stock_aggregation_and_ordering(self):
+        """
+        Permutation 3: Multi-variant stock aggregation, individual variant depletion,
+        parent out-of-stock behavior, and selective restocking.
+        """
+        # Initialize variant stock: 10.000 for 500ml, 5.000 for 1L
+        add_stock(self.shop1, self.var_500ml, Decimal("10.000"))
+        add_stock(self.shop1, self.var_1l, Decimal("5.000"))
+
+        # Parent product reflects derived aggregate stock
+        parent_stock = get_product_stock(self.prod_milk)
+        self.assertEqual(parent_stock["quantity"], Decimal("15.000"))
+        self.assertEqual(parent_stock["available_quantity"], Decimal("15.000"))
+        self.assertFalse(parent_stock["is_out_of_stock"])
+
+        # Public customer view shows parent AVAILABLE and variants with individual stock
+        detail_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_milk.id}/"
+        res = self.client.get(detail_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["display_status"], "AVAILABLE")
+        self.assertFalse(res.data["is_out_of_stock"])
+        self.assertTrue(res.data["is_orderable"])
+
+        var_data = {v["id"]: v for v in res.data["variants"]}
+        self.assertEqual(Decimal(str(var_data[self.var_500ml.id]["available_quantity"])), Decimal("10.000"))
+        self.assertFalse(var_data[self.var_500ml.id]["is_out_of_stock"])
+        self.assertEqual(Decimal(str(var_data[self.var_1l.id]["available_quantity"])), Decimal("5.000"))
+        self.assertFalse(var_data[self.var_1l.id]["is_out_of_stock"])
+
+        # Order 1 depletes 500ml: reserve and deduct 10.000
+        reserve_order_items_stock(self.shop1, [(self.var_500ml, Decimal("10.000"))])
+        deduct_order_items_stock(self.shop1, [(self.var_500ml, Decimal("10.000"))])
+
+        # At this point, 500ml is 0.000, 1L is 5.000 -> Parent is still AVAILABLE
+        res_mid = self.client.get(detail_url)
+        self.assertEqual(res_mid.data["display_status"], "AVAILABLE")
+        self.assertFalse(res_mid.data["is_out_of_stock"])
+        var_data_mid = {v["id"]: v for v in res_mid.data["variants"]}
+        self.assertTrue(var_data_mid[self.var_500ml.id]["is_out_of_stock"])
+        self.assertFalse(var_data_mid[self.var_1l.id]["is_out_of_stock"])
+
+        # Order 2 depletes 1L: reserve and deduct 5.000
+        reserve_order_items_stock(self.shop1, [(self.var_1l, Decimal("5.000"))])
+        deduct_order_items_stock(self.shop1, [(self.var_1l, Decimal("5.000"))])
+
+        # All visible variants now have 0 available stock -> Parent displays OUT_OF_STOCK
+        res_empty = self.client.get(detail_url)
+        self.assertEqual(res_empty.data["display_status"], "OUT_OF_STOCK")
+        self.assertTrue(res_empty.data["is_out_of_stock"])
+        self.assertFalse(res_empty.data["is_orderable"])
+
+        # Merchant restocks only the 500ml variant with 8.000
+        add_stock(self.shop1, self.var_500ml, Decimal("8.000"))
+
+        # Parent product immediately returns to AVAILABLE
+        res_restocked = self.client.get(detail_url)
+        self.assertEqual(res_restocked.data["display_status"], "AVAILABLE")
+        self.assertFalse(res_restocked.data["is_out_of_stock"])
+        self.assertTrue(res_restocked.data["is_orderable"])
+        self.assertEqual(Decimal(str(res_restocked.data["available_quantity"])), Decimal("8.000"))
+
+    def test_permutation_cross_shop_tenant_isolation_under_concurrent_operations(self):
+        """
+        Permutation 4: Strict multi-tenant Shop isolation under concurrent stock updates
+        and order reservations with identical product names and SKUs.
+        """
+        # Shop 2 creates a product with identical name and SKU
+        prod2 = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Organic Basmati Rice 5kg",
+            price=Decimal("460.00"),
+            sku="RICE-001",
+            is_visible=True,
+            is_available=True,
+        )
+
+        # Set Shop 1 stock to 50.000, Shop 2 stock to 10.000
+        set_exact_stock(self.shop1, self.prod1, Decimal("50.000"))
+        set_exact_stock(self.shop2, prod2, Decimal("10.000"))
+
+        # Merchant 1 attempts to adjust Shop 2 inventory via service -> Rejected
+        with self.assertRaises(ValidationError) as ctx:
+            adjust_stock(self.shop1, prod2, set_quantity=Decimal("99.000"))
+        self.assertIn("does not belong to the authorized shop", str(ctx.exception).lower())
+
+        # Merchant 1 API client authenticated as user1 cannot access Shop 2 inventory item
+        self.client.force_authenticate(user=self.user1)
+        item2 = InventoryItem.objects.get(shop=self.shop2, product=prod2)
+        res_cross = self.client.get(f"/api/v1/inventory/{item2.id}/")
+        self.assertEqual(res_cross.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Cross-shop order reservation: Attempting to reserve Shop 2 item for Shop 1 order -> Rejected
+        with self.assertRaises(ValidationError) as ctx:
+            reserve_order_items_stock(self.shop1, [(prod2, Decimal("5.000"))])
+        self.assertIn("does not belong to the authorized shop", str(ctx.exception).lower())
+
+        # Customer reserves 40.000 on Shop 1
+        reserve_order_items_stock(self.shop1, [(self.prod1, Decimal("40.000"))])
+        stock1 = get_product_stock(self.prod1)
+        self.assertEqual(stock1["quantity"], Decimal("50.000"))
+        self.assertEqual(stock1["reserved_quantity"], Decimal("40.000"))
+        self.assertEqual(stock1["available_quantity"], Decimal("10.000"))
+
+        # Verify Shop 2 stock is 100% untouched
+        stock2 = get_product_stock(prod2)
+        self.assertEqual(stock2["quantity"], Decimal("10.000"))
+        self.assertEqual(stock2["reserved_quantity"], Decimal("0.000"))
+        self.assertEqual(stock2["available_quantity"], Decimal("10.000"))
+
+        # Customer reserves 10.000 on Shop 2 (Shop 2 hits OUT_OF_STOCK)
+        reserve_order_items_stock(self.shop2, [(prod2, Decimal("10.000"))])
+        stock2_depleted = get_product_stock(prod2)
+        self.assertEqual(stock2_depleted["available_quantity"], Decimal("0.000"))
+        self.assertTrue(stock2_depleted["is_out_of_stock"])
+
+        # Shop 1 customer catalog remains completely unaffected (AVAILABLE with 10.000)
+        res_shop1 = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod1.id}/")
+        self.assertEqual(res_shop1.data["display_status"], "AVAILABLE")
+        self.assertFalse(res_shop1.data["is_out_of_stock"])
+        self.assertEqual(Decimal(str(res_shop1.data["available_quantity"])), Decimal("10.000"))
+
+    def test_permutation_boundary_and_non_negative_limits(self):
+        """
+        Permutation 5: Decimal precision, boundary limits, and database CheckConstraint validation.
+        """
+        # 1. Quantization rules
+        self.assertEqual(quantize_quantity(Decimal("0.001")), Decimal("0.001"))
+        self.assertEqual(quantize_quantity(Decimal("123.456")), Decimal("123.456"))
+        with self.assertRaises(ValidationError):
+            quantize_quantity(Decimal("0.0004"))
+        with self.assertRaises(ValidationError):
+            quantize_quantity(Decimal("0.0006"))
+
+        # 2. Service level boundary checks
+        set_exact_stock(self.shop1, self.prod1, Decimal("10.000"))
+        with self.assertRaises(ValidationError) as ctx:
+            subtract_stock(self.shop1, self.prod1, Decimal("15.000"))
+        self.assertIn("cannot subtract stock below zero", str(ctx.exception).lower())
+
+        with self.assertRaises(ValidationError) as ctx:
+            set_exact_stock(self.shop1, self.prod1, Decimal("-1.000"))
+        self.assertIn("cannot be negative", str(ctx.exception).lower())
+
+        # 3. Direct ORM check constraint validation (database-level integrity)
+        item = InventoryItem.objects.get(shop=self.shop1, product=self.prod1)
+
+        # Violation of inventory_quantity_non_negative
+        with self.assertRaises((IntegrityError, ValidationError)):
+            with transaction.atomic():
+                InventoryItem.objects.filter(id=item.id).update(quantity=Decimal("-1.000"))
+                item.refresh_from_db()
+                item.full_clean()
+
+        # Violation of inventory_reserved_non_negative
+        with self.assertRaises((IntegrityError, ValidationError)):
+            with transaction.atomic():
+                InventoryItem.objects.filter(id=item.id).update(reserved_quantity=Decimal("-0.500"))
+                item.refresh_from_db()
+                item.full_clean()
+
+        # Violation of inventory_quantity_gte_reserved
+        with self.assertRaises((IntegrityError, ValidationError)):
+            with transaction.atomic():
+                InventoryItem.objects.filter(id=item.id).update(
+                    quantity=Decimal("5.000"),
+                    reserved_quantity=Decimal("10.000"),
+                )
+                item.refresh_from_db()
+                item.full_clean()
+
+    def test_unresolved_order_behavior_not_treated_as_finalized(self):
+        """
+        Permutation 6: Strict adherence to negative constraint:
+        Unresolved and non-finalized Order behaviors (such as cancellation after preparation has started,
+        or terminal delivered/completed states) are rejected and cannot restore stock.
+        """
+        set_exact_stock(self.shop1, self.prod1, Decimal("20.000"))
+
+        # Ineligible cancellation: preparation has started (status="PREPARING")
+        order_prep = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="PREPARING",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            restore_accepted_order_stock(self.shop1, order_prep, actor=self.merchant1)
+        self.assertIn("cancellation is only allowed before preparation", str(ctx.exception).lower())
+
+        # Ineligible cancellation: terminal downstream status COMPLETED
+        order_completed = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="COMPLETED",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            restore_accepted_order_stock(self.shop1, order_completed, actor=self.merchant1)
+        self.assertIn("cancellation is only allowed before preparation", str(ctx.exception).lower())
+
+        # Ineligible cancellation: order is not in ACCEPTED status (e.g., PENDING)
+        order_not_accepted = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="PENDING",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            restore_accepted_order_stock(self.shop1, order_not_accepted, actor=self.merchant1)
+        self.assertIn("order must be accepted", str(ctx.exception).lower())
+
+        # Ineligible release: releasing stock on an order that is not PENDING
+        order_accepted = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, reserved_quantity=Decimal("5.000"))],
+            status="ACCEPTED",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            release_pending_order_stock(self.shop1, order_accepted)
+        self.assertIn("must be pending", str(ctx.exception).lower())
+
+        # Unapproved transition target status (e.g. SHIPPED or DELIVERED) raises ValidationError
+        with self.assertRaises(ValidationError) as ctx:
+            synchronize_order_transition_stock(self.shop1, order_prep, to_status="SHIPPED")
+        self.assertIn("unsupported transition target status", str(ctx.exception).lower())
+
+        # Unapproved transition for in-preparation orders
+        order_in_prep = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="PREPARING",
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            synchronize_order_transition_stock(self.shop1, order_in_prep, to_status="REJECTED")
+        self.assertIn("cannot cancel or reject an order in 'preparing' status", str(ctx.exception).lower())
+
 
 
 
