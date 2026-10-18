@@ -497,6 +497,8 @@ def release_order_items_stock(
         updated = []
         for target, raw_qty in sorted_entries:
             qty = quantize_quantity(raw_qty)
+            if qty <= Decimal("0.000"):
+                raise ValidationError(f"Release quantity for '{target.name}' must be greater than zero.")
             item = _get_target_item_locked(shop, target)
             item.release_reserved_stock(qty)
             updated.append(item)
@@ -543,6 +545,8 @@ def restore_order_items_stock(
         updated = []
         for target, raw_qty in sorted_entries:
             qty = quantize_quantity(raw_qty)
+            if qty <= Decimal("0.000"):
+                raise ValidationError(f"Restoration quantity for '{target.name}' must be greater than zero.")
             item = _get_target_item_locked(shop, target)
             item.restore_deducted_stock(qty)
             updated.append(item)
@@ -720,5 +724,209 @@ def deduct_order_acceptance_stock(
             raise ValidationError("Items must be 2-tuples (target, qty) or 3-tuples (target, orig, acc).")
 
     raise ValidationError("items_or_order must be an Order instance or a list of item tuples.")
+
+
+def release_pending_order_stock(
+    shop,
+    items_or_order,
+    *,
+    actor=None,
+    reason=None,
+) -> list[InventoryItem]:
+    """
+    Integrates Inventory release for:
+    - Merchant rejection (reason="MERCHANT_REJECTED", actor=Merchant)
+    - Customer pending cancellation (reason="CUSTOMER_CANCELLED", actor=Customer)
+    - Pending order expiry (reason="TIMEOUT_EXPIRED", actor=SYSTEM/None)
+
+    Releases pending reservations back to available stock exactly once.
+    On-hand quantity remains constant; reserved quantity is decremented.
+    Synchronizes with approved Order transitions (order must be PENDING).
+    """
+    if actor is not None:
+        from users.models import User, Merchant
+        if isinstance(actor, User) and getattr(actor, "role", None) == User.Role.SUPER_ADMIN:
+            raise ValidationError("Super Admin is not authorized to modify Merchant inventory.")
+        if isinstance(actor, (Merchant, User)) and getattr(actor, "role", None) == User.Role.MERCHANT:
+            validate_shop_merchant_authorization(shop, actor)
+
+    # Duck-type check for Order or container instance with shop and items
+    if hasattr(items_or_order, "items") and hasattr(items_or_order, "shop"):
+        order = items_or_order
+        if order.shop_id != shop.id:
+            raise ValidationError("Order does not belong to the specified shop.")
+
+        # Exactly-once check
+        if getattr(order, "stock_released", False) or getattr(order, "inventory_handled", False):
+            return []
+
+        # Order status check
+        order_status = getattr(order, "status", None)
+        if order_status is not None:
+            if order_status == "REJECTED":
+                return []
+            if order_status != "PENDING":
+                raise ValidationError(
+                    f"Cannot release pending stock for order in status '{order_status}'. Order must be PENDING."
+                )
+
+        order_items = list(order.items.all())
+        if not order_items:
+            raise ValidationError("Cannot release inventory for an empty order.")
+
+        items_with_quantities = []
+        for oi in order_items:
+            target = getattr(oi, "variant", None) or getattr(oi, "product", None)
+            if not target:
+                raise ValidationError("Order item must reference a product or variant.")
+            if getattr(target, "shop_id", None) and target.shop_id != shop.id:
+                raise ValidationError("Order item does not belong to the specified shop.")
+            elif hasattr(target, "product") and target.product.shop_id != shop.id:
+                raise ValidationError("Order item variant does not belong to the specified shop.")
+
+            qty = getattr(oi, "reserved_quantity", None) or getattr(oi, "quantity", None) or getattr(oi, "ordered_quantity", None)
+            items_with_quantities.append((target, qty))
+
+        updated = release_order_items_stock(shop, items_with_quantities)
+        try:
+            order.stock_released = True
+            order.inventory_handled = True
+        except Exception:
+            pass
+        return updated
+
+    elif isinstance(items_or_order, (list, tuple)):
+        items_list = list(items_or_order)
+        if not items_list:
+            raise ValidationError("Cannot release inventory for an empty item list.")
+        return release_order_items_stock(shop, items_list)
+
+    raise ValidationError("items_or_order must be an Order instance or a list of (target, quantity) tuples.")
+
+
+def restore_accepted_order_stock(
+    shop,
+    items_or_order,
+    *,
+    actor=None,
+    reason=None,
+) -> list[InventoryItem]:
+    """
+    Integrates stock restoration for eligible Merchant cancellation after acceptance
+    but before preparation (ACCEPTED -> REJECTED).
+
+    Restores previously deducted stock back to on-hand quantity exactly once,
+    making it immediately available again.
+    Actor MUST be an authorized Merchant for the Shop.
+    Order must be in ACCEPTED status (ineligible if PREPARING, READY, COMPLETED, or REJECTED).
+    """
+    validate_shop_merchant_authorization(shop, actor)
+
+    # Duck-type check for Order or container instance with shop and items
+    if hasattr(items_or_order, "items") and hasattr(items_or_order, "shop"):
+        order = items_or_order
+        if order.shop_id != shop.id:
+            raise ValidationError("Order does not belong to the specified shop.")
+
+        # Exactly-once check
+        if getattr(order, "stock_restored", False) or getattr(order, "inventory_handled", False):
+            return []
+
+        order_status = getattr(order, "status", None)
+        if order_status is not None:
+            if order_status in ("PREPARING", "READY", "COMPLETED"):
+                raise ValidationError(
+                    f"Merchant cannot cancel an order in '{order_status}' status. Cancellation is only allowed before preparation."
+                )
+            if order_status == "REJECTED":
+                return []
+            if order_status != "ACCEPTED":
+                raise ValidationError(
+                    f"Cannot restore stock for order in status '{order_status}'. Order must be ACCEPTED."
+                )
+
+        order_items = list(order.items.all())
+        if not order_items:
+            raise ValidationError("Cannot restore inventory for an empty order.")
+
+        items_with_quantities = []
+        for oi in order_items:
+            target = getattr(oi, "variant", None) or getattr(oi, "product", None)
+            if not target:
+                raise ValidationError("Order item must reference a product or variant.")
+            if getattr(target, "shop_id", None) and target.shop_id != shop.id:
+                raise ValidationError("Order item does not belong to the specified shop.")
+            elif hasattr(target, "product") and target.product.shop_id != shop.id:
+                raise ValidationError("Order item variant does not belong to the specified shop.")
+
+            qty = getattr(oi, "accepted_quantity", None) or getattr(oi, "quantity", None)
+            items_with_quantities.append((target, qty))
+
+        updated = restore_order_items_stock(shop, items_with_quantities)
+        try:
+            order.stock_restored = True
+            order.inventory_handled = True
+        except Exception:
+            pass
+        return updated
+
+    elif isinstance(items_or_order, (list, tuple)):
+        items_list = list(items_or_order)
+        if not items_list:
+            raise ValidationError("Cannot restore inventory for an empty item list.")
+        return restore_order_items_stock(shop, items_list)
+
+    raise ValidationError("items_or_order must be an Order instance or a list of (target, quantity) tuples.")
+
+
+def synchronize_order_transition_stock(
+    shop,
+    order,
+    *,
+    to_status="REJECTED",
+    actor=None,
+    reason=None,
+) -> list[InventoryItem]:
+    """
+    Synchronizes stock adjustments with approved Order transitions (INV-010).
+
+    When transitioning to REJECTED:
+    - If order was PENDING:
+      Releases pending reservations (Merchant rejection, Customer pending cancellation, or Expiry).
+    - If order was ACCEPTED:
+      Restores previously deducted stock (eligible Merchant cancellation before preparation).
+    - If order was in PREPARING, READY, or COMPLETED:
+      Raises ValidationError (ineligible cancellation).
+    - If order was already REJECTED:
+      Idempotently returns [] without double-releasing or double-restoring.
+
+    Guarantees exactly-once stock adjustments across all terminal order transitions.
+    """
+    if to_status != "REJECTED":
+        raise ValidationError(
+            f"Unsupported transition target status '{to_status}'. Only 'REJECTED' is approved for release/restoration."
+        )
+
+    if not hasattr(order, "shop") or not hasattr(order, "items"):
+        raise ValidationError("order must be an Order instance with shop and items attributes.")
+
+    if order.shop_id != shop.id:
+        raise ValidationError("Order does not belong to the specified shop.")
+
+    current_status = getattr(order, "status", None)
+    if current_status == "PENDING":
+        return release_pending_order_stock(shop, order, actor=actor, reason=reason)
+    elif current_status == "ACCEPTED":
+        return restore_accepted_order_stock(shop, order, actor=actor, reason=reason)
+    elif current_status in ("PREPARING", "READY", "COMPLETED"):
+        raise ValidationError(
+            f"Cannot cancel or reject an order in '{current_status}' status. Cancellation is only allowed before preparation."
+        )
+    elif current_status == "REJECTED":
+        # Exactly-once guarantee: already terminal REJECTED
+        return []
+    else:
+        raise ValidationError(f"Cannot synchronize stock for order with unrecognized status '{current_status}'.")
+
 
 
