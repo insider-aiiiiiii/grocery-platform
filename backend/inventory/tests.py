@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework import status
 from rest_framework.test import APIClient
 
 from catalog.models import MasterCategory, MasterProduct, ProductVariant, ShopProduct
@@ -3022,6 +3023,257 @@ class OrderStockReleaseAndRestorationIntegrationTests(InventoryBaseTestCase):
         with self.assertRaises(ValidationError) as cm:
             restore_order_items_stock(self.shop1, [(self.prod1, Decimal("0.000"))])
         self.assertIn("must be greater than zero", str(cm.exception))
+
+
+class CustomerFacingStockAvailabilityIntegrationTests(InventoryBaseTestCase):
+    """
+    Test suite for INV-011: Customer-facing catalog stock availability behavior.
+
+    Pillars verified:
+    1. Exact available stock exposure:
+       Customer sees available stock = max(0, quantity - reserved_quantity).
+    2. Out of Stock state:
+       When available quantity reaches zero, display_status="OUT_OF_STOCK" and is_out_of_stock=True.
+    3. Product visibility retention:
+       Out-of-stock products remain visible in customer-facing catalog listings and detail endpoints.
+    4. Ordering blocked when out of stock:
+       is_orderable is False; adding to cart or checking out is rejected.
+    5. Internal reservation confidentiality:
+       reserved_quantity, reserved_stock, and raw total quantity are strictly omitted from customer responses.
+    6. Products with variants:
+       Customers see variant available stock; if all variants are out of stock, parent shows Out of Stock
+       while remaining visible.
+    7. Multi-tenancy isolation in public catalog stock responses.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.client = APIClient()
+
+        # Non-variant product in Shop 1
+        self.prod_rice = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Basmati Rice 5kg",
+            price=Decimal("450.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        adjust_stock(self.shop1, self.prod_rice, set_quantity=Decimal("100.000"))
+
+        # Variant product in Shop 1
+        self.prod_milk = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Farm Fresh Milk",
+            price=Decimal("60.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        self.var_500ml = ProductVariant.objects.create(
+            product=self.prod_milk,
+            name="500 ml",
+            price=Decimal("30.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        self.var_1000ml = ProductVariant.objects.create(
+            product=self.prod_milk,
+            name="1000 ml",
+            price=Decimal("60.00"),
+            is_visible=True,
+            is_available=True,
+        )
+        adjust_stock(self.shop1, self.var_500ml, set_quantity=Decimal("30.000"))
+        adjust_stock(self.shop1, self.var_1000ml, set_quantity=Decimal("20.000"))
+
+        # Hidden product in Shop 1
+        self.prod_hidden = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Secret Internal Item",
+            price=Decimal("100.00"),
+            is_visible=False,
+            is_available=True,
+        )
+        adjust_stock(self.shop1, self.prod_hidden, set_quantity=Decimal("50.000"))
+
+    def test_exact_available_stock_exposure_with_active_reservations(self):
+        """
+        Pillar 1 & 5: When an order reserves 35.000 of on-hand 100.000 stock:
+        - Customer sees exact available quantity 65.000 (100 - 35).
+        - display_status is 'AVAILABLE', is_orderable is True, is_out_of_stock is False.
+        - Internal reserved quantity (35.000) and raw on-hand quantity (100.000) are NOT exposed.
+        """
+        # Customer A creates order and reserves 35.000
+        reserve_order_creation_stock(self.shop1, [(self.prod_rice, Decimal("35.000"))])
+
+        url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_rice.id}/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+        self.assertEqual(Decimal(str(data["available_quantity"])), Decimal("65.000"))
+        self.assertEqual(Decimal(str(data["stock_quantity"])), Decimal("65.000"))
+        self.assertFalse(data["is_out_of_stock"])
+        self.assertTrue(data["is_orderable"])
+        self.assertEqual(data["display_status"], "AVAILABLE")
+
+        # Internal reservation confidentiality:
+        self.assertNotIn("reserved_quantity", data)
+        self.assertNotIn("reserved_stock", data)
+        self.assertNotIn("quantity", data)  # raw unreserved quantity must not leak
+
+    def test_out_of_stock_product_remains_visible_and_blocks_ordering(self):
+        """
+        Pillar 2, 3 & 4: When available stock reaches 0:
+        - Product remains visible in public catalog listing and detail.
+        - Shows Out of Stock (display_status="OUT_OF_STOCK", is_out_of_stock=True).
+        - is_orderable is False.
+        - Attempting to add out-of-stock item to cart is blocked.
+        """
+        # Reserve all 100.000 of prod_rice
+        reserve_order_creation_stock(self.shop1, [(self.prod_rice, Decimal("100.000"))])
+
+        # 1. Product remains visible in public product list
+        list_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/"
+        res_list = self.client.get(list_url)
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+
+        prod_ids = [p["id"] for p in res_list.data]
+        self.assertIn(self.prod_rice.id, prod_ids, "Out-of-stock product must remain visible in catalog list")
+
+        prod_data = next(p for p in res_list.data if p["id"] == self.prod_rice.id)
+        self.assertEqual(Decimal(str(prod_data["available_quantity"])), Decimal("0.000"))
+        self.assertTrue(prod_data["is_out_of_stock"])
+        self.assertFalse(prod_data["is_orderable"])
+        self.assertEqual(prod_data["display_status"], "OUT_OF_STOCK")
+
+        # 2. Product remains accessible via public detail endpoint
+        detail_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_rice.id}/"
+        res_detail = self.client.get(detail_url)
+        self.assertEqual(res_detail.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_detail.data["is_out_of_stock"])
+        self.assertFalse(res_detail.data["is_orderable"])
+        self.assertEqual(res_detail.data["display_status"], "OUT_OF_STOCK")
+
+        # 3. Adding out-of-stock product to Cart is blocked
+        cart = Cart.objects.create(shop=self.shop1)
+        cart_add_url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/items/"
+        res_cart = self.client.post(
+            cart_add_url,
+            {"cart_id": cart.id, "product_id": self.prod_rice.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res_cart.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("out of stock", str(res_cart.data))
+
+    def test_variant_product_partial_and_total_out_of_stock_behavior(self):
+        """
+        Pillar 6: For products with variants:
+        - Variant-specific available stock is exposed accurately.
+        - Individual out-of-stock variant shows Out of Stock, but parent remains available if other variants have stock.
+        - When all variants reach 0 available stock, parent product shows Out of Stock while remaining visible.
+        - Internal reserved quantities are omitted from both variants and parent.
+        """
+        # Step 1: Reserve all 30.000 of var_500ml; var_1000ml has 20.000 available
+        reserve_order_creation_stock(self.shop1, [(self.var_500ml, Decimal("30.000"))])
+
+        detail_url = f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_milk.id}/"
+        res = self.client.get(detail_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        parent_data = res.data
+        # Parent aggregate available: 0 (from 500ml) + 20 (from 1000ml) = 20.000
+        self.assertEqual(Decimal(str(parent_data["available_quantity"])), Decimal("20.000"))
+        self.assertFalse(parent_data["is_out_of_stock"])
+        self.assertTrue(parent_data["is_orderable"])
+        self.assertEqual(parent_data["display_status"], "AVAILABLE")
+
+        # Check variants
+        variants = parent_data["variants"]
+        v_500 = next(v for v in variants if v["id"] == self.var_500ml.id)
+        v_1000 = next(v for v in variants if v["id"] == self.var_1000ml.id)
+
+        # 500ml is Out of Stock
+        self.assertEqual(Decimal(str(v_500["available_quantity"])), Decimal("0.000"))
+        self.assertTrue(v_500["is_out_of_stock"])
+        self.assertFalse(v_500["is_orderable"])
+        self.assertEqual(v_500["display_status"], "OUT_OF_STOCK")
+        self.assertNotIn("reserved_quantity", v_500)
+
+        # 1000ml is Available
+        self.assertEqual(Decimal(str(v_1000["available_quantity"])), Decimal("20.000"))
+        self.assertFalse(v_1000["is_out_of_stock"])
+        self.assertTrue(v_1000["is_orderable"])
+        self.assertEqual(v_1000["display_status"], "AVAILABLE")
+
+        # Step 2: Now reserve all remaining 20.000 of var_1000ml
+        reserve_order_creation_stock(self.shop1, [(self.var_1000ml, Decimal("20.000"))])
+
+        # Parent product now shows Out of Stock
+        res_all_oos = self.client.get(detail_url)
+        self.assertEqual(res_all_oos.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(str(res_all_oos.data["available_quantity"])), Decimal("0.000"))
+        self.assertTrue(res_all_oos.data["is_out_of_stock"])
+        self.assertFalse(res_all_oos.data["is_orderable"])
+        self.assertEqual(res_all_oos.data["display_status"], "OUT_OF_STOCK")
+
+        # Parent product MUST still remain visible in product listing!
+        res_list = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/products/")
+        prod_ids = [p["id"] for p in res_list.data]
+        self.assertIn(self.prod_milk.id, prod_ids)
+
+        # Ordering any variant of this product is blocked
+        cart = Cart.objects.create(shop=self.shop1)
+        cart_add_url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/items/"
+        res_cart_v = self.client.post(
+            cart_add_url,
+            {"cart_id": cart.id, "product_id": self.prod_milk.id, "variant_id": self.var_1000ml.id, "quantity": "1.000"},
+            format="json",
+        )
+        self.assertEqual(res_cart_v.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("out of stock", str(res_cart_v.data))
+
+    def test_hidden_products_are_not_visible_regardless_of_stock(self):
+        """
+        Visibility vs Stock: A hidden product (is_visible=False) is never returned in public catalog,
+        even if it has abundant stock (50.000).
+        """
+        res_list = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/products/")
+        prod_ids = [p["id"] for p in res_list.data]
+        self.assertNotIn(self.prod_hidden.id, prod_ids)
+
+        res_detail = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_hidden.id}/")
+        self.assertEqual(res_detail.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_manual_unavailability_is_separate_from_out_of_stock(self):
+        """
+        Manual Availability vs Stock: A product marked is_available=False with stock 100.000
+        displays 'UNAVAILABLE', not 'OUT_OF_STOCK'.
+        """
+        self.prod_rice.is_available = False
+        self.prod_rice.save()
+
+        res = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/products/{self.prod_rice.id}/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["display_status"], "UNAVAILABLE")
+        self.assertFalse(res.data["is_orderable"])
+        self.assertFalse(res.data["is_out_of_stock"])
+        self.assertEqual(Decimal(str(res.data["available_quantity"])), Decimal("100.000"))
+
+    def test_public_catalog_summary_includes_stock_availability(self):
+        """
+        Public catalog summary (/catalog/) includes available_quantity, is_out_of_stock,
+        and display_status for all visible products.
+        """
+        res = self.client.get(f"/api/v1/catalog/public/{self.shop1.public_slug}/catalog/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        products = res.data["products"]
+        rice_entry = next(p for p in products if p["id"] == self.prod_rice.id)
+        self.assertEqual(Decimal(str(rice_entry["available_quantity"])), Decimal("100.000"))
+        self.assertFalse(rice_entry["is_out_of_stock"])
+        self.assertEqual(rice_entry["display_status"], "AVAILABLE")
+        self.assertNotIn("reserved_quantity", rice_entry)
+
 
 
 

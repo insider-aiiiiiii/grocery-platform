@@ -148,6 +148,15 @@ class Shop(models.Model):
             self.save(update_fields=["public_slug", "updated_at"])
         return self.public_slug
 
+    @property
+    def is_accepting_orders(self) -> bool:
+        """Return True if the shop is ACTIVE and not temporarily closed."""
+        return self.status == self.Status.ACTIVE and not self.is_temporarily_closed
+
+    @is_accepting_orders.setter
+    def is_accepting_orders(self, value: bool) -> None:
+        self.is_temporarily_closed = not value
+
     def get_public_path(self) -> str:
         """Return the relative public endpoint path for this shop."""
         return f"/api/v1/shops/public/{self.public_slug}/"

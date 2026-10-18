@@ -432,7 +432,9 @@ class PublicProductVariantSerializer(serializers.ModelSerializer):
     price = serializers.DecimalField(source="effective_price", max_digits=10, decimal_places=2)
     description = serializers.CharField(source="effective_description", read_only=True)
     image = serializers.SerializerMethodField()
+    available_quantity = serializers.SerializerMethodField()
     stock_quantity = serializers.SerializerMethodField()
+    is_out_of_stock = serializers.SerializerMethodField()
     is_orderable = serializers.SerializerMethodField()
     display_status = serializers.SerializerMethodField()
 
@@ -447,7 +449,9 @@ class PublicProductVariantSerializer(serializers.ModelSerializer):
             "sku",
             "attributes",
             "is_available",
+            "available_quantity",
             "stock_quantity",
+            "is_out_of_stock",
             "is_orderable",
             "display_status",
         ]
@@ -469,8 +473,14 @@ class PublicProductVariantSerializer(serializers.ModelSerializer):
         inv = InventoryItem.objects.filter(product_id=obj.product_id, variant_id=obj.id).first()
         return inv.available_quantity if inv else Decimal("0.000")
 
+    def get_available_quantity(self, obj):
+        return str(self._get_stock(obj))
+
     def get_stock_quantity(self, obj):
         return str(self._get_stock(obj))
+
+    def get_is_out_of_stock(self, obj):
+        return self._get_stock(obj) <= Decimal("0.000")
 
     def get_is_orderable(self, obj):
         stock = self._get_stock(obj)
@@ -507,7 +517,9 @@ class PublicShopProductSerializer(serializers.ModelSerializer):
     categories = PublicShopCategorySummarySerializer(many=True, read_only=True)
     variants = serializers.SerializerMethodField()
     has_variants = serializers.BooleanField(read_only=True)
+    available_quantity = serializers.SerializerMethodField()
     stock_quantity = serializers.SerializerMethodField()
+    is_out_of_stock = serializers.SerializerMethodField()
     is_orderable = serializers.SerializerMethodField()
     display_status = serializers.SerializerMethodField()
 
@@ -526,7 +538,9 @@ class PublicShopProductSerializer(serializers.ModelSerializer):
             "is_available",
             "has_variants",
             "variants",
+            "available_quantity",
             "stock_quantity",
+            "is_out_of_stock",
             "is_orderable",
             "display_status",
         ]
@@ -570,9 +584,19 @@ class PublicShopProductSerializer(serializers.ModelSerializer):
         serializer = PublicProductVariantSerializer(visible_variants, many=True, context=self.context)
         return serializer.data
 
+    def get_available_quantity(self, obj):
+        stock, _, _ = self._get_product_stock_info(obj)
+        return str(stock)
+
     def get_stock_quantity(self, obj):
         stock, _, _ = self._get_product_stock_info(obj)
         return str(stock)
+
+    def get_is_out_of_stock(self, obj):
+        stock, var_stocks, visible_variants = self._get_product_stock_info(obj)
+        if visible_variants:
+            return all(var_stocks.get(v.id, Decimal("0.000")) <= Decimal("0.000") for v in visible_variants)
+        return stock <= Decimal("0.000")
 
     def get_is_orderable(self, obj):
         if not obj.is_visible or not obj.is_available:
