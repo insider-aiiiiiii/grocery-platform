@@ -3668,8 +3668,45 @@ class PublicShopCatalogAPITests(TestCase):
 
         self.client = APIClient()
 
+        self.merchant_user_a = User.objects.create_user(
+            username="public_catalog_merchant_a",
+            email="public_catalog_a@example.com",
+            mobile_number="+919876500001",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant_a = Merchant.objects.create(
+            user=self.merchant_user_a,
+            status=Merchant.Status.ACTIVE,
+        )
+
+        self.merchant_user_b = User.objects.create_user(
+            username="public_catalog_merchant_b",
+            email="public_catalog_b@example.com",
+            mobile_number="+919876500002",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant_b = Merchant.objects.create(
+            user=self.merchant_user_b,
+            status=Merchant.Status.ACTIVE,
+        )
+
+        self.merchant_user_inactive = User.objects.create_user(
+            username="public_catalog_merchant_inactive",
+            email="public_catalog_inactive@example.com",
+            mobile_number="+919876500003",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant_inactive = Merchant.objects.create(
+            user=self.merchant_user_inactive,
+            status=Merchant.Status.ACTIVE,
+        )
+
         # Active Shop A
         self.shop_a = Shop.objects.create(
+            merchant=self.merchant_a,
             name="Green Grocers",
             public_slug="green-grocers",
             status=Shop.Status.ACTIVE,
@@ -3678,6 +3715,7 @@ class PublicShopCatalogAPITests(TestCase):
 
         # Active Shop B
         self.shop_b = Shop.objects.create(
+            merchant=self.merchant_b,
             name="Blue Organics",
             public_slug="blue-organics",
             status=Shop.Status.ACTIVE,
@@ -3686,6 +3724,7 @@ class PublicShopCatalogAPITests(TestCase):
 
         # Inactive / Deactivated Shop
         self.shop_inactive = Shop.objects.create(
+            merchant=self.merchant_inactive,
             name="Closed Mart",
             public_slug="closed-mart",
             status=Shop.Status.DEACTIVATED,
@@ -3770,11 +3809,14 @@ class PublicShopCatalogAPITests(TestCase):
             is_available=True,
         )
         self.prod_normal.categories.add(self.cat_parent, self.cat_child)
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_normal,
-            quantity=Decimal("20.000"),
-            reserved_quantity=Decimal("2.000"),
+            variant=None,
+            defaults={
+                "quantity": Decimal("20.000"),
+                "reserved_quantity": Decimal("2.000"),
+            },
         )  # Available: 18.000
 
         # 2. Out of Stock product (is_available=True, stock=0)
@@ -3788,11 +3830,14 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=True,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_oos,
-            quantity=Decimal("0.000"),
-            reserved_quantity=Decimal("0.000"),
+            variant=None,
+            defaults={
+                "quantity": Decimal("0.000"),
+                "reserved_quantity": Decimal("0.000"),
+            },
         )
 
         # 3. Manually unavailable product (is_available=False, stock=10)
@@ -3805,11 +3850,14 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=True,
             is_available=False,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_unavail,
-            quantity=Decimal("10.000"),
-            reserved_quantity=Decimal("0.000"),
+            variant=None,
+            defaults={
+                "quantity": Decimal("10.000"),
+                "reserved_quantity": Decimal("0.000"),
+            },
         )
 
         # 4. Hidden product (is_visible=False)
@@ -3822,10 +3870,13 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=False,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_hidden,
-            quantity=Decimal("100.000"),
+            variant=None,
+            defaults={
+                "quantity": Decimal("100.000"),
+            },
         )
 
         # 5. Product with Variants
@@ -3848,12 +3899,14 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=True,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_variant,
             variant=self.v1,
-            quantity=Decimal("15.000"),
-            reserved_quantity=Decimal("0.000"),
+            defaults={
+                "quantity": Decimal("15.000"),
+                "reserved_quantity": Decimal("0.000"),
+            },
         )
         # Variant 2: Out of stock
         self.v2 = ProductVariant.objects.create(
@@ -3864,12 +3917,14 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=True,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_variant,
             variant=self.v2,
-            quantity=Decimal("0.000"),
-            reserved_quantity=Decimal("0.000"),
+            defaults={
+                "quantity": Decimal("0.000"),
+                "reserved_quantity": Decimal("0.000"),
+            },
         )
         # Variant 3: Hidden variant (should not appear to customers)
         self.v_hidden = ProductVariant.objects.create(
@@ -3880,11 +3935,13 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=False,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_a,
             product=self.prod_variant,
             variant=self.v_hidden,
-            quantity=Decimal("5.000"),
+            defaults={
+                "quantity": Decimal("5.000"),
+            },
         )
 
         # Product for Shop B
@@ -3897,10 +3954,13 @@ class PublicShopCatalogAPITests(TestCase):
             is_visible=True,
             is_available=True,
         )
-        InventoryItem.objects.create(
+        InventoryItem.objects.update_or_create(
             shop=self.shop_b,
             product=self.prod_b,
-            quantity=Decimal("8.000"),
+            variant=None,
+            defaults={
+                "quantity": Decimal("8.000"),
+            },
         )
 
     def test_public_shop_products_list(self):
