@@ -545,3 +545,102 @@ def restore_order_items_stock(
             item.restore_deducted_stock(qty)
             updated.append(item)
         return updated
+
+
+def reserve_order_creation_stock(
+    shop,
+    items_or_cart,
+) -> list[InventoryItem]:
+    """
+    Integrates Inventory reservation with Order creation.
+
+    - Reserves requested quantities atomically when an Order is created.
+    - Checkout does NOT deduct stock: only reserved_quantity is incremented;
+      on-hand quantity remains constant until Merchant acceptance.
+    - If ANY requested quantity exceeds availability, raises ValidationError
+      without automatic quantity reduction.
+    - Supports both a Cart instance (extracting its constituent items) and
+      a sequence of (target, quantity) tuples.
+    - Enforces strict Shop tenant boundaries and deadlock-free deterministic lock sorting.
+    """
+    # Duck-type check for Cart instance with shop and items
+    if hasattr(items_or_cart, "items") and hasattr(items_or_cart, "shop"):
+        cart = items_or_cart
+        if cart.shop_id != shop.id:
+            raise ValidationError("Cart does not belong to the specified shop.")
+        cart_items = list(cart.items.all())
+        if not cart_items:
+            raise ValidationError("Cannot reserve inventory for an empty cart.")
+
+        items_with_quantities = []
+        for c_item in cart_items:
+            target = c_item.variant if c_item.variant_id else c_item.product
+            # Verify shop ownership of the target
+            if c_item.variant_id:
+                if c_item.variant.product.shop_id != shop.id:
+                    raise ValidationError("Cart item variant does not belong to the specified shop.")
+            elif c_item.product_id:
+                if c_item.product.shop_id != shop.id:
+                    raise ValidationError("Cart item product does not belong to the specified shop.")
+            items_with_quantities.append((target, c_item.quantity))
+    elif isinstance(items_or_cart, (list, tuple)):
+        items_with_quantities = list(items_or_cart)
+        if not items_with_quantities:
+            raise ValidationError("Cannot reserve inventory for an empty order item list.")
+    else:
+        raise ValidationError("items_or_cart must be a Cart instance or a list of (target, quantity) tuples.")
+
+    return reserve_order_items_stock(shop, items_with_quantities)
+
+
+def reduce_and_accept_order_items_stock(
+    shop,
+    items_with_adjustments: list[tuple[ShopProduct | ProductVariant, Decimal | str | int | float, Decimal | str | int | float]],
+) -> list[InventoryItem]:
+    """
+    Merchant Manual Partial-Quantity Reduction before Acceptance (Batch / Multi-Item):
+
+    When requested quantities exceed what can be fulfilled across an Order's items,
+    the Merchant may manually reduce fulfillable quantities before accepting the Order.
+    - For each item:
+      - The unfulfilled difference (original_reserved - accepted_quantity) is released back to available stock.
+      - The accepted quantity is deducted from on-hand stock (reserved becomes deducted).
+    - Preserves approved Merchant-controlled behavior without inventing customer confirmation
+      or automatic quantity reduction.
+    - Executes atomically inside a single transaction with deadlock-preventing deterministic lock sorting.
+    """
+    if not items_with_adjustments:
+        return []
+
+    def sort_key(entry):
+        target = entry[0]
+        is_var = 1 if isinstance(target, ProductVariant) else 0
+        return (is_var, target.id)
+
+    sorted_entries = sorted(items_with_adjustments, key=sort_key)
+
+    with transaction.atomic():
+        updated = []
+        for target, orig_raw, acc_raw in sorted_entries:
+            orig = quantize_quantity(orig_raw)
+            acc = quantize_quantity(acc_raw)
+
+            if acc > orig:
+                raise ValidationError(
+                    f"Accepted quantity for '{target.name}' cannot exceed originally reserved quantity."
+                )
+            if acc < Decimal("0.000"):
+                raise ValidationError(
+                    f"Accepted quantity for '{target.name}' cannot be negative."
+                )
+
+            difference = orig - acc
+            item = _get_target_item_locked(shop, target)
+            if difference > Decimal("0.000"):
+                item.release_reserved_stock(difference)
+            if acc > Decimal("0.000"):
+                item.deduct_reserved_stock(acc)
+            updated.append(item)
+
+        return updated
+
