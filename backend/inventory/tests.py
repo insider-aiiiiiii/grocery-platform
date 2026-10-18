@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from catalog.models import MasterCategory, MasterProduct, ProductVariant, ShopProduct
 from shops.models import Shop
 from users.models import Merchant, User
+from cart.models import Cart, CartItem
 from .models import InventoryItem, quantize_quantity
 from .services import (
     add_stock,
@@ -19,9 +20,11 @@ from .services import (
     get_variant_stock,
     initialize_product_stock,
     initialize_variant_stock,
+    reduce_and_accept_order_items_stock,
     reduce_and_accept_order_stock,
     release_order_items_stock,
     release_order_stock,
+    reserve_order_creation_stock,
     reserve_order_items_stock,
     reserve_order_stock,
     restore_cancelled_order_stock,
@@ -1927,6 +1930,321 @@ class MerchantInventoryAPITests(InventoryBaseTestCase):
         ]
         for key in forbidden_keys:
             self.assertNotIn(key, data, f"Forbidden key '{key}' exposed in API response")
+
+
+class OrderCreationInventoryReservationIntegrationTests(InventoryBaseTestCase):
+    """
+    INV-008: Integration of Inventory Reservation with Order Creation.
+
+    Pillars verified:
+    1. Order creation reserves requested quantities; checkout does NOT deduct stock.
+    2. Multi-item batch and Cart instance reservation integration.
+    3. Insufficient stock rejects checkout without automatic quantity reduction or clamping.
+    4. Merchant-controlled partial-quantity adjustment (single and multi-item) releases
+       the unfulfilled difference and deducts the accepted quantity.
+    5. Zero customer confirmation workflows invented (merchant directly controls adjustment).
+    6. Shop isolation and multi-tenant security boundary enforcement.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Non-variant products for Shop 1
+        self.prod1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Basmati Rice",
+            price=Decimal("150.00"),
+        )
+        adjust_stock(self.shop1, self.prod1, set_quantity=Decimal("50.000"))
+
+        self.prod2 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cold Pressed Mustard Oil",
+            price=Decimal("220.00"),
+        )
+        adjust_stock(self.shop1, self.prod2, set_quantity=Decimal("20.000"))
+
+        # Variant product for Shop 1
+        self.var_prod = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Milk",
+            price=Decimal("60.00"),
+        )
+        self.var_500ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="500 ml",
+            price=Decimal("30.00"),
+        )
+        self.var_1000ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="1000 ml",
+            price=Decimal("60.00"),
+        )
+        adjust_stock(self.shop1, self.var_500ml, set_quantity=Decimal("30.000"))
+        adjust_stock(self.shop1, self.var_1000ml, set_quantity=Decimal("25.000"))
+
+        # Shop 2 product for cross-shop isolation tests
+        self.shop2_prod = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop Two Product",
+            price=Decimal("99.00"),
+        )
+        adjust_stock(self.shop2, self.shop2_prod, set_quantity=Decimal("40.000"))
+
+    def test_order_creation_reserves_stock_without_deducting_on_hand(self):
+        """
+        Pillar 1: Order creation reserves requested quantity.
+        Checkout does NOT deduct stock: reserved_quantity increases, but
+        on-hand quantity remains constant until Merchant acceptance.
+        """
+        # Initial state: 50.000 on hand, 0 reserved, 50.000 available
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("50.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("50.000"))
+
+        # Customer creates order with 12.500 kg
+        reserved_items = reserve_order_creation_stock(
+            self.shop1,
+            [(self.prod1, Decimal("12.500"))],
+        )
+
+        item.refresh_from_db()
+        self.assertEqual(len(reserved_items), 1)
+        # CRITICAL INVARIANT: On-hand stock is NOT deducted at checkout!
+        self.assertEqual(item.quantity, Decimal("50.000"))
+        # Reserved stock is incremented by requested quantity
+        self.assertEqual(item.reserved_quantity, Decimal("12.500"))
+        # Available stock is reduced by reserved quantity
+        self.assertEqual(item.available_quantity, Decimal("37.500"))
+
+    def test_order_creation_reserves_variant_stock_without_deducting(self):
+        """
+        Pillar 1b: Variant stock is authoritative.
+        Order creation reserves variant stock without deducting on-hand stock.
+        """
+        item_500 = InventoryItem.objects.get(variant=self.var_500ml)
+        self.assertEqual(item_500.quantity, Decimal("30.000"))
+        self.assertEqual(item_500.reserved_quantity, Decimal("0.000"))
+
+        # Order creation reserves 8.000 units of 500ml variant
+        reserve_order_creation_stock(
+            self.shop1,
+            [(self.var_500ml, Decimal("8.000"))],
+        )
+
+        item_500.refresh_from_db()
+        # On-hand quantity unchanged (checkout does NOT deduct)
+        self.assertEqual(item_500.quantity, Decimal("30.000"))
+        self.assertEqual(item_500.reserved_quantity, Decimal("8.000"))
+        self.assertEqual(item_500.available_quantity, Decimal("22.000"))
+
+        # Aggregate product stock reflects the reservation
+        agg = get_product_stock(self.var_prod)
+        self.assertEqual(agg["quantity"], Decimal("55.000"))  # 30 + 25
+        self.assertEqual(agg["reserved_quantity"], Decimal("8.000"))
+        self.assertEqual(agg["available_quantity"], Decimal("47.000"))
+
+    def test_order_creation_from_cart_instance(self):
+        """
+        Pillar 2: Order creation can accept a Cart instance directly.
+        All cart items are extracted, shop-validated, and atomically reserved.
+        """
+        cart = Cart.objects.create(shop=self.shop1)
+        CartItem.objects.create(cart=cart, product=self.prod1, quantity=Decimal("5.000"))
+        CartItem.objects.create(cart=cart, product=self.var_prod, variant=self.var_1000ml, quantity=Decimal("4.000"))
+
+        reserved = reserve_order_creation_stock(self.shop1, cart)
+        self.assertEqual(len(reserved), 2)
+
+        item1 = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        item_var = InventoryItem.objects.get(variant=self.var_1000ml)
+
+        # Neither item has on-hand stock deducted
+        self.assertEqual(item1.quantity, Decimal("50.000"))
+        self.assertEqual(item1.reserved_quantity, Decimal("5.000"))
+        self.assertEqual(item1.available_quantity, Decimal("45.000"))
+
+        self.assertEqual(item_var.quantity, Decimal("25.000"))
+        self.assertEqual(item_var.reserved_quantity, Decimal("4.000"))
+        self.assertEqual(item_var.available_quantity, Decimal("21.000"))
+
+    def test_insufficient_stock_fails_without_automatic_quantity_reduction(self):
+        """
+        Pillar 3: Rejection on insufficient stock without automatic reduction.
+        The system does NOT automatically clamp or reduce quantities.
+        """
+        # prod2 has 20.000 available
+        item2 = InventoryItem.objects.get(product=self.prod2, variant__isnull=True)
+        self.assertEqual(item2.available_quantity, Decimal("20.000"))
+
+        # Customer attempts to order 25.000 kg
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(
+                self.shop1,
+                [(self.prod2, Decimal("25.000"))],
+            )
+        self.assertIn("Insufficient stock for 'Cold Pressed Mustard Oil'", str(cm.exception))
+
+        item2.refresh_from_db()
+        # Verify no automatic quantity reduction occurred:
+        # Stock state is completely untouched
+        self.assertEqual(item2.quantity, Decimal("20.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item2.available_quantity, Decimal("20.000"))
+
+    def test_multi_item_order_creation_atomic_rollback_on_failure(self):
+        """
+        Pillar 3b: If ANY line item in a multi-item order has insufficient stock,
+        the entire order reservation transaction rolls back cleanly.
+        """
+        items_and_qty = [
+            (self.prod1, Decimal("10.000")),       # 50 available -> sufficient
+            (self.prod2, Decimal("30.000")),       # 20 available -> INSUFFICIENT!
+            (self.var_500ml, Decimal("5.000")),    # 30 available -> sufficient
+        ]
+
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(self.shop1, items_and_qty)
+        self.assertIn("Insufficient stock for 'Cold Pressed Mustard Oil'", str(cm.exception))
+
+        # Check atomicity: prod1 and var_500ml must have ZERO reserved quantity
+        item1 = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        item2 = InventoryItem.objects.get(product=self.prod2, variant__isnull=True)
+        item_var = InventoryItem.objects.get(variant=self.var_500ml)
+
+        self.assertEqual(item1.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item_var.reserved_quantity, Decimal("0.000"))
+
+    def test_merchant_controlled_partial_quantity_adjustment_single_item(self):
+        """
+        Pillar 4: Merchant-controlled partial-quantity adjustment.
+        When customer requested 10.000, but merchant only fulfills 6.000 before acceptance:
+        - The unfulfilled difference (4.000) is released back to available stock.
+        - The accepted quantity (6.000) is deducted from on-hand stock.
+        - No customer confirmation prompt/workflow is invented.
+        """
+        # Step 1: Order created (10.000 reserved)
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+        item1 = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item1.quantity, Decimal("50.000"))
+        self.assertEqual(item1.reserved_quantity, Decimal("10.000"))
+        self.assertEqual(item1.available_quantity, Decimal("40.000"))
+
+        # Step 2: Merchant reviews order, reduces fulfillable quantity to 6.000, and accepts
+        updated_item = reduce_and_accept_order_stock(
+            self.shop1,
+            self.prod1,
+            original_reserved=Decimal("10.000"),
+            accepted_quantity=Decimal("6.000"),
+        )
+
+        # On-hand stock is deducted by accepted amount: 50.000 - 6.000 = 44.000
+        self.assertEqual(updated_item.quantity, Decimal("44.000"))
+        # Reserved stock drops to 0.000
+        self.assertEqual(updated_item.reserved_quantity, Decimal("0.000"))
+        # Available stock is now 44.000 (40.000 original available + 4.000 unfulfilled released)
+        self.assertEqual(updated_item.available_quantity, Decimal("44.000"))
+
+    def test_merchant_controlled_partial_quantity_adjustment_multi_item(self):
+        """
+        Pillar 4b: Multi-item merchant partial-quantity adjustment.
+        Atomically adjusts multiple items across an order before acceptance.
+        """
+        # Step 1: Order created with 2 items
+        reserve_order_creation_stock(
+            self.shop1,
+            [
+                (self.prod1, Decimal("10.000")),
+                (self.prod2, Decimal("8.000")),
+            ],
+        )
+
+        item1 = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        item2 = InventoryItem.objects.get(product=self.prod2, variant__isnull=True)
+        self.assertEqual(item1.reserved_quantity, Decimal("10.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("8.000"))
+
+        # Step 2: Merchant adjusts:
+        # Prod 1: requested 10.000 -> accepted 7.000 (3.000 released, 7.000 deducted)
+        # Prod 2: requested 8.000 -> accepted 5.000 (3.000 released, 5.000 deducted)
+        adjustments = [
+            (self.prod1, Decimal("10.000"), Decimal("7.000")),
+            (self.prod2, Decimal("8.000"), Decimal("5.000")),
+        ]
+        updated = reduce_and_accept_order_items_stock(self.shop1, adjustments)
+        self.assertEqual(len(updated), 2)
+
+        item1.refresh_from_db()
+        item2.refresh_from_db()
+
+        # Prod 1: on-hand 50 - 7 = 43.000, reserved 0, available 43.000
+        self.assertEqual(item1.quantity, Decimal("43.000"))
+        self.assertEqual(item1.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item1.available_quantity, Decimal("43.000"))
+
+        # Prod 2: on-hand 20 - 5 = 15.000, reserved 0, available 15.000
+        self.assertEqual(item2.quantity, Decimal("15.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item2.available_quantity, Decimal("15.000"))
+
+    def test_merchant_partial_adjustment_invalid_quantities_rejected(self):
+        """
+        Pillar 4c: Validation rejects invalid partial adjustment quantities.
+        - Accepted quantity cannot exceed originally reserved quantity.
+        - Accepted quantity cannot be negative.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+
+        # Exceeds originally reserved
+        with self.assertRaises(ValidationError) as cm:
+            reduce_and_accept_order_items_stock(
+                self.shop1,
+                [(self.prod1, Decimal("10.000"), Decimal("12.000"))],
+            )
+        self.assertIn("cannot exceed originally reserved quantity", str(cm.exception))
+
+        # Negative accepted quantity
+        with self.assertRaises(ValidationError) as cm:
+            reduce_and_accept_order_items_stock(
+                self.shop1,
+                [(self.prod1, Decimal("10.000"), Decimal("-1.000"))],
+            )
+        self.assertIn("cannot be negative", str(cm.exception))
+
+    def test_shop_isolation_order_creation_reservation(self):
+        """
+        Pillar 5: Shop isolation is strictly enforced.
+        - Cannot reserve stock for another shop's products.
+        - Cannot use a Cart belonging to Shop 2 to reserve in Shop 1.
+        """
+        # Attempt to reserve Shop 2 product within Shop 1 context
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(
+                self.shop1,
+                [(self.shop2_prod, Decimal("5.000"))],
+            )
+        self.assertIn("authorized shop", str(cm.exception))
+
+        # Attempt to reserve using a Cart from Shop 2 within Shop 1 context
+        cart_shop2 = Cart.objects.create(shop=self.shop2)
+        CartItem.objects.create(cart=cart_shop2, product=self.shop2_prod, quantity=Decimal("2.000"))
+
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(self.shop1, cart_shop2)
+        self.assertIn("Cart does not belong to the specified shop", str(cm.exception))
+
+    def test_empty_cart_or_items_rejected(self):
+        """Empty Cart or empty items sequence raises ValidationError."""
+        empty_cart = Cart.objects.create(shop=self.shop1)
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(self.shop1, empty_cart)
+        self.assertIn("Cannot reserve inventory for an empty cart", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            reserve_order_creation_stock(self.shop1, [])
+        self.assertIn("Cannot reserve inventory for an empty order item list", str(cm.exception))
+
 
 
 
