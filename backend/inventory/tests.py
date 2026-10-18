@@ -25,14 +25,17 @@ from .services import (
     reduce_and_accept_order_stock,
     release_order_items_stock,
     release_order_stock,
+    release_pending_order_stock,
     reserve_order_creation_stock,
     reserve_order_items_stock,
     reserve_order_stock,
+    restore_accepted_order_stock,
     restore_cancelled_order_stock,
     restore_order_items_stock,
     set_exact_stock,
     set_stock,
     subtract_stock,
+    synchronize_order_transition_stock,
     update_exact_stock,
 )
 
@@ -2560,6 +2563,466 @@ class MerchantOrderAcceptanceStockDeductionIntegrationTests(InventoryBaseTestCas
         self.assertEqual(item.quantity, Decimal("92.000"))
         self.assertEqual(item.reserved_quantity, Decimal("0.000"))
         self.assertEqual(item.available_quantity, Decimal("92.000"))
+
+
+class OrderStockReleaseAndRestorationIntegrationTests(InventoryBaseTestCase):
+    """
+    Test suite for INV-010: Inventory release and restoration lifecycle synchronization.
+
+    Covers:
+    1. Merchant rejection releases pending reservations.
+    2. Customer pending cancellation releases reservations immediately.
+    3. Pending order timeout expiry releases reservations.
+    4. Eligible Merchant cancellation after acceptance but before preparation restores deducted stock.
+    5. Partial-acceptance cancellation restores only accepted quantity.
+    6. Ineligible cancellation: orders in PREPARING, READY, or COMPLETED cannot be cancelled.
+    7. Exactly-once semantics: idempotency prevents double-release and double-restoration.
+    8. Synchronization helper: correctly routes PENDING vs ACCEPTED orders to REJECTED outcome.
+    9. Tenant isolation and Merchant authorization enforcement.
+    10. Defensive validation: non-positive quantities and cross-shop orders are rejected.
+    """
+
+    class DummyOrderItem:
+        def __init__(self, product=None, variant=None, reserved_quantity=Decimal("0.000"), accepted_quantity=None, quantity=None):
+            self.product = product
+            self.variant = variant
+            self.reserved_quantity = reserved_quantity
+            self.accepted_quantity = accepted_quantity
+            self.quantity = quantity if quantity is not None else reserved_quantity
+
+    class DummyOrder:
+        def __init__(self, shop, items, status="PENDING"):
+            self.shop = shop
+            self.shop_id = shop.id
+            self._items = items
+            self.status = status
+            self.stock_released = False
+            self.stock_restored = False
+            self.inventory_handled = False
+
+        class Manager:
+            def __init__(self, items):
+                self._items = items
+            def all(self):
+                return self._items
+
+        @property
+        def items(self):
+            return self.Manager(self._items)
+
+    def setUp(self):
+        super().setUp()
+        self.prod1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Basmati Rice",
+            price=Decimal("150.00"),
+        )
+        adjust_stock(self.shop1, self.prod1, set_quantity=Decimal("100.000"))
+
+        self.prod2 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cold Pressed Mustard Oil",
+            price=Decimal("220.00"),
+        )
+        adjust_stock(self.shop1, self.prod2, set_quantity=Decimal("40.000"))
+
+        # Variant product for Shop 1
+        self.var_prod = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Milk",
+            price=Decimal("60.00"),
+        )
+        self.var_500ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="500 ml",
+            price=Decimal("30.00"),
+        )
+        self.var_1000ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="1000 ml",
+            price=Decimal("60.00"),
+        )
+        adjust_stock(self.shop1, self.var_500ml, set_quantity=Decimal("30.000"))
+        adjust_stock(self.shop1, self.var_1000ml, set_quantity=Decimal("25.000"))
+
+        # Shop 2 product for cross-shop isolation tests
+        self.shop2_prod = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop Two Product",
+            price=Decimal("99.00"),
+        )
+        adjust_stock(self.shop2, self.shop2_prod, set_quantity=Decimal("50.000"))
+
+    def test_merchant_rejection_releases_pending_reservations(self):
+        """
+        Pillar 1: Merchant rejection of a PENDING order releases reserved stock.
+        On-hand quantity remains unchanged; available stock increases.
+        """
+        # Initial stock: 100.000 on-hand, 0 reserved
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("10.000"))
+        self.assertEqual(item.available_quantity, Decimal("90.000"))
+
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("10.000"))],
+            status="PENDING",
+        )
+
+        released = release_pending_order_stock(
+            self.shop1,
+            order,
+            actor=self.merchant1,
+            reason="MERCHANT_REJECTED",
+        )
+        self.assertEqual(len(released), 1)
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("100.000"))
+        self.assertTrue(order.stock_released)
+
+    def test_customer_pending_cancellation_releases_reservations(self):
+        """
+        Pillar 2: Customer cancellation while order is PENDING releases reservations immediately.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("15.000"))])
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.available_quantity, Decimal("85.000"))
+
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("15.000"))],
+            status="PENDING",
+        )
+
+        released = release_pending_order_stock(
+            self.shop1,
+            order,
+            actor=None,  # Customer / session context
+            reason="CUSTOMER_CANCELLED",
+        )
+        self.assertEqual(len(released), 1)
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("100.000"))
+
+    def test_pending_order_timeout_expiry_releases_reservations(self):
+        """
+        Pillar 3: Pending order timeout expiry releases reserved stock automatically.
+        """
+        # Variant product
+        reserve_order_creation_stock(self.shop1, [(self.var_500ml, Decimal("5.000"))])
+        item = InventoryItem.objects.get(variant=self.var_500ml)
+        self.assertEqual(item.reserved_quantity, Decimal("5.000"))
+        self.assertEqual(item.available_quantity, Decimal("25.000"))  # 30 - 5
+
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(variant=self.var_500ml, reserved_quantity=Decimal("5.000"))],
+            status="PENDING",
+        )
+
+        released = release_pending_order_stock(
+            self.shop1,
+            order,
+            actor=None,  # Background worker / lazy expiry sweep
+            reason="TIMEOUT_EXPIRED",
+        )
+        self.assertEqual(len(released), 1)
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("30.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("30.000"))
+
+    def test_eligible_merchant_cancellation_restores_deducted_stock(self):
+        """
+        Pillar 4: Eligible Merchant cancellation after acceptance but before preparation (ACCEPTED -> REJECTED)
+        restores deducted stock. Stock becomes immediately available again.
+        """
+        # Step 1: Create order and reserve stock
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("12.000"))])
+
+        # Step 2: Merchant accepts order (stock is deducted)
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("12.000"), accepted_quantity=Decimal("12.000"))],
+            status="ACCEPTED",
+        )
+        deduct_order_acceptance_stock(self.shop1, order, actor=self.merchant1)
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("88.000"))  # 100 - 12
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("88.000"))
+
+        # Step 3: Merchant cancels before preparation
+        restored = restore_accepted_order_stock(
+            self.shop1,
+            order,
+            actor=self.merchant1,
+            reason="MERCHANT_CANCELLED",
+        )
+        self.assertEqual(len(restored), 1)
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("100.000"))  # Restored back to 100
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("100.000"))
+        self.assertTrue(order.stock_restored)
+
+    def test_cancellation_after_partial_acceptance_restores_accepted_amount_only(self):
+        """
+        Pillar 5: If an order had partial fulfillment on acceptance (e.g. 10 requested, 6 accepted, 4 released),
+        cancelling after acceptance restores ONLY the 6 accepted units, avoiding duplicate restoration.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("10.000"), accepted_quantity=Decimal("6.000"))],
+            status="ACCEPTED",
+        )
+        # Acceptance deducts 6.000 and releases 4.000 unfulfilled back to available
+        deduct_order_acceptance_stock(self.shop1, order, actor=self.merchant1)
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("94.000"))  # 100 - 6
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("94.000"))
+
+        # Cancellation before preparation
+        restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+
+        item.refresh_from_db()
+        # Exactly 6.000 restored: 94 + 6 = 100
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("100.000"))
+
+    def test_cancellation_ineligible_in_preparing_ready_completed_statuses(self):
+        """
+        Pillar 6: Merchant cancellation is ineligible once the order enters PREPARING, READY, or COMPLETED.
+        """
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="PREPARING",
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertIn("only allowed before preparation", str(cm.exception))
+
+        order.status = "READY"
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertIn("only allowed before preparation", str(cm.exception))
+
+        order.status = "COMPLETED"
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertIn("only allowed before preparation", str(cm.exception))
+
+    def test_cannot_release_pending_stock_for_non_pending_order(self):
+        """
+        Pillar 7: Attempting to release pending reservations for an order that is not PENDING raises ValidationError.
+        """
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("5.000"))],
+            status="ACCEPTED",
+        )
+        with self.assertRaises(ValidationError) as cm:
+            release_pending_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertIn("Order must be PENDING", str(cm.exception))
+
+    def test_cannot_restore_stock_for_pending_order(self):
+        """
+        Pillar 8: Attempting to restore deducted stock for an order that is still PENDING raises ValidationError.
+        """
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="PENDING",
+        )
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertIn("Order must be ACCEPTED", str(cm.exception))
+
+    def test_exactly_once_idempotency_prevents_double_release(self):
+        """
+        Pillar 9a: Repeating release_pending_order_stock on an already released order is idempotent
+        and does not double-decrement reservations or corrupt balances.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("8.000"))])
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("8.000"))],
+            status="PENDING",
+        )
+
+        # First call releases stock
+        first_release = release_pending_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(len(first_release), 1)
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+
+        # Second call returns [] idempotently
+        second_release = release_pending_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(second_release, [])
+
+        item.refresh_from_db()
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.quantity, Decimal("100.000"))
+
+    def test_exactly_once_idempotency_prevents_double_restoration(self):
+        """
+        Pillar 9b: Repeating restore_accepted_order_stock on an already restored order is idempotent
+        and does not double-increment stock.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("7.000"))])
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("7.000"), accepted_quantity=Decimal("7.000"))],
+            status="ACCEPTED",
+        )
+        deduct_order_acceptance_stock(self.shop1, order, actor=self.merchant1)
+
+        # First restore
+        first_restore = restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(len(first_restore), 1)
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("100.000"))
+
+        # Second restore call is idempotent
+        second_restore = restore_accepted_order_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(second_restore, [])
+
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("100.000"))
+
+    def test_synchronize_order_transition_stock_routing(self):
+        """
+        Pillar 10: synchronize_order_transition_stock coordinates between PENDING, ACCEPTED,
+        and invalid states under the canonical REJECTED outcome.
+        """
+        # 1. PENDING order -> releases reservation
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("6.000"))])
+        pending_order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("6.000"))],
+            status="PENDING",
+        )
+        res_pending = synchronize_order_transition_stock(self.shop1, pending_order, to_status="REJECTED", actor=self.merchant1)
+        self.assertEqual(len(res_pending), 1)
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+
+        # 2. ACCEPTED order -> restores deducted stock
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("6.000"))])
+        accepted_order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("6.000"), accepted_quantity=Decimal("6.000"))],
+            status="ACCEPTED",
+        )
+        deduct_order_acceptance_stock(self.shop1, accepted_order, actor=self.merchant1)
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("94.000"))
+
+        res_accepted = synchronize_order_transition_stock(self.shop1, accepted_order, to_status="REJECTED", actor=self.merchant1)
+        self.assertEqual(len(res_accepted), 1)
+        item.refresh_from_db()
+        self.assertEqual(item.quantity, Decimal("100.000"))
+
+        # 3. PREPARING order -> raises ValidationError
+        prep_order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, accepted_quantity=Decimal("6.000"))],
+            status="PREPARING",
+        )
+        with self.assertRaises(ValidationError) as cm:
+            synchronize_order_transition_stock(self.shop1, prep_order, to_status="REJECTED", actor=self.merchant1)
+        self.assertIn("only allowed before preparation", str(cm.exception))
+
+        # 4. Invalid target status (e.g. CANCELLED or EXPIRED) -> raises ValidationError
+        with self.assertRaises(ValidationError) as cm:
+            synchronize_order_transition_stock(self.shop1, pending_order, to_status="CANCELLED")
+        self.assertIn("Only 'REJECTED' is approved", str(cm.exception))
+
+    def test_merchant_authorization_and_super_admin_restrictions(self):
+        """
+        Pillar 11: Merchant authorization is enforced; Super Admin is strictly forbidden.
+        """
+        super_admin = User.objects.create_superuser(
+            username="superadmin_test",
+            email="superadmin_test@example.com",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        order = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, accepted_quantity=Decimal("5.000"))],
+            status="ACCEPTED",
+        )
+
+        # Super Admin cannot restore merchant stock
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=super_admin)
+        self.assertIn("Super Admin is not authorized", str(cm.exception))
+
+        # Super Admin cannot release merchant stock
+        order_pending = self.DummyOrder(
+            self.shop1,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("5.000"))],
+            status="PENDING",
+        )
+        with self.assertRaises(ValidationError) as cm:
+            release_pending_order_stock(self.shop1, order_pending, actor=super_admin)
+        self.assertIn("Super Admin is not authorized", str(cm.exception))
+
+        # Merchant of another shop cannot cancel
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order, actor=self.merchant2)
+        self.assertIn("not authorized to modify inventory for this shop", str(cm.exception))
+
+    def test_shop_boundary_and_zero_quantity_defensive_checks(self):
+        """
+        Pillar 12: Shop tenant boundary is strictly enforced; zero/negative quantities are rejected.
+        """
+        # Order belonging to shop2 cannot be processed under shop1
+        order_shop2 = self.DummyOrder(
+            self.shop2,
+            [self.DummyOrderItem(product=self.prod1, reserved_quantity=Decimal("5.000"))],
+            status="PENDING",
+        )
+        with self.assertRaises(ValidationError) as cm:
+            release_pending_order_stock(self.shop1, order_shop2, actor=self.merchant1)
+        self.assertIn("does not belong to the specified shop", str(cm.exception))
+
+        with self.assertRaises(ValidationError) as cm:
+            restore_accepted_order_stock(self.shop1, order_shop2, actor=self.merchant1)
+        self.assertIn("does not belong to the specified shop", str(cm.exception))
+
+        # Zero quantity release rejected
+        with self.assertRaises(ValidationError) as cm:
+            release_order_items_stock(self.shop1, [(self.prod1, Decimal("0.000"))])
+        self.assertIn("must be greater than zero", str(cm.exception))
+
+        # Zero quantity restoration rejected
+        with self.assertRaises(ValidationError) as cm:
+            restore_order_items_stock(self.shop1, [(self.prod1, Decimal("0.000"))])
+        self.assertIn("must be greater than zero", str(cm.exception))
+
 
 
 

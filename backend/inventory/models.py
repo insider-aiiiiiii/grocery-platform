@@ -196,6 +196,8 @@ class InventoryItem(models.Model):
     def release_reserved_stock(self, amount: Decimal | str | int | float):
         """Releases reserved stock when an order is rejected or cancelled before acceptance."""
         amount = quantize_quantity(amount)
+        if amount <= Decimal("0.000"):
+            raise ValidationError("Release quantity must be greater than zero.")
         if amount > self.reserved_quantity:
             raise ValidationError("Cannot release more than currently reserved stock.")
         self.reserved_quantity -= amount
@@ -217,5 +219,7 @@ class InventoryItem(models.Model):
     def restore_deducted_stock(self, amount: Decimal | str | int | float):
         """Restores deducted stock when an accepted order is cancelled."""
         amount = quantize_quantity(amount)
+        if amount <= Decimal("0.000"):
+            raise ValidationError("Restoration quantity must be greater than zero.")
         self.quantity += amount
         self.save()
