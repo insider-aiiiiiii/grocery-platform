@@ -14,6 +14,7 @@ from .models import InventoryItem, quantize_quantity
 from .services import (
     add_stock,
     adjust_stock,
+    deduct_order_acceptance_stock,
     deduct_order_items_stock,
     deduct_order_stock,
     get_product_stock,
@@ -2244,6 +2245,322 @@ class OrderCreationInventoryReservationIntegrationTests(InventoryBaseTestCase):
         with self.assertRaises(ValidationError) as cm:
             reserve_order_creation_stock(self.shop1, [])
         self.assertIn("Cannot reserve inventory for an empty order item list", str(cm.exception))
+
+
+class MerchantOrderAcceptanceStockDeductionIntegrationTests(InventoryBaseTestCase):
+    """
+    INV-009: Integration of stock deduction with Merchant Order acceptance.
+
+    Pillars verified:
+    1. Stock is deducted strictly on Merchant acceptance, NOT at checkout.
+    2. Available and reserved stock semantics are preserved identically across acceptance.
+    3. Merchant partial-quantity adjustments release unfulfilled differences and deduct accepted quantities.
+    4. Multi-item batch acceptance executed atomically with deterministic lock ordering (ADR-0001, ADR-0003).
+    5. Deductions exceeding reserved stock are strictly rejected.
+    6. Merchant authorization is strictly enforced (Super Admin and cross-shop merchants rejected).
+    7. Shop isolation prevents cross-shop deductions.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.prod1 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Organic Basmati Rice",
+            price=Decimal("150.00"),
+        )
+        adjust_stock(self.shop1, self.prod1, set_quantity=Decimal("100.000"))
+
+        self.prod2 = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Cold Pressed Mustard Oil",
+            price=Decimal("220.00"),
+        )
+        adjust_stock(self.shop1, self.prod2, set_quantity=Decimal("40.000"))
+
+        # Variant product for Shop 1
+        self.var_prod = ShopProduct.objects.create(
+            shop=self.shop1,
+            name="Fresh Milk",
+            price=Decimal("60.00"),
+        )
+        self.var_500ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="500 ml",
+            price=Decimal("30.00"),
+        )
+        self.var_1000ml = ProductVariant.objects.create(
+            product=self.var_prod,
+            name="1000 ml",
+            price=Decimal("60.00"),
+        )
+        adjust_stock(self.shop1, self.var_500ml, set_quantity=Decimal("30.000"))
+        adjust_stock(self.shop1, self.var_1000ml, set_quantity=Decimal("25.000"))
+
+        # Shop 2 product for cross-shop isolation tests
+        self.shop2_prod = ShopProduct.objects.create(
+            shop=self.shop2,
+            name="Shop Two Product",
+            price=Decimal("99.00"),
+        )
+        adjust_stock(self.shop2, self.shop2_prod, set_quantity=Decimal("50.000"))
+
+    def test_stock_deduction_occurs_on_acceptance_not_at_checkout(self):
+        """
+        Pillar 1: Order creation reserves stock; acceptance deducts stock.
+        On full acceptance:
+        - quantity drops by accepted amount (reserved becomes deducted)
+        - reserved_quantity drops to 0.000
+        - available_quantity remains constant for other shoppers!
+        """
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("100.000"))
+
+        # Step 1: Customer creates Order with 25.000 kg (Checkout stage)
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("25.000"))])
+        item.refresh_from_db()
+
+        # Checkout does NOT deduct stock
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("25.000"))
+        self.assertEqual(item.available_quantity, Decimal("75.000"))
+
+        # Step 2: Merchant accepts the Order (Acceptance stage)
+        deducted = deduct_order_acceptance_stock(
+            self.shop1,
+            [(self.prod1, Decimal("25.000"))],
+            actor=self.merchant1,
+        )
+        self.assertEqual(len(deducted), 1)
+
+        item.refresh_from_db()
+        # On-hand stock is officially deducted on acceptance: 100 - 25 = 75
+        self.assertEqual(item.quantity, Decimal("75.000"))
+        # Reserved stock drops to 0
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        # Available stock remains 75.000 (preserved available semantics)
+        self.assertEqual(item.available_quantity, Decimal("75.000"))
+
+    def test_variant_stock_acceptance_deduction_and_aggregate_semantics(self):
+        """
+        Pillar 1b: Variant stock deduction preserves authoritative variant
+        and aggregate product stock semantics.
+        """
+        # Reserve 10.000 of 500ml variant
+        reserve_order_creation_stock(self.shop1, [(self.var_500ml, Decimal("10.000"))])
+
+        item_500 = InventoryItem.objects.get(variant=self.var_500ml)
+        self.assertEqual(item_500.quantity, Decimal("30.000"))
+        self.assertEqual(item_500.reserved_quantity, Decimal("10.000"))
+        self.assertEqual(item_500.available_quantity, Decimal("20.000"))
+
+        # Merchant accepts order
+        deduct_order_acceptance_stock(
+            self.shop1,
+            [(self.var_500ml, Decimal("10.000"))],
+            actor=self.merchant1,
+        )
+
+        item_500.refresh_from_db()
+        self.assertEqual(item_500.quantity, Decimal("20.000"))
+        self.assertEqual(item_500.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item_500.available_quantity, Decimal("20.000"))
+
+        # Aggregate product stock derived from variants:
+        # 500ml: 20 on hand; 1000ml: 25 on hand -> Total 45.000
+        agg = get_product_stock(self.var_prod)
+        self.assertEqual(agg["quantity"], Decimal("45.000"))
+        self.assertEqual(agg["reserved_quantity"], Decimal("0.000"))
+        self.assertEqual(agg["available_quantity"], Decimal("45.000"))
+
+    def test_partial_quantity_acceptance_stock_deduction_semantics(self):
+        """
+        Pillar 2: Partial-quantity acceptance:
+        - Customer requested 20.000 (reserved).
+        - Merchant only fulfills 12.000 before acceptance.
+        - Unfulfilled difference (8.000) is released back to available stock.
+        - Accepted quantity (12.000) is deducted from on-hand stock.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("20.000"))])
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("20.000"))
+        self.assertEqual(item.available_quantity, Decimal("80.000"))
+
+        # Merchant accepts partial quantity: original 20.000 -> accepted 12.000
+        deduct_order_acceptance_stock(
+            self.shop1,
+            [(self.prod1, Decimal("20.000"), Decimal("12.000"))],
+            actor=self.merchant1,
+        )
+
+        item.refresh_from_db()
+        # On-hand drops by accepted 12.000: 100 - 12 = 88.000
+        self.assertEqual(item.quantity, Decimal("88.000"))
+        # Reserved drops to 0.000
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        # Available is 88.000 (80.000 original available + 8.000 released difference)
+        self.assertEqual(item.available_quantity, Decimal("88.000"))
+
+    def test_multi_item_order_acceptance_atomic_deduction(self):
+        """
+        Pillar 3: Multi-item batch acceptance executed atomically with
+        deadlock-free deterministic lock sorting.
+        """
+        reserve_order_creation_stock(
+            self.shop1,
+            [
+                (self.prod1, Decimal("15.000")),
+                (self.prod2, Decimal("10.000")),
+            ],
+        )
+
+        item1 = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        item2 = InventoryItem.objects.get(product=self.prod2, variant__isnull=True)
+        self.assertEqual(item1.reserved_quantity, Decimal("15.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("10.000"))
+
+        # Merchant accepts both items
+        deducted = deduct_order_acceptance_stock(
+            self.shop1,
+            [
+                (self.prod1, Decimal("15.000")),
+                (self.prod2, Decimal("10.000")),
+            ],
+            actor=self.merchant1,
+        )
+        self.assertEqual(len(deducted), 2)
+
+        item1.refresh_from_db()
+        item2.refresh_from_db()
+
+        self.assertEqual(item1.quantity, Decimal("85.000"))
+        self.assertEqual(item1.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item1.available_quantity, Decimal("85.000"))
+
+        self.assertEqual(item2.quantity, Decimal("30.000"))
+        self.assertEqual(item2.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item2.available_quantity, Decimal("30.000"))
+
+    def test_deduct_more_than_reserved_rejected(self):
+        """
+        Pillar 4: Cannot deduct more than currently reserved stock.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+
+        # Attempt to deduct 15.000 when only 10.000 is reserved
+        with self.assertRaises(ValidationError) as cm:
+            deduct_order_acceptance_stock(
+                self.shop1,
+                [(self.prod1, Decimal("15.000"))],
+                actor=self.merchant1,
+            )
+        self.assertIn("Cannot deduct more than currently reserved stock", str(cm.exception))
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        # Verify rollback: stock remains 100 on-hand, 10 reserved
+        self.assertEqual(item.quantity, Decimal("100.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("10.000"))
+
+    def test_deduct_negative_or_zero_quantity_rejected(self):
+        """
+        Pillar 4b: Deducting negative or zero quantity raises ValidationError.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("10.000"))])
+
+        with self.assertRaises(ValidationError) as cm:
+            deduct_order_acceptance_stock(
+                self.shop1,
+                [(self.prod1, Decimal("0.000"))],
+                actor=self.merchant1,
+            )
+        self.assertIn("must be greater than zero", str(cm.exception))
+
+    def test_merchant_authorization_enforced_on_acceptance(self):
+        """
+        Pillar 5: Merchant authorization enforcement:
+        - Active owner merchant succeeds.
+        - Super Admin is rejected (MVP rule).
+        - Merchant from another shop is rejected.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("5.000"))])
+
+        # Super Admin rejected
+        super_admin = User.objects.create_user(
+            username="admin_user",
+            email="admin@example.com",
+            password="testpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+        with self.assertRaises(ValidationError) as cm:
+            deduct_order_acceptance_stock(
+                self.shop1,
+                [(self.prod1, Decimal("5.000"))],
+                actor=super_admin,
+            )
+        self.assertIn("Super Admin is not authorized", str(cm.exception))
+
+        # Merchant of Shop 2 rejected for Shop 1
+        with self.assertRaises(ValidationError) as cm:
+            deduct_order_acceptance_stock(
+                self.shop1,
+                [(self.prod1, Decimal("5.000"))],
+                actor=self.merchant2,
+            )
+        self.assertIn("not authorized to modify inventory for this shop", str(cm.exception))
+
+    def test_cross_shop_product_deduction_rejected(self):
+        """
+        Pillar 6: Shop isolation prevents deducting products belonging to another shop.
+        """
+        with self.assertRaises(ValidationError) as cm:
+            deduct_order_acceptance_stock(
+                self.shop1,
+                [(self.shop2_prod, Decimal("5.000"))],
+                actor=self.merchant1,
+            )
+        self.assertIn("authorized shop", str(cm.exception))
+
+    def test_order_container_duck_typing_acceptance(self):
+        """
+        Pillar 7: Duck-typed container/order object acceptance.
+        """
+        reserve_order_creation_stock(self.shop1, [(self.prod1, Decimal("8.000"))])
+
+        # Simulate an Order object with items
+        class DummyOrderItem:
+            def __init__(self, product, ordered_quantity, accepted_quantity):
+                self.product = product
+                self.variant = None
+                self.ordered_quantity = ordered_quantity
+                self.accepted_quantity = accepted_quantity
+
+        class DummyOrder:
+            def __init__(self, shop, items):
+                self.shop = shop
+                self.shop_id = shop.id
+                self._items = items
+
+            class Manager:
+                def __init__(self, items):
+                    self._items = items
+                def all(self):
+                    return self._items
+
+            @property
+            def items(self):
+                return self.Manager(self._items)
+
+        order = DummyOrder(self.shop1, [DummyOrderItem(self.prod1, Decimal("8.000"), Decimal("8.000"))])
+        deducted = deduct_order_acceptance_stock(self.shop1, order, actor=self.merchant1)
+        self.assertEqual(len(deducted), 1)
+
+        item = InventoryItem.objects.get(product=self.prod1, variant__isnull=True)
+        self.assertEqual(item.quantity, Decimal("92.000"))
+        self.assertEqual(item.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(item.available_quantity, Decimal("92.000"))
+
 
 
 
