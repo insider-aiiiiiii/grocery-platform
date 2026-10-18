@@ -204,6 +204,8 @@ class InventoryItem(models.Model):
     def deduct_reserved_stock(self, amount: Decimal | str | int | float):
         """Deducts stock when an order is accepted (reserved becomes deducted)."""
         amount = quantize_quantity(amount)
+        if amount <= Decimal("0.000"):
+            raise ValidationError("Deduction quantity must be greater than zero.")
         if amount > self.reserved_quantity:
             raise ValidationError("Cannot deduct more than currently reserved stock.")
         if amount > self.quantity:

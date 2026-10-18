@@ -519,6 +519,8 @@ def deduct_order_items_stock(
         updated = []
         for target, raw_qty in sorted_entries:
             qty = quantize_quantity(raw_qty)
+            if qty <= Decimal("0.000"):
+                raise ValidationError(f"Deduct quantity for '{target.name}' must be greater than zero.")
             item = _get_target_item_locked(shop, target)
             item.deduct_reserved_stock(qty)
             updated.append(item)
@@ -643,4 +645,80 @@ def reduce_and_accept_order_items_stock(
             updated.append(item)
 
         return updated
+
+
+def deduct_order_acceptance_stock(
+    shop,
+    items_or_order,
+    *,
+    actor=None,
+) -> list[InventoryItem]:
+    """
+    Integrates stock deduction with Merchant Order acceptance (INV-009).
+
+    - Triggered strictly when an authorized Merchant accepts an Order.
+    - Deducts the reserved quantity on acceptance, NOT at checkout.
+    - Preserves available/reserved semantics:
+      - Full acceptance: reserved quantity is deducted from on-hand quantity,
+        leaving available stock for other customers untouched.
+      - Partial acceptance: unfulfilled difference (original_reserved - accepted_qty)
+        is released back to available stock, and accepted_qty is deducted from on-hand quantity.
+    - Validates merchant authorization: actor must be an active Merchant owning the shop.
+      Super Admins and unauthorized merchants are rejected.
+    - Deadlock-free deterministic lock sorting: items sorted by (is_variant, target.id).
+    - Database safety floor: non-negative check constraints prevent illegal balances.
+    """
+    validate_shop_merchant_authorization(shop, actor)
+
+    # Duck-type check for Order or container instance with shop and items
+    if hasattr(items_or_order, "items") and hasattr(items_or_order, "shop"):
+        order = items_or_order
+        if order.shop_id != shop.id:
+            raise ValidationError("Order does not belong to the specified shop.")
+        order_items = list(order.items.all())
+        if not order_items:
+            raise ValidationError("Cannot deduct inventory for an empty order.")
+
+        # Check if line items specify partial adjustments or standard quantities
+        adjustments = []
+        full_items = []
+        has_partial = False
+
+        for oi in order_items:
+            target = getattr(oi, "variant", None) or getattr(oi, "product", None)
+            if not target:
+                raise ValidationError("Order item must reference a product or variant.")
+
+            orig = getattr(oi, "ordered_quantity", None) or getattr(oi, "reserved_quantity", None)
+            acc = getattr(oi, "accepted_quantity", None) or getattr(oi, "quantity", None)
+
+            if orig is not None and acc is not None and orig != acc:
+                has_partial = True
+                adjustments.append((target, orig, acc))
+            elif orig is not None and acc is not None:
+                adjustments.append((target, orig, acc))
+            else:
+                qty = acc if acc is not None else orig
+                full_items.append((target, qty))
+
+        if has_partial or (adjustments and not full_items):
+            return reduce_and_accept_order_items_stock(shop, adjustments)
+        return deduct_order_items_stock(shop, full_items)
+
+    elif isinstance(items_or_order, (list, tuple)):
+        items_list = list(items_or_order)
+        if not items_list:
+            raise ValidationError("Cannot deduct inventory for an empty item list.")
+
+        # Inspect first element to determine 2-tuple (target, qty) vs 3-tuple (target, orig, acc)
+        first_entry = items_list[0]
+        if len(first_entry) == 3:
+            return reduce_and_accept_order_items_stock(shop, items_list)
+        elif len(first_entry) == 2:
+            return deduct_order_items_stock(shop, items_list)
+        else:
+            raise ValidationError("Items must be 2-tuples (target, qty) or 3-tuples (target, orig, acc).")
+
+    raise ValidationError("items_or_order must be an Order instance or a list of item tuples.")
+
 
