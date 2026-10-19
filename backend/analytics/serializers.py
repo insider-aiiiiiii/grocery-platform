@@ -105,3 +105,47 @@ class MerchantAnalyticsOverviewSerializer(serializers.Serializer):
     customers = CustomersMetricSerializer()
     inventory = InventoryMetricSerializer()
     top_products = TopProductItemSerializer(many=True)
+
+
+class PlatformAnalyticsQuerySerializer(AnalyticsDateRangeQuerySerializer):
+    """Query parameter serializer for Super Admin platform analytics, allowing optional shop_id scoping."""
+
+    shop_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+    )
+
+
+class PlatformShopsSummarySerializer(serializers.Serializer):
+    total_shops = serializers.IntegerField()
+    active_shops = serializers.IntegerField()
+    deactivated_shops = serializers.IntegerField()
+
+
+class PlatformCustomersMetricSerializer(serializers.Serializer):
+    """Platform customer metric omitting PII to preserve strict platform privacy."""
+
+    ordering_customers = serializers.IntegerField()
+
+
+class PlatformTopShopItemSerializer(serializers.Serializer):
+    shop_id = serializers.IntegerField()
+    shop_name = serializers.CharField()
+    completed_orders = serializers.IntegerField()
+    realized_sales = serializers.CharField()
+
+
+class PlatformAnalyticsOverviewSerializer(serializers.Serializer):
+    period = serializers.CharField()
+    start_time = serializers.CharField()
+    end_time = serializers.CharField()
+    filtered_shop_id = serializers.IntegerField(required=False, allow_null=True)
+    shops = PlatformShopsSummarySerializer()
+    orders = OrdersMetricSerializer()
+    sales = SalesMetricSerializer()
+    customers = PlatformCustomersMetricSerializer()
+    inventory = InventoryMetricSerializer()
+    top_products = TopProductItemSerializer(many=True)
+    top_shops = PlatformTopShopItemSerializer(many=True)
+

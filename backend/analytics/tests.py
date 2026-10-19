@@ -660,3 +660,342 @@ class MerchantAnalyticsEndpointsAliasTests(AnalyticsBaseTestCase):
         self.assertEqual(res_low_direct.status_code, status.HTTP_200_OK)
         self.assertEqual(res_low_alias.status_code, status.HTTP_200_OK)
         self.assertEqual(res_low_direct.data, res_low_alias.data)
+
+
+class PlatformAnalyticsAuthenticationAndAuthorizationTests(AnalyticsBaseTestCase):
+    def test_unauthenticated_request_rejected(self):
+        """Unauthenticated requests must be rejected with 401."""
+        urls = [
+            reverse("analytics:platform-analytics-overview"),
+            reverse("analytics:platform-analytics-overview-alias"),
+            reverse("analytics:platform-analytics-top-products"),
+            reverse("analytics:platform-analytics-top-shops"),
+        ]
+        for url in urls:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_merchant_forbidden_from_platform_analytics(self):
+        """Active merchants are forbidden from platform-level analytics (403)."""
+        self.client.force_authenticate(user=self.user1)
+        urls = [
+            reverse("analytics:platform-analytics-overview"),
+            reverse("analytics:platform-analytics-top-products"),
+            reverse("analytics:platform-analytics-top-shops"),
+        ]
+        for url in urls:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_inactive_super_admin_rejected_from_platform_analytics(self):
+        """Inactive super admin is rejected."""
+        inactive_admin = User.objects.create_user(
+            username="inactive_admin",
+            email="inactive_admin@example.com",
+            password="testpassword123",
+            role=User.Role.SUPER_ADMIN,
+            mobile_number="+919999988888",
+            is_active=False,
+        )
+        self.client.force_authenticate(user=inactive_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertIn(res.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_super_admin_authorized_for_platform_analytics(self):
+        """Super Admin user is authorized and receives 200 OK."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+
+class PlatformAnalyticsCrossShopAggregationTests(AnalyticsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+
+        # Give stock to prod2 and prod3 so only prod1 in shop1 is out of stock
+        inv_prod2 = InventoryItem.objects.get(shop=self.shop1, product=self.prod2)
+        inv_prod2.quantity = Decimal("10.000")
+        inv_prod2.save()
+
+        inv_prod3 = InventoryItem.objects.get(shop=self.shop1, product=self.prod3)
+        inv_prod3.quantity = Decimal("10.000")
+        inv_prod3.save()
+
+        # In Shop 2, give prod_shop2 0 stock (out of stock)
+        inv_shop2 = InventoryItem.objects.get(shop=self.shop2, product=self.prod_shop2)
+        inv_shop2.quantity = Decimal("0.000")
+        inv_shop2.save()
+
+        # Shop 1: Completed Order (100.00)
+        self.order_s1_comp = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("100.00"),
+            items_subtotal=Decimal("100.00"),
+            customer_name_snapshot="Alice Customer",
+            customer_phone_snapshot="+919999900001",
+        )
+        OrderItem.objects.create(
+            order=self.order_s1_comp,
+            product=self.prod1,
+            product_name_snapshot="Organic Milk",
+            sku_snapshot="MILK-001",
+            ordered_quantity=Decimal("2.000"),
+            quantity=Decimal("2.000"),
+            unit_price_snapshot=Decimal("50.00"),
+            line_total=Decimal("100.00"),
+        )
+
+        # Shop 1: Pending Order (50.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer2,
+            status=Order.Status.PENDING,
+            total_amount=Decimal("50.00"),
+            customer_name_snapshot="Bob Customer",
+            customer_phone_snapshot="+919999900002",
+        )
+
+        # Shop 2: Completed Order (300.00)
+        self.order_s2_comp = Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("300.00"),
+            items_subtotal=Decimal("300.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+        OrderItem.objects.create(
+            order=self.order_s2_comp,
+            product=self.prod_shop2,
+            product_name_snapshot="Shop2 Exotic Tea",
+            sku_snapshot="TEA-002",
+            ordered_quantity=Decimal("3.000"),
+            quantity=Decimal("3.000"),
+            unit_price_snapshot=Decimal("100.00"),
+            line_total=Decimal("300.00"),
+        )
+
+        # Shop 2: Rejected Order (80.00)
+        Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.REJECTED,
+            total_amount=Decimal("80.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+
+    def test_platform_overview_aggregates_across_all_shops(self):
+        """Platform overview aggregates metrics across all registered shops."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+
+        # Shops metrics
+        self.assertEqual(data["shops"]["total_shops"], 2)
+        self.assertEqual(data["shops"]["active_shops"], 2)
+        self.assertEqual(data["shops"]["deactivated_shops"], 0)
+
+        # Orders metrics
+        orders = data["orders"]
+        self.assertEqual(orders["total_orders"], 4)
+        self.assertEqual(orders["completed_orders"], 2)
+        self.assertEqual(orders["rejected_orders"], 1)
+        self.assertEqual(orders["status_distribution"]["PENDING"], 1)
+        self.assertEqual(orders["status_distribution"]["COMPLETED"], 2)
+        self.assertEqual(orders["status_distribution"]["REJECTED"], 1)
+
+        # Sales metrics: 100.00 + 300.00 = 400.00
+        sales = data["sales"]
+        self.assertEqual(sales["realized_sales"], "400.00")
+        self.assertEqual(sales["average_order_value"], "200.00")  # 400 / 2
+
+        # Customers metrics: 2 distinct ordering customers
+        self.assertEqual(data["customers"]["ordering_customers"], 2)
+
+        # Inventory metrics: 2 items out of stock across platform (prod1 in shop1, prod_shop2 in shop2)
+        self.assertEqual(data["inventory"]["out_of_stock_items_count"], 2)
+
+        # Top products: includes products from both shops
+        top_prods = data["top_products"]
+        self.assertEqual(len(top_prods), 2)
+        # 1st is Tea (3.000 units), 2nd is Milk (2.000 units)
+        self.assertEqual(top_prods[0]["product_id"], self.prod_shop2.id)
+        self.assertEqual(top_prods[0]["units_sold"], "3.000")
+        self.assertEqual(top_prods[1]["product_id"], self.prod1.id)
+        self.assertEqual(top_prods[1]["units_sold"], "2.000")
+
+        # Top shops: Shop 2 (300.00) first, Shop 1 (100.00) second
+        top_shops = data["top_shops"]
+        self.assertEqual(len(top_shops), 2)
+        self.assertEqual(top_shops[0]["shop_id"], self.shop2.id)
+        self.assertEqual(top_shops[0]["realized_sales"], "300.00")
+        self.assertEqual(top_shops[1]["shop_id"], self.shop1.id)
+        self.assertEqual(top_shops[1]["realized_sales"], "100.00")
+
+    def test_platform_analytics_preserves_customer_privacy(self):
+        """Platform analytics payloads strictly omit customer PII."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        response_str = str(res.data)
+        # Verify no customer names or WhatsApp numbers leak into platform analytics
+        self.assertNotIn("Alice Customer", response_str)
+        self.assertNotIn("Bob Customer", response_str)
+        self.assertNotIn("+919999900001", response_str)
+        self.assertNotIn("+919999900002", response_str)
+
+
+class PlatformAnalyticsShopFilteringTests(AnalyticsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+
+        # Shop 1 completed order (150.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("150.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+
+        # Shop 2 completed order (350.00)
+        Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("350.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+
+    def test_super_admin_can_filter_platform_analytics_by_shop_id(self):
+        """Super Admin can provide shop_id to scope platform overview to a specific shop."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"), {
+            "shop_id": self.shop1.id,
+        })
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+        self.assertEqual(data.get("filtered_shop_id"), self.shop1.id)
+        self.assertEqual(data["shops"]["total_shops"], 1)
+        self.assertEqual(data["orders"]["total_orders"], 1)
+        self.assertEqual(data["orders"]["completed_orders"], 1)
+        self.assertEqual(data["sales"]["realized_sales"], "150.00")
+        self.assertEqual(data["sales"]["average_order_value"], "150.00")
+
+    def test_filtering_by_non_existent_shop_id_returns_404(self):
+        """Filtering by a non-existent shop_id returns 404."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"), {
+            "shop_id": 999999,
+        })
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_filtering_by_invalid_shop_id_returns_400(self):
+        """Filtering by an invalid shop_id format returns 400."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"), {
+            "shop_id": "invalid-id",
+        })
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class PlatformAnalyticsTopProductsAndShopsEndpointTests(AnalyticsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+
+        order1 = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("200.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        OrderItem.objects.create(
+            order=order1,
+            product=self.prod1,
+            product_name_snapshot="Organic Milk",
+            sku_snapshot="MILK-001",
+            ordered_quantity=Decimal("4.000"),
+            quantity=Decimal("4.000"),
+            unit_price_snapshot=Decimal("50.00"),
+            line_total=Decimal("200.00"),
+        )
+
+        order2 = Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("600.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+        OrderItem.objects.create(
+            order=order2,
+            product=self.prod_shop2,
+            product_name_snapshot="Shop2 Exotic Tea",
+            sku_snapshot="TEA-002",
+            ordered_quantity=Decimal("6.000"),
+            quantity=Decimal("6.000"),
+            unit_price_snapshot=Decimal("100.00"),
+            line_total=Decimal("600.00"),
+        )
+
+    def test_platform_top_products_endpoint(self):
+        """Top products endpoint aggregates across all shops with limit support."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-top-products"), {"limit": 1})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        top_prods = res.data["top_products"]
+        self.assertEqual(len(top_prods), 1)
+        self.assertEqual(top_prods[0]["product_id"], self.prod_shop2.id)
+        self.assertEqual(top_prods[0]["units_sold"], "6.000")
+
+    def test_platform_top_shops_endpoint(self):
+        """Top shops endpoint ranks shops by realized sales on completed orders."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-top-shops"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        top_shops = res.data["top_shops"]
+        self.assertEqual(len(top_shops), 2)
+        self.assertEqual(top_shops[0]["shop_id"], self.shop2.id)
+        self.assertEqual(top_shops[0]["realized_sales"], "600.00")
+        self.assertEqual(top_shops[1]["shop_id"], self.shop1.id)
+        self.assertEqual(top_shops[1]["realized_sales"], "200.00")
+
+
+class PlatformAnalyticsZeroBaselineTests(AnalyticsBaseTestCase):
+    def test_zero_orders_baseline_evaluates_cleanly(self):
+        """When platform has zero orders, overview evaluates cleanly with 0.00 values."""
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+        self.assertEqual(data["orders"]["total_orders"], 0)
+        self.assertEqual(data["orders"]["completed_orders"], 0)
+        self.assertEqual(data["sales"]["realized_sales"], "0.00")
+        self.assertEqual(data["sales"]["average_order_value"], "0.00")
+        self.assertEqual(data["customers"]["ordering_customers"], 0)
+        self.assertEqual(data["top_products"], [])
+        self.assertEqual(data["top_shops"], [])
+
