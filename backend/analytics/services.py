@@ -9,6 +9,7 @@ from django.utils import timezone
 from customers.models import Customer
 from inventory.models import InventoryItem
 from orders.models import Order, OrderItem
+from shops.models import Shop
 
 
 def parse_date_range(query_params: dict) -> tuple[str, datetime, datetime]:
@@ -277,3 +278,235 @@ def get_merchant_analytics_overview(shop_id: int, query_params: dict) -> dict:
         },
         "top_products": top_products,
     }
+
+
+def get_platform_shop_metrics(shop_id: int | None = None) -> dict:
+    """
+    Computes platform-level shop counts (total, active, deactivated).
+    If shop_id is specified, computes status breakdown for that specific shop.
+    """
+    if shop_id is not None:
+        shop = Shop.objects.filter(id=shop_id).first()
+        if not shop:
+            raise ValidationError(f"Shop with id {shop_id} does not exist.")
+        return {
+            "total_shops": 1,
+            "active_shops": 1 if shop.status == Shop.Status.ACTIVE else 0,
+            "deactivated_shops": 1 if shop.status == Shop.Status.DEACTIVATED else 0,
+        }
+
+    total_shops = Shop.objects.count()
+    active_shops = Shop.objects.filter(status=Shop.Status.ACTIVE).count()
+    deactivated_shops = Shop.objects.filter(status=Shop.Status.DEACTIVATED).count()
+
+    return {
+        "total_shops": total_shops,
+        "active_shops": active_shops,
+        "deactivated_shops": deactivated_shops,
+    }
+
+
+def get_platform_order_metrics(start_dt: datetime, end_dt: datetime, shop_id: int | None = None) -> dict:
+    """
+    Aggregates order metrics across the entire platform (or scoped to shop_id if provided).
+    Strictly calculates realized sales and AOV only on COMPLETED orders.
+    """
+    qs = Order.objects.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+    if shop_id is not None:
+        qs = qs.filter(shop_id=shop_id)
+
+    aggregates = qs.aggregate(
+        total_orders=Count("id"),
+        pending_orders=Count("id", filter=Q(status=Order.Status.PENDING)),
+        accepted_orders=Count("id", filter=Q(status=Order.Status.ACCEPTED)),
+        preparing_orders=Count("id", filter=Q(status=Order.Status.PREPARING)),
+        ready_orders=Count("id", filter=Q(status=Order.Status.READY)),
+        completed_orders=Count("id", filter=Q(status=Order.Status.COMPLETED)),
+        rejected_orders=Count("id", filter=Q(status=Order.Status.REJECTED)),
+        realized_sales=Coalesce(
+            Sum("total_amount", filter=Q(status=Order.Status.COMPLETED)),
+            Decimal("0.00"),
+            output_field=DecimalField(max_digits=12, decimal_places=2),
+        ),
+    )
+
+    total_orders = aggregates["total_orders"] or 0
+    completed_orders = aggregates["completed_orders"] or 0
+    rejected_orders = aggregates["rejected_orders"] or 0
+    realized_sales = Decimal(str(aggregates["realized_sales"] or 0)).quantize(Decimal("0.01"))
+
+    if completed_orders > 0:
+        aov = (realized_sales / Decimal(completed_orders)).quantize(Decimal("0.01"))
+    else:
+        aov = Decimal("0.00")
+
+    status_distribution = {
+        Order.Status.PENDING: aggregates["pending_orders"] or 0,
+        Order.Status.ACCEPTED: aggregates["accepted_orders"] or 0,
+        Order.Status.PREPARING: aggregates["preparing_orders"] or 0,
+        Order.Status.READY: aggregates["ready_orders"] or 0,
+        Order.Status.COMPLETED: completed_orders,
+        Order.Status.REJECTED: rejected_orders,
+    }
+
+    return {
+        "total_orders": total_orders,
+        "completed_orders": completed_orders,
+        "rejected_orders": rejected_orders,
+        "status_distribution": status_distribution,
+        "realized_sales": str(realized_sales),
+        "average_order_value": str(aov),
+    }
+
+
+def get_platform_customer_metrics(start_dt: datetime, end_dt: datetime, shop_id: int | None = None) -> dict:
+    """
+    Computes distinct ordering customer count on completed orders across the platform
+    (or scoped to shop_id if specified).
+    Preserves strict platform privacy: returns only aggregated count with zero customer PII.
+    """
+    qs = Order.objects.filter(
+        status=Order.Status.COMPLETED,
+        created_at__gte=start_dt,
+        created_at__lte=end_dt,
+    )
+    if shop_id is not None:
+        qs = qs.filter(shop_id=shop_id)
+
+    ordering_customers = qs.values("customer_id").distinct().count()
+
+    return {
+        "ordering_customers": ordering_customers,
+    }
+
+
+def get_platform_top_products(
+    start_dt: datetime, end_dt: datetime, shop_id: int | None = None, limit: int = 10
+) -> list[dict]:
+    """
+    Retrieves top-selling products across all shops on COMPLETED orders,
+    grouped by immutable snapshot fields to preserve historical accuracy.
+    """
+    qs = OrderItem.objects.filter(
+        order__status=Order.Status.COMPLETED,
+        order__created_at__gte=start_dt,
+        order__created_at__lte=end_dt,
+    )
+    if shop_id is not None:
+        qs = qs.filter(order__shop_id=shop_id)
+
+    items_qs = (
+        qs.values(
+            "product_id",
+            "variant_id",
+            "product_name_snapshot",
+            "variant_name_snapshot",
+            "sku_snapshot",
+        )
+        .annotate(
+            units_sold=Sum("quantity"),
+            total_revenue=Sum("line_total"),
+        )
+        .order_by("-units_sold")[:limit]
+    )
+
+    top_products = []
+    for item in items_qs:
+        units = Decimal(str(item["units_sold"] or 0)).quantize(Decimal("0.001"))
+        rev = Decimal(str(item["total_revenue"] or 0)).quantize(Decimal("0.01"))
+        top_products.append({
+            "product_id": item["product_id"],
+            "variant_id": item["variant_id"],
+            "product_name": item["product_name_snapshot"],
+            "variant_name": item["variant_name_snapshot"] or "",
+            "sku": item["sku_snapshot"] or "",
+            "units_sold": str(units),
+            "total_revenue": str(rev),
+        })
+
+    return top_products
+
+
+def get_platform_top_shops(start_dt: datetime, end_dt: datetime, limit: int = 10) -> list[dict]:
+    """
+    Retrieves top performing shops ranked by realized sales and completed orders in the period.
+    """
+    shops_qs = (
+        Order.objects.filter(
+            status=Order.Status.COMPLETED,
+            created_at__gte=start_dt,
+            created_at__lte=end_dt,
+        )
+        .values("shop_id", "shop__name")
+        .annotate(
+            completed_orders=Count("id"),
+            realized_sales=Sum("total_amount"),
+        )
+        .order_by("-realized_sales", "-completed_orders")[:limit]
+    )
+
+    top_shops = []
+    for s in shops_qs:
+        sales = Decimal(str(s["realized_sales"] or 0)).quantize(Decimal("0.01"))
+        top_shops.append({
+            "shop_id": s["shop_id"],
+            "shop_name": s["shop__name"],
+            "completed_orders": s["completed_orders"],
+            "realized_sales": str(sales),
+        })
+
+    return top_shops
+
+
+def get_platform_analytics_overview(query_params: dict) -> dict:
+    """
+    Coordinates direct domain queries to produce the complete Platform Analytics Overview
+    for authorized Super Admins.
+    """
+    period, start_dt, end_dt = parse_date_range(query_params)
+    shop_id = query_params.get("shop_id")
+    if shop_id is not None:
+        try:
+            shop_id = int(shop_id)
+        except (ValueError, TypeError) as exc:
+            raise ValidationError("Invalid shop_id format.") from exc
+
+    shop_metrics = get_platform_shop_metrics(shop_id=shop_id)
+    order_metrics = get_platform_order_metrics(start_dt, end_dt, shop_id=shop_id)
+    customer_metrics = get_platform_customer_metrics(start_dt, end_dt, shop_id=shop_id)
+    top_products = get_platform_top_products(start_dt, end_dt, shop_id=shop_id, limit=5)
+    top_shops = get_platform_top_shops(start_dt, end_dt, limit=5) if shop_id is None else []
+
+    # Out of stock items count across platform
+    inv_qs = InventoryItem.objects.filter(quantity__lte=F("reserved_quantity"))
+    if shop_id is not None:
+        inv_qs = inv_qs.filter(shop_id=shop_id)
+    out_of_stock_count = inv_qs.count()
+
+    response = {
+        "period": period,
+        "start_time": start_dt.isoformat(),
+        "end_time": end_dt.isoformat(),
+        "shops": shop_metrics,
+        "orders": {
+            "total_orders": order_metrics["total_orders"],
+            "completed_orders": order_metrics["completed_orders"],
+            "rejected_orders": order_metrics["rejected_orders"],
+            "status_distribution": order_metrics["status_distribution"],
+        },
+        "sales": {
+            "realized_sales": order_metrics["realized_sales"],
+            "average_order_value": order_metrics["average_order_value"],
+        },
+        "customers": customer_metrics,
+        "inventory": {
+            "out_of_stock_items_count": out_of_stock_count,
+        },
+        "top_products": top_products,
+        "top_shops": top_shops,
+    }
+
+    if shop_id is not None:
+        response["filtered_shop_id"] = shop_id
+
+    return response
