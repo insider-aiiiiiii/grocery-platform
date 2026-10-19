@@ -1062,3 +1062,460 @@ class AnalyticsQueryEfficiencyAndIndexTests(AnalyticsBaseTestCase):
             self.assertEqual(res.status_code, status.HTTP_200_OK)
 
 
+class AnalyticsControlledFixtureSetup(AnalyticsBaseTestCase):
+    """
+    Sets up 3 controlled shops with multi-tenant inventory, products, and customers
+    for permutation testing across all scenarios.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        # Create Merchant 3 and Shop 3 (Deactivated shop for platform testing)
+        self.user3 = User.objects.create_user(
+            username="merchant_three",
+            email="merchant_three@example.com",
+            password="testpassword123",
+            role=User.Role.MERCHANT,
+            mobile_number="+919876543212",
+        )
+        self.merchant3 = Merchant.objects.create(
+            user=self.user3,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop3 = Shop.objects.create(
+            merchant=self.merchant3,
+            name="Shop Three Deactivated",
+            address_line="789 Industrial Way",
+            area="Suburbs",
+            city="Metropolis",
+            state="Central",
+            pincode="123458",
+            contact_number="+919876543212",
+            status=Shop.Status.DEACTIVATED,
+        )
+        self.customer3 = Customer.objects.create(
+            shop=self.shop3,
+            name="Carol Deactivated Customer",
+            whatsapp_number="+919999900003",
+        )
+        self.prod_shop3 = ShopProduct.objects.create(
+            shop=self.shop3,
+            name="Shop3 Heritage Apples",
+            price=Decimal("120.00"),
+            sku="APPLES-003",
+        )
+
+        # Set stock for prod2 and prod3 in shop1 so only prod1 starts with 0 stock
+        inv2 = InventoryItem.objects.get(shop=self.shop1, product=self.prod2)
+        inv2.quantity = Decimal("20.000")
+        inv2.save()
+
+        inv3 = InventoryItem.objects.get(shop=self.shop1, product=self.prod3)
+        inv3.quantity = Decimal("20.000")
+        inv3.save()
+
+        # Set stock for shop2 prod
+        inv_s2 = InventoryItem.objects.get(shop=self.shop2, product=self.prod_shop2)
+        inv_s2.quantity = Decimal("15.000")
+        inv_s2.save()
+
+
+class AnalyticsOrderLifecycleFormulaTests(AnalyticsControlledFixtureSetup):
+    def test_all_order_lifecycle_states_and_formula_inclusions(self):
+        """
+        Tests order counting and monetary inclusion across all 6 lifecycle states:
+        - PENDING, ACCEPTED, PREPARING, READY, COMPLETED, REJECTED.
+        - Verifies that realized_sales and average_order_value strictly isolate COMPLETED orders.
+        """
+        now = timezone.now()
+
+        # 1 PENDING order (50.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.PENDING,
+            total_amount=Decimal("50.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        # 1 ACCEPTED order (60.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.ACCEPTED,
+            total_amount=Decimal("60.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        # 1 PREPARING order (70.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.PREPARING,
+            total_amount=Decimal("70.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        # 1 READY order (80.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.READY,
+            total_amount=Decimal("80.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        # 2 COMPLETED orders (120.50 + 79.50 = 200.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("120.50"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("79.50"),
+            customer_name_snapshot="Bob",
+            customer_phone_snapshot="+919999900002",
+        )
+        # 3 REJECTED orders (simulating customer cancellation, merchant cancellation, and expiry)
+        for amount in [Decimal("30.00"), Decimal("40.00"), Decimal("45.00")]:
+            Order.objects.create(
+                shop=self.shop1,
+                customer=self.customer1,
+                status=Order.Status.REJECTED,
+                total_amount=amount,
+                customer_name_snapshot="Alice",
+                customer_phone_snapshot="+919999900001",
+            )
+
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get(reverse("analytics:merchant-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        orders = res.data["orders"]
+        # Total: 1 PENDING + 1 ACCEPTED + 1 PREPARING + 1 READY + 2 COMPLETED + 3 REJECTED = 9
+        self.assertEqual(orders["total_orders"], 9)
+        self.assertEqual(orders["completed_orders"], 2)
+        self.assertEqual(orders["rejected_orders"], 3)
+
+        dist = orders["status_distribution"]
+        self.assertEqual(dist[Order.Status.PENDING], 1)
+        self.assertEqual(dist[Order.Status.ACCEPTED], 1)
+        self.assertEqual(dist[Order.Status.PREPARING], 1)
+        self.assertEqual(dist[Order.Status.READY], 1)
+        self.assertEqual(dist[Order.Status.COMPLETED], 2)
+        self.assertEqual(dist[Order.Status.REJECTED], 3)
+
+        # Sales: strictly 120.50 + 79.50 = 200.00
+        sales = res.data["sales"]
+        self.assertEqual(sales["realized_sales"], "200.00")
+        self.assertEqual(sales["average_order_value"], "100.00")  # 200.00 / 2
+
+
+class AnalyticsDateTimeBoundaryPermutationTests(AnalyticsControlledFixtureSetup):
+    def test_utc_inclusive_boundaries_and_preset_permutations(self):
+        """
+        Tests exact UTC timestamp boundaries:
+        - Orders at 00:00:00 and 23:59:59.999999 of today are included.
+        - Orders microsecond before/after are excluded from today.
+        """
+        now = timezone.now()
+        today = now.date()
+
+        # Start of today (00:00:00 UTC)
+        dt_today_start = datetime.combine(today, datetime.min.time(), tzinfo=dt_timezone.utc)
+        o_start = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("100.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        Order.objects.filter(id=o_start.id).update(created_at=dt_today_start)
+
+        # End of today (23:59:59.999999 UTC)
+        dt_today_end = datetime.combine(today, datetime.max.time(), tzinfo=dt_timezone.utc)
+        o_end = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("150.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        Order.objects.filter(id=o_end.id).update(created_at=dt_today_end)
+
+        # Yesterday 23:59:59 UTC
+        yesterday = today - timedelta(days=1)
+        dt_yesterday = datetime.combine(yesterday, datetime.max.time(), tzinfo=dt_timezone.utc)
+        o_yesterday = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("80.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        Order.objects.filter(id=o_yesterday.id).update(created_at=dt_yesterday)
+
+        # Tomorrow 00:00:00.000001 UTC
+        tomorrow = today + timedelta(days=1)
+        dt_tomorrow = datetime.combine(tomorrow, datetime.min.time(), tzinfo=dt_timezone.utc)
+        o_tomorrow = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("90.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        Order.objects.filter(id=o_tomorrow.id).update(created_at=dt_tomorrow)
+
+        self.client.force_authenticate(user=self.user1)
+
+        # 1. Query period=today (default) -> strictly o_start and o_end
+        res_today = self.client.get(reverse("analytics:merchant-analytics-overview"))
+        self.assertEqual(res_today.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_today.data["orders"]["total_orders"], 2)
+        self.assertEqual(res_today.data["sales"]["realized_sales"], "250.00")  # 100 + 150
+
+        # 2. Query period=yesterday -> strictly o_yesterday
+        res_yesterday = self.client.get(reverse("analytics:merchant-analytics-overview"), {"period": "yesterday"})
+        self.assertEqual(res_yesterday.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_yesterday.data["orders"]["total_orders"], 1)
+        self.assertEqual(res_yesterday.data["sales"]["realized_sales"], "80.00")
+
+        # 3. Query custom date range spanning yesterday and today
+        res_custom = self.client.get(reverse("analytics:merchant-analytics-overview"), {
+            "period": "custom",
+            "start_date": yesterday.isoformat(),
+            "end_date": today.isoformat(),
+        })
+        self.assertEqual(res_custom.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_custom.data["orders"]["total_orders"], 3)  # o_yesterday + o_start + o_end
+        self.assertEqual(res_custom.data["sales"]["realized_sales"], "330.00")  # 80 + 100 + 150
+
+
+class AnalyticsMultiTenantIsolationPermutationTests(AnalyticsControlledFixtureSetup):
+    def test_customer_phone_number_collision_remains_strictly_isolated(self):
+        """
+        Customer phone collision:
+        - Customer A in Shop 1: whatsapp_number="+919999900001" (2 completed orders -> returning)
+        - Customer B in Shop 2: whatsapp_number="+919999900001" (1 completed order -> not returning)
+        Asserts that customer identities and returning status are NEVER merged across shops.
+        """
+        # Shop 1: Customer 1 places 2 completed orders
+        for amt in [Decimal("100.00"), Decimal("150.00")]:
+            Order.objects.create(
+                shop=self.shop1,
+                customer=self.customer1,
+                status=Order.Status.COMPLETED,
+                payment_status=Order.PaymentStatus.PAID,
+                total_amount=amt,
+                customer_name_snapshot="Alice Customer",
+                customer_phone_snapshot="+919999900001",
+            )
+
+        # Shop 2: Customer Shop2 (same phone "+919999900001") places 1 completed order
+        Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("300.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+
+        # Query Shop 1
+        self.client.force_authenticate(user=self.user1)
+        res_shop1 = self.client.get(reverse("analytics:merchant-analytics-overview"))
+        self.assertEqual(res_shop1.status_code, status.HTTP_200_OK)
+        # Shop 1 has 1 ordering customer, 1 returning customer (>= 2 completed orders)
+        self.assertEqual(res_shop1.data["customers"]["ordering_customers"], 1)
+        self.assertEqual(res_shop1.data["customers"]["returning_customers"], 1)
+        self.assertEqual(res_shop1.data["sales"]["realized_sales"], "250.00")
+
+        # Query Shop 2
+        self.client.force_authenticate(user=self.user2)
+        res_shop2 = self.client.get(reverse("analytics:merchant-analytics-overview"))
+        self.assertEqual(res_shop2.status_code, status.HTTP_200_OK)
+        # Shop 2 has 1 ordering customer, 0 returning customers (< 2 completed orders in Shop 2)
+        self.assertEqual(res_shop2.data["customers"]["ordering_customers"], 1)
+        self.assertEqual(res_shop2.data["customers"]["returning_customers"], 0)
+        self.assertEqual(res_shop2.data["sales"]["realized_sales"], "300.00")
+
+    def test_parameter_tampering_attempt_ignored(self):
+        """Merchant attempting to pass ?shop_id=<shop2.id> receives strictly Shop 1 data."""
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get(reverse("analytics:merchant-analytics-overview"), {
+            "shop_id": self.shop2.id,
+        })
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Should not reveal Shop 2 info
+        self.assertNotIn("Shop2 Exotic Tea", str(res.data))
+
+
+class AnalyticsSuperAdminAggregationPermutationTests(AnalyticsControlledFixtureSetup):
+    def test_super_admin_aggregates_across_active_and_deactivated_shops(self):
+        """
+        Super admin platform overview aggregates across Shop 1, Shop 2, and Shop 3.
+        Verifies deactivated shops are counted in deactivated_shops and their historical orders contribute.
+        """
+        # Shop 1 completed order (100.00)
+        Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("100.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        # Shop 2 completed order (200.00)
+        Order.objects.create(
+            shop=self.shop2,
+            customer=self.customer_shop2,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("200.00"),
+            customer_name_snapshot="Alice Shop2",
+            customer_phone_snapshot="+919999900001",
+        )
+        # Shop 3 (deactivated shop) completed order (300.00)
+        Order.objects.create(
+            shop=self.shop3,
+            customer=self.customer3,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("300.00"),
+            customer_name_snapshot="Carol",
+            customer_phone_snapshot="+919999900003",
+        )
+
+        self.client.force_authenticate(user=self.super_admin)
+        res = self.client.get(reverse("analytics:platform-analytics-overview"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+        # Shop metrics: 3 total, 2 active, 1 deactivated
+        self.assertEqual(data["shops"]["total_shops"], 3)
+        self.assertEqual(data["shops"]["active_shops"], 2)
+        self.assertEqual(data["shops"]["deactivated_shops"], 1)
+
+        # Orders & Sales: 100 + 200 + 300 = 600.00
+        self.assertEqual(data["orders"]["total_orders"], 3)
+        self.assertEqual(data["orders"]["completed_orders"], 3)
+        self.assertEqual(data["sales"]["realized_sales"], "600.00")
+        self.assertEqual(data["sales"]["average_order_value"], "200.00")  # 600 / 3
+
+        # Scoped query for Shop 3
+        res_s3 = self.client.get(reverse("analytics:platform-analytics-overview"), {
+            "shop_id": self.shop3.id,
+        })
+        self.assertEqual(res_s3.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_s3.data["shops"]["total_shops"], 1)
+        self.assertEqual(res_s3.data["shops"]["deactivated_shops"], 1)
+        self.assertEqual(res_s3.data["sales"]["realized_sales"], "300.00")
+
+
+class AnalyticsHistoricalSnapshotImmutabilityTests(AnalyticsControlledFixtureSetup):
+    def test_top_products_preserves_historical_snapshots_after_catalog_mutation(self):
+        """
+        When a catalog product is mutated (renamed, SKU changed, or deleted),
+        the top products reporting remains frozen and immutable using OrderItem snapshots.
+        """
+        order = Order.objects.create(
+            shop=self.shop1,
+            customer=self.customer1,
+            status=Order.Status.COMPLETED,
+            payment_status=Order.PaymentStatus.PAID,
+            total_amount=Decimal("500.00"),
+            customer_name_snapshot="Alice",
+            customer_phone_snapshot="+919999900001",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.prod1,
+            product_name_snapshot="Original Organic Milk 1L",
+            sku_snapshot="MILK-ORIG-001",
+            ordered_quantity=Decimal("10.000"),
+            quantity=Decimal("10.000"),
+            unit_price_snapshot=Decimal("50.00"),
+            line_total=Decimal("500.00"),
+        )
+
+        # Mutate catalog product
+        self.prod1.name = "Mutated Skimmed Milk"
+        self.prod1.sku = "MUTATED-SKU"
+        self.prod1.price = Decimal("999.00")
+        self.prod1.save()
+
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get(reverse("analytics:merchant-analytics-top-products"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        top_prods = res.data["top_products"]
+        self.assertEqual(len(top_prods), 1)
+        # Snapshot preserved
+        self.assertEqual(top_prods[0]["product_name"], "Original Organic Milk 1L")
+        self.assertEqual(top_prods[0]["sku"], "MILK-ORIG-001")
+        self.assertEqual(top_prods[0]["units_sold"], "10.000")
+        self.assertEqual(top_prods[0]["total_revenue"], "500.00")
+
+
+class AnalyticsInventoryOutOfStockPermutationTests(AnalyticsControlledFixtureSetup):
+    def test_out_of_stock_permutations_and_zero_threshold_adherence(self):
+        """
+        Permutations for low-stock / out-of-stock evaluation:
+        - quantity=0, reserved=0 -> available=0 (OUT OF STOCK)
+        - quantity=5, reserved=5 -> available=0 (OUT OF STOCK via reservation)
+        - quantity=5, reserved=4 -> available=1 (IN STOCK)
+        - quantity=1, reserved=0 -> available=1 (IN STOCK, verifies no arbitrary threshold like < 5)
+        """
+        # Item 1: Exact 0 stock (prod1)
+        inv1 = InventoryItem.objects.get(shop=self.shop1, product=self.prod1)
+        inv1.quantity = Decimal("0.000")
+        inv1.reserved_quantity = Decimal("0.000")
+        inv1.save()
+
+        # Item 2: Fully reserved stock (prod2)
+        inv2 = InventoryItem.objects.get(shop=self.shop1, product=self.prod2)
+        inv2.quantity = Decimal("5.000")
+        inv2.reserved_quantity = Decimal("5.000")
+        inv2.save()
+
+        # Item 3: Available stock = 1 (prod3) -> MUST NOT be in out-of-stock list
+        inv3 = InventoryItem.objects.get(shop=self.shop1, product=self.prod3)
+        inv3.quantity = Decimal("1.000")
+        inv3.reserved_quantity = Decimal("0.000")
+        inv3.save()
+
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.get(reverse("analytics:merchant-analytics-low-stock"))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        data = res.data
+        self.assertEqual(data["out_of_stock_items_count"], 2)
+        out_of_stock_pids = [item["product_id"] for item in data["items"]]
+        self.assertIn(self.prod1.id, out_of_stock_pids)
+        self.assertIn(self.prod2.id, out_of_stock_pids)
+        # prod3 with available=1 is NOT included
+        self.assertNotIn(self.prod3.id, out_of_stock_pids)
+
+
+
