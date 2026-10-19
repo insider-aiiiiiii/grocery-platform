@@ -56,3 +56,19 @@ class CampaignModelTests(TestCase):
                     starts_at=timezone.now(),
                     ends_at=timezone.now() - timedelta(days=1),
                 )
+
+    def test_invalid_status_is_rejected_by_database(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Campaign.objects.create(
+                    title="Invalid Status Campaign",
+                    status="INVALID",
+                )
+
+    def test_invalid_shop_scope_is_rejected_by_database(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Campaign.objects.create(
+                    title="Invalid Shop Scope Campaign",
+                    shop_scope="INVALID",
+                )
