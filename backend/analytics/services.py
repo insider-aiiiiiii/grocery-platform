@@ -99,6 +99,7 @@ def get_merchant_order_metrics(shop_id: int, start_dt: datetime, end_dt: datetim
         ready_orders=Count("id", filter=Q(status=Order.Status.READY)),
         completed_orders=Count("id", filter=Q(status=Order.Status.COMPLETED)),
         rejected_orders=Count("id", filter=Q(status=Order.Status.REJECTED)),
+        ordering_customers=Count("customer_id", distinct=True, filter=Q(status=Order.Status.COMPLETED)),
         realized_sales=Coalesce(
             Sum("total_amount", filter=Q(status=Order.Status.COMPLETED)),
             zero_dec,
@@ -118,6 +119,7 @@ def get_merchant_order_metrics(shop_id: int, start_dt: datetime, end_dt: datetim
         "total_orders": agg["total_orders"] or 0,
         "completed_orders": completed_count,
         "rejected_orders": agg["rejected_orders"] or 0,
+        "ordering_customers": agg["ordering_customers"] or 0,
         "status_distribution": {
             Order.Status.PENDING: agg["pending_orders"] or 0,
             Order.Status.ACCEPTED: agg["accepted_orders"] or 0,
@@ -214,10 +216,26 @@ def get_merchant_low_stock_items(shop_id: int) -> list[dict]:
     Returns items currently Out of Stock (available_quantity <= 0.000).
     Strictly follows MVP rule: no arbitrary low-stock threshold is invented.
     """
-    low_stock_qs = InventoryItem.objects.filter(
-        shop_id=shop_id,
-        quantity__lte=F("reserved_quantity"),
-    ).select_related("product", "variant").order_by("id")
+    low_stock_qs = (
+        InventoryItem.objects.filter(
+            shop_id=shop_id,
+            quantity__lte=F("reserved_quantity"),
+        )
+        .select_related("product", "variant")
+        .only(
+            "id",
+            "shop_id",
+            "product_id",
+            "variant_id",
+            "quantity",
+            "reserved_quantity",
+            "product__name",
+            "product__sku",
+            "variant__name",
+            "variant__sku",
+        )
+        .order_by("id")
+    )
 
     items = []
     for inv in low_stock_qs:
@@ -246,10 +264,27 @@ def get_merchant_low_stock_items(shop_id: int) -> list[dict]:
 def get_merchant_analytics_overview(shop_id: int, query_params: dict) -> dict:
     """
     Coordinates direct domain queries to produce the complete Merchant Shop Analytics Overview.
+    Efficiently reuses ordering_customers from the order metrics aggregation.
     """
     period, start_dt, end_dt = parse_date_range(query_params)
     order_metrics = get_merchant_order_metrics(shop_id, start_dt, end_dt)
-    customer_metrics = get_merchant_customer_metrics(shop_id, start_dt, end_dt)
+
+    # Distinct customers with 2 or more lifetime COMPLETED orders in this shop
+    returning_customers = (
+        Customer.objects.filter(
+            shop_id=shop_id,
+            orders__status=Order.Status.COMPLETED,
+        )
+        .annotate(completed_orders_count=Count("orders", filter=Q(orders__status=Order.Status.COMPLETED), distinct=True))
+        .filter(completed_orders_count__gte=2)
+        .count()
+    )
+
+    customer_metrics = {
+        "ordering_customers": order_metrics["ordering_customers"],
+        "returning_customers": returning_customers,
+    }
+
     top_products = get_merchant_top_products(shop_id, start_dt, end_dt, limit=5)
 
     # Low-stock count reflects current real-time out of stock items
@@ -323,6 +358,7 @@ def get_platform_order_metrics(start_dt: datetime, end_dt: datetime, shop_id: in
         ready_orders=Count("id", filter=Q(status=Order.Status.READY)),
         completed_orders=Count("id", filter=Q(status=Order.Status.COMPLETED)),
         rejected_orders=Count("id", filter=Q(status=Order.Status.REJECTED)),
+        ordering_customers=Count("customer_id", distinct=True, filter=Q(status=Order.Status.COMPLETED)),
         realized_sales=Coalesce(
             Sum("total_amount", filter=Q(status=Order.Status.COMPLETED)),
             Decimal("0.00"),
@@ -333,6 +369,7 @@ def get_platform_order_metrics(start_dt: datetime, end_dt: datetime, shop_id: in
     total_orders = aggregates["total_orders"] or 0
     completed_orders = aggregates["completed_orders"] or 0
     rejected_orders = aggregates["rejected_orders"] or 0
+    ordering_customers = aggregates["ordering_customers"] or 0
     realized_sales = Decimal(str(aggregates["realized_sales"] or 0)).quantize(Decimal("0.01"))
 
     if completed_orders > 0:
@@ -353,6 +390,7 @@ def get_platform_order_metrics(start_dt: datetime, end_dt: datetime, shop_id: in
         "total_orders": total_orders,
         "completed_orders": completed_orders,
         "rejected_orders": rejected_orders,
+        "ordering_customers": ordering_customers,
         "status_distribution": status_distribution,
         "realized_sales": str(realized_sales),
         "average_order_value": str(aov),
@@ -473,7 +511,7 @@ def get_platform_analytics_overview(query_params: dict) -> dict:
 
     shop_metrics = get_platform_shop_metrics(shop_id=shop_id)
     order_metrics = get_platform_order_metrics(start_dt, end_dt, shop_id=shop_id)
-    customer_metrics = get_platform_customer_metrics(start_dt, end_dt, shop_id=shop_id)
+    customer_metrics = {"ordering_customers": order_metrics["ordering_customers"]}
     top_products = get_platform_top_products(start_dt, end_dt, shop_id=shop_id, limit=5)
     top_shops = get_platform_top_shops(start_dt, end_dt, limit=5) if shop_id is None else []
 

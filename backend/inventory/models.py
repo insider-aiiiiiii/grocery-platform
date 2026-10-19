@@ -102,6 +102,8 @@ class InventoryItem(models.Model):
         indexes = [
             models.Index(fields=["shop", "product"], name="inv_item_shop_prod_idx"),
             models.Index(fields=["shop", "variant"], name="inv_item_shop_var_idx"),
+            models.Index(fields=["shop", "quantity"], name="inv_item_shop_qty_idx"),
+            models.Index(fields=["quantity"], name="inv_item_qty_idx"),
         ]
 
     def clean(self):
