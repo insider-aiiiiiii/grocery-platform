@@ -1,6 +1,16 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from orders.models import Order, OrderDeliveryAddress, OrderItem
+
+
+class StrictSerializer(serializers.Serializer):
+    def to_internal_value(self, data):
+        unknown = set(data) - set(self.fields) if hasattr(data, "keys") else set()
+        if unknown:
+            raise serializers.ValidationError({key: "Unknown field." for key in unknown})
+        return super().to_internal_value(data)
 
 
 class MerchantOrderItemSerializer(serializers.ModelSerializer):
@@ -76,3 +86,30 @@ class MerchantOrderDetailSerializer(MerchantOrderListSerializer):
             "rejection_note",
         ]
         read_only_fields = fields
+
+
+class MerchantOrderItemAdjustmentSerializer(serializers.Serializer):
+    item_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=Decimal("0.000"))
+
+
+class MerchantOrderAcceptSerializer(StrictSerializer):
+    items = MerchantOrderItemAdjustmentSerializer(many=True, required=False, default=list)
+
+    def validate_items(self, value):
+        item_ids = [entry["item_id"] for entry in value]
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError("Each Order Item may appear only once.")
+        return value
+
+
+class MerchantOrderRejectSerializer(StrictSerializer):
+    rejection_note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class MerchantOrderPaymentSerializer(StrictSerializer):
+    payment_status = serializers.ChoiceField(choices=Order.PaymentStatus.choices)
+
+
+class MerchantOrderEmptyActionSerializer(StrictSerializer):
+    pass
