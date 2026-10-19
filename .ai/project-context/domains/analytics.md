@@ -185,50 +185,42 @@ Terms such as `sales`, `revenue`, `active shop`, `customer`, and `top product` m
 
 | Metric area | Conceptual source | Current status | Definition boundary |
 |---|---|---|---|
-| Total orders | Orders | Required reporting area | Count qualifying orders under approved scope and order-state rules. |
-| Order status distribution | Orders | Required reporting area | Count orders by approved lifecycle state and period. |
-| Completed orders | Orders | Required reporting area | Count orders in the approved `COMPLETED` meaning. |
-| Rejected orders | Orders | Required reporting area | Count orders in the approved `REJECTED` meaning. |
-| Sales / revenue | Orders, with Catalog only for product context | Required area, formula unresolved | Must distinguish order value from accounting revenue and paid value. |
-| Average order value | Orders | Required area, formula unresolved | Requires numerator and qualifying-order denominator. |
-| Top products | Orders and Catalog | Required reporting area | Requires ranking measure, order-state inclusion, and product identity rules. |
-| Customer count | Customers and Orders | Required area, counting method unresolved | Must remain shop-specific and define whether it means registered, known, or ordering customers. |
-| Returning customers | Customers and Orders | Possible merchant metric, unresolved | Requires repeat definition and time window. |
-| Low-stock information | Inventory | Required merchant visibility concept | Inventory remains authoritative; threshold and status rules are unresolved. |
-| Total shops | Shops | Platform reporting area | Requires definition of included shop lifecycle/status states. |
-| Active shops | Shops | Platform reporting area, definition unresolved | Must not assume an `ACTIVE` state or activity window. |
-| Product performance | Orders and Catalog | Platform/merchant reporting area | Requires units, value, state, and historical product identity rules. |
+| Total orders | Orders | Finalized for MVP (ADR 0006) | Count qualifying orders in period with full status distribution (`PENDING`, `ACCEPTED`, `PREPARING`, `READY`, `COMPLETED`, `REJECTED`). |
+| Order status distribution | Orders | Finalized for MVP (ADR 0006) | Count orders grouped by approved lifecycle status within the period. |
+| Completed orders | Orders | Finalized for MVP (ADR 0006) | Count orders in terminal successful `COMPLETED` state. |
+| Rejected orders | Orders | Finalized for MVP (ADR 0006) | Count orders in `REJECTED` state (includes merchant rejections, customer pending cancellations, and expiry timeouts). |
+| Sales / revenue | Orders | Finalized for MVP (ADR 0006) | Operational realized sales: $\sum \text{Order.total\_amount}$ for orders in `COMPLETED` status. Unpaid/rejected/pending excluded. |
+| Average order value | Orders | Finalized for MVP (ADR 0006) | $\sum \text{total\_amount for COMPLETED orders} / \text{COUNT of COMPLETED orders}$. Returns `0.00` if count is zero. |
+| Top products | Orders and Catalog | Finalized for MVP (ADR 0006) | Sourced from `OrderItem` on `COMPLETED` orders. Ranked by total quantity sold ($\sum \text{quantity}$), grouped by snapshot product/variant identifiers. |
+| Customer count | Customers and Orders | Finalized for MVP (ADR 0006) | Distinct `customer_id` count on `COMPLETED` orders in the period. Strictly shop-scoped. |
+| Returning customers | Customers and Orders | Finalized for MVP (ADR 0006) | Distinct shop-specific customers having $\ge 2$ `COMPLETED` orders. |
+| Low-stock information | Inventory | Finalized for MVP (ADR 0006) | Out of stock items (`available_quantity <= 0.000`). Strictly no arbitrary low-stock threshold. |
+| Total shops | Shops | Finalized for MVP (ADR 0006) | Platform reporting area: count of all registered shops. |
+| Active shops | Shops | Finalized for MVP (ADR 0006) | Platform reporting area: count of shops with `status == "ACTIVE"`. |
+| Product performance | Orders and Catalog | Finalized for MVP (ADR 0006) | Units sold and revenue contribution from completed order items. |
 | Campaign performance | Campaigns and Analytics | Excluded from MVP | Any future attribution and retention requires separate approval. |
 | Notification performance | Notifications | Excluded from MVP | Delivery analytics require separate approval; retention must be decided before Notifications implementation. |
 
 ## 10. Sales, Revenue, and Monetary Metrics
 
-The product uses sales- or revenue-related language but does not approve an accounting definition. The following alternatives remain distinct:
+The grocery platform payment model is merchant-handled (offline, cash-on-delivery, or direct merchant settlement) without a centralized online payment gateway. Therefore, Analytics defines **Operational Realized Sales** rather than accounting-grade audited revenue:
 
-- Gross order value.
-- Sum of item totals.
-- Completed-order value.
-- Accepted-order value.
-- Merchant-confirmed paid value.
-- Net sales after discounts, refunds, or cancellations.
-- Profit or margin.
-
-The MVP payment model is merchant-handled and does not include a centralized online payment gateway. Therefore, Analytics must not treat an order total as a verified payment or accounting revenue amount unless a later business decision defines that relationship.
-
-Before implementation, the business must approve the numerator, qualifying order states, discounts/charges, currency, refunds/cancellations, and whether the result is operational reporting or accounting data.
+- **Operational Realized Sales**:
+  $$\text{Realized Sales} = \sum \text{Order.total\_amount} \quad \text{where } \text{status} = \text{"COMPLETED"}$$
+- **Order States Excluded**: Unpaid orders, pending orders, and rejected/cancelled orders are strictly excluded from sales metrics.
+- **Delivery Charges**: `total_amount` encapsulates both item subtotals and preserved delivery charges snapshot.
+- **Currency & Precision**: Preserves standard 2-decimal monetary currency formatting (`Decimal("0.01")`).
+- **Accounting Disclaimer**: Analytics operational reporting does not constitute accounting-grade revenue, tax reporting, or merchant settlement.
 
 ## 11. Average Order Value
 
-Average Order Value is a derived metric, not a source fact. No formula is approved here. Before implementation, the business must define:
+Average Order Value (AOV) is finalized as the average realized value of completed orders:
 
-- Which value is used.
-- Which order states qualify.
-- Whether zero-value orders are included.
-- Whether rejected, cancelled, or incomplete orders are excluded.
-- Whether the result is calculated per shop, platform, product group, or period.
-- How an empty denominator is represented.
+$$\text{AOV} = \frac{\sum_{\text{status} = \text{COMPLETED}} \text{Order.total\_amount}}{\text{COUNT}(\text{Order.id})_{\text{status} = \text{COMPLETED}}}$$
 
-Do not implement a formula by assuming that all created orders or all order totals qualify.
+- **Zero-Order Handling**: If the count of completed orders within the period is zero, AOV evaluates to `Decimal("0.00")`.
+- **Inclusion Rules**: Only `COMPLETED` orders qualify for both numerator and denominator. Rejected, cancelled, pending, and in-progress orders are excluded. Zero-value completed orders (if any) are included.
+- **Scope**: Computed per shop (for merchant analytics) and across all shops (for Super Admin platform analytics).
 
 ## 12. Order-Based Metrics
 
@@ -264,41 +256,25 @@ Product analytics may conceptually include:
 - Product performance by period.
 - Variant performance where variant identity is approved.
 
-Orders owns the historical purchased-item facts; Catalog owns product identity and current catalog metadata. The exact ranking basis is unresolved. It may be units, order count, value, or another approved measure.
-
-Product analytics must define whether reporting uses product-level identity, variant-level identity, shop listing identity, or historical order snapshots. It must not assume that every merchant-created product has a master-catalog identity.
+Orders owns the historical purchased-item facts; Catalog owns product identity and current catalog metadata. Per ADR 0006:
+- **Top-Selling Products**: Ranked by total quantity sold ($\sum \text{OrderItem.quantity}$) on orders in `COMPLETED` status.
+- **Historical Snapshot Preservation**: Grouping evaluates immutable checkout snapshots (`product_name_snapshot`, `variant_name_snapshot`, `sku_snapshot`) alongside `product_id`/`variant_id`. If a live catalog product is renamed or deleted, past analytics figures remain immutable and historically accurate.
 
 ## 15. Customer Analytics
 
-Customer analytics must respect the shop-specific customer model.
+Customer analytics respects the shop-specific customer model and strict tenant boundaries:
 
-Possible concepts include:
-
-- Customers associated with a shop.
-- Customers who placed orders in a period.
-- Orders per shop-specific customer.
-- Returning customers.
-- Customer sales contribution.
-- New customers in a period.
-
-The exact definitions are unresolved. In particular, the business must define whether a customer count means known customer records, distinct ordering identities, distinct order contacts, or another approved concept.
-
-Analytics must not merge customers across shops merely because their names or WhatsApp numbers match. A WhatsApp number is not a global identity or authorization credential.
+- **Ordering Customers**: Count of distinct `customer_id` values on orders in `COMPLETED` status within the period.
+- **Returning Customers**: Count of distinct shop-specific customers having $\ge 2$ lifetime `COMPLETED` orders within the shop.
+- **No Cross-Shop Merging**: Customers are **never merged** across shops even if their names or WhatsApp numbers match. A WhatsApp number is a shop-scoped contact attribute, not a global identifier.
 
 ## 16. Inventory Analytics
 
-Inventory remains authoritative for stock quantity, stock status, availability, low-stock concepts, and any stock movement history that is later approved.
+Inventory remains authoritative for stock quantity, reservation state, and stock availability:
 
-Merchant analytics may display low-stock or out-of-stock information if the relevant Inventory rules are finalized. The current Inventory specification leaves stock granularity, thresholds, availability derivation, reservation, deduction, and history unresolved.
-
-Analytics must not:
-
-- change inventory quantities
-- define low-stock thresholds
-- infer stock movement history that Inventory does not record
-- replace current inventory status with a stale analytical copy
-
-Historical inventory trends are future or unresolved unless Inventory approves the required facts and retention.
+- **Low-Stock Visibility**: Defined strictly as **Out of Stock** items (`available_quantity <= 0.000` or `is_in_stock = False`).
+- **No Arbitrary Thresholds**: In strict accordance with canonical MVP rules, **no arbitrary low-stock threshold** (such as `< 5` or `< 10`) is invented or configured.
+- **Stock Integrity**: Analytics does not mutate stock, infer unrecorded movements, or store stale copies of live inventory.
 
 ## 17. Campaign Analytics (Excluded from MVP)
 
@@ -324,18 +300,18 @@ The Notifications specification leaves lifecycle states, provider confirmation, 
 
 ## 19. Time-Based Reporting
 
-Time filtering is a business definition, not merely a query parameter. Possible periods include today, yesterday, current week, previous week, current month, previous month, and custom date ranges, but the product does not approve every range.
+Time-based filtering is finalized per ADR 0006:
 
-Each finalized metric must specify:
-
-- Timestamp source, such as order creation or completion time.
-- Timezone used for period boundaries.
-- Inclusive and exclusive boundary behavior.
-- Treatment of future-dated or invalid timestamps.
-- Treatment of events outside the reporting retention period.
-- Whether the period is based on event time, business date, or another approved field.
-
-Timezone and date-boundary behavior remain unresolved.
+- **Canonical Timezone**: All timestamp comparisons and date boundary evaluations are performed in **UTC** (`USE_TZ = True`, `TIME_ZONE = "UTC"`).
+- **Timestamp Anchor**: Standard date filtering evaluates against `Order.created_at`.
+- **Inclusive Range**: Period boundaries are inclusive:
+  $$\text{timestamp} \ge \text{start\_date 00:00:00.000000 UTC} \quad \text{and} \quad \text{timestamp} \le \text{end\_date 23:59:59.999999 UTC}$$
+- **Supported Filter Presets**:
+  - `today`: Current calendar day UTC (00:00:00 to 23:59:59).
+  - `yesterday`: Previous calendar day UTC (00:00:00 to 23:59:59).
+  - `this_week`: Current week from Monday 00:00:00 UTC to Sunday 23:59:59 UTC.
+  - `this_month`: 1st of current month 00:00:00 UTC to end of current month 23:59:59 UTC.
+  - `custom`: Client-specified `start_date` and `end_date` in `YYYY-MM-DD` ISO-8601 format (requires `start_date <= end_date`).
 
 ## 20. Filters and Dimensions
 
@@ -562,54 +538,49 @@ No tests or implementation are created by this documentation task.
 
 The following decisions require explicit product, domain, or architecture approval:
 
-| Decision | Why unresolved | Impact |
+| Decision | Status / Resolution | Impact |
 |---|---|---|
-| Exact required metric catalogue | Product names reporting areas but not a final list. | Scope and acceptance criteria remain open. |
-| Sales/revenue definition | Payment is merchant-handled and accounting meaning is not defined. | Monetary reports cannot be finalized. |
-| AOV numerator and denominator | Qualifying value and order states are unresolved. | AOV formula remains open. |
-| Order-state inclusion | Orders has a conceptual, incomplete lifecycle. | Counts, sales, and product metrics may differ. |
-| Cancellation/refund treatment | These order/payment behaviors are not finalized. | Historical and monetary reporting remain open. |
-| Active-shop definition | Shop lifecycle and activity window are unresolved. | Platform shop metrics remain open. |
-| Customer-count definition | Customer identity is lightweight and shop-specific. | Customer metrics may count different populations. |
-| Returning-customer definition | Repeat window and identity rule are not approved. | Retention metrics remain open. |
-| Product ranking basis | Units, order count, value, or another basis is possible. | Top-product reports remain open. |
-| Product vs variant grouping | Catalog identity and variant relationships are unresolved. | Product-performance dimensions remain open. |
-| Low-stock metric behavior | Inventory threshold and availability rules are unresolved. | Merchant low-stock reporting remains open. |
-| Inventory history availability | Inventory does not finalize a historical ledger. | Trend reporting may not be possible. |
-| Campaign attribution | Excluded from MVP. | Future campaign analytics require separate approval. |
-| Notification analytics | Excluded from MVP. | Future delivery metrics require separate approval and a retention decision before Notifications implementation. |
-| Supported time ranges | Product does not approve every period type. | Filtering contract remains open. |
-| Timezone and date boundaries | No reporting timezone is selected. | Period totals may differ. |
-| Freshness requirement | Real-time versus aggregated behavior is not defined. | Architecture and latency remain open. |
-| Retention period | Historical analytics retention is not specified. | Long-term reporting and privacy remain open. |
-| Corrections and late-arriving facts | Source correction behavior is not defined. | Aggregates may need recomputation rules. |
-| Platform privacy thresholds | Cross-shop aggregate exposure rules are not defined. | Small-group and customer privacy remain open. |
-| Export and scheduled-report scope | These are not approved features. | Delivery and background-work requirements remain open. |
-| Analytics API contract | No endpoints or response shape are defined. | Implementation cannot begin. |
+| Exact required metric catalogue | Finalized in ADR 0006 | Total Orders, Distribution, Sales, AOV, Top Products, Low Stock, Customer metrics approved. |
+| Sales/revenue definition | Finalized in ADR 0006 | Realized Sales = $\sum \text{total\_amount}$ for `COMPLETED` orders. Operational only. |
+| AOV numerator and denominator | Finalized in ADR 0006 | $\sum \text{total\_amount for COMPLETED} / \text{COUNT}(\text{COMPLETED})$. Evaluates to `0.00` if count is zero. |
+| Order-state inclusion | Finalized in ADR 0006 | All 6 canonical states tracked; monetary/sales metrics strictly require `COMPLETED`. |
+| Cancellation/refund treatment | Finalized in ADR 0006 | Rejections/cancellations mapped to `REJECTED`; excluded from sales and AOV metrics. |
+| Active-shop definition | Finalized in ADR 0006 | Platform metric counts shops with `status == "ACTIVE"`. |
+| Customer-count definition | Finalized in ADR 0006 | Distinct `customer_id` on `COMPLETED` orders within the period. Strictly shop-scoped. |
+| Returning-customer definition | Finalized in ADR 0006 | Distinct shop-specific customers with $\ge 2$ lifetime `COMPLETED` orders. |
+| Product ranking basis | Finalized in ADR 0006 | Top products ranked by $\sum \text{OrderItem.quantity}$ on `COMPLETED` orders. |
+| Product vs variant grouping | Finalized in ADR 0006 | Groups by immutable checkout snapshots (`product_name_snapshot`, `variant_name_snapshot`, `sku_snapshot`). |
+| Low-stock metric behavior | Finalized in ADR 0006 | Sourced from `InventoryItem` with `available_quantity <= 0` (Out of Stock). No arbitrary threshold. |
+| Supported time ranges | Finalized in ADR 0006 | `today`, `yesterday`, `this_week`, `this_month`, and ISO-8601 `custom` range. |
+| Timezone and date boundaries | Finalized in ADR 0006 | Standardized to UTC (`USE_TZ = True`); inclusive boundaries `[start 00:00:00, end 23:59:59.999999]`. |
+| Platform privacy thresholds | Finalized in ADR 0006 | Platform-wide aggregation strictly omits customer PII (names, phone numbers, addresses). |
+| Analytics API contract | Next Step | Ready for implementation in dedicated task branches under approved task IDs. |
+| Campaign attribution | Excluded from MVP | Preserved as non-goal for MVP. |
+| Notification analytics | Excluded from MVP | Preserved as non-goal for MVP. |
+| Accounting/Tax reporting | Excluded from MVP | Preserved as non-goal for MVP. |
+| Predictive / ML models | Excluded from MVP | Preserved as non-goal for MVP. |
 
 ## 35. Explicit Non-Goals
 
 This specification does not define:
 
-- Final metric formulas that the source documents leave unresolved.
 - Accounting or legally reportable financial statements.
 - Payment verification or settlement.
 - Tax, commission, profit, or margin calculations.
 - Customer authentication or global customer identity.
 - Order, catalog, inventory, customer, shop, campaign, or notification ownership.
 - Campaign targeting or attribution implementation.
-- Inventory thresholds or stock algorithms.
+- Arbitrary inventory low-stock thresholds or stock prediction algorithms.
 - Notification delivery state or provider behavior.
-- API endpoints or frontend/dashboard behavior.
 - Database schema, materialized views, warehouses, or caches.
 - Background processing technology.
 - Authentication, authorization, or role implementation.
 
 ## 36. Implementation Gate
 
-> The Analytics domain must not be implemented until the metrics required for the target release, their authoritative source facts, formulas, order-state rules, time semantics, freshness expectations, privacy boundaries, and tenant authorization behavior are reviewed and approved.
+> Core operational analytics formulas, source facts, order-state rules, date/time boundaries, aggregation principles, privacy boundaries, and tenant authorization are **finalized under ADR 0006**.
 
-Implementation must not infer business meaning from metric names or choose infrastructure before reporting requirements justify it. Any approved implementation must preserve source-domain ownership and shop-level isolation.
+Implementation of the Analytics API endpoints and calculation services can proceed under approved task branches adhering to the agreed formulas, multi-tenant isolation, and minimal Django ORM aggregation design.
 
 ## 37. Git Workflow
 
@@ -619,7 +590,7 @@ Follow the repository's mandatory task-based workflow before implementation chan
 git status
 git checkout main
 git pull origin main
-git checkout -b <task-id>/define-analytics-domain
+git checkout -b <task-id>/<task-description>
 ```
 
 - Never work directly on `main`.
@@ -627,7 +598,3 @@ git checkout -b <task-id>/define-analytics-domain
 - Do not use destructive Git commands without explicit approval.
 - If a task ID is required but not provided, ask for it before creating a branch.
 - Keep analytics changes scoped to the approved task.
-
-## Final Requirement
-
-Create only `.ai/project-context/domains/analytics.md`. Do not modify any other file. Do not implement models, APIs, serializers, views, migrations, materialized views, background jobs, dashboards, frontend components, analytics infrastructure, or unsupported metric behavior. Do not resolve unresolved decisions by assumption.
