@@ -50,6 +50,7 @@ urlpatterns = [
     path('api/v1/customers/', include('customers.urls')),
     path('api/v1/cart/', include('cart.urls')),
     path('api/v1/', include('orders.urls')),
+    path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/master-products/', include((catalog_direct_router.urls, 'master-products-direct'))),
 ]
 
