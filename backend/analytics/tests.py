@@ -999,3 +999,66 @@ class PlatformAnalyticsZeroBaselineTests(AnalyticsBaseTestCase):
         self.assertEqual(data["top_products"], [])
         self.assertEqual(data["top_shops"], [])
 
+
+class AnalyticsQueryEfficiencyAndIndexTests(AnalyticsBaseTestCase):
+    def setUp(self):
+        super().setUp()
+        # Create completed orders in Shop 1
+        for i in range(3):
+            order = Order.objects.create(
+                shop=self.shop1,
+                customer=self.customer1,
+                status=Order.Status.COMPLETED,
+                payment_status=Order.PaymentStatus.PAID,
+                total_amount=Decimal("100.00"),
+                customer_name_snapshot="Alice",
+                customer_phone_snapshot="+919999900001",
+            )
+            OrderItem.objects.create(
+                order=order,
+                product=self.prod1,
+                product_name_snapshot="Organic Milk",
+                sku_snapshot="MILK-001",
+                ordered_quantity=Decimal("1.000"),
+                quantity=Decimal("1.000"),
+                unit_price_snapshot=Decimal("100.00"),
+                line_total=Decimal("100.00"),
+            )
+
+    def test_merchant_overview_bounded_query_efficiency(self):
+        """Merchant overview executes within a fixed, small number of queries with no N+1."""
+        self.client.force_authenticate(user=self.user1)
+        # Expected queries:
+        # 1. Shop lookup
+        # 2. Orders & ordering_customers combined aggregate
+        # 3. Returning customers count
+        # 4. Top products values + annotate
+        # 5. Out of stock inventory count
+        with self.assertNumQueries(5):
+            res = self.client.get(reverse("analytics:merchant-analytics-overview"))
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_platform_overview_bounded_query_efficiency(self):
+        """Platform overview executes within a fixed, small number of queries with no N+1."""
+        self.client.force_authenticate(user=self.super_admin)
+        # Expected queries:
+        # 1. Total shops count
+        # 2. Active shops count
+        # 3. Deactivated shops count
+        # 4. Orders & ordering_customers combined aggregate
+        # 5. Top products values + annotate
+        # 6. Top shops values + annotate
+        # 7. Platform out-of-stock count
+        with self.assertNumQueries(7):
+            res = self.client.get(reverse("analytics:platform-analytics-overview"))
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_merchant_low_stock_single_query_efficiency(self):
+        """Low stock list executes exactly 1 query joining product and variant."""
+        self.client.force_authenticate(user=self.user1)
+        # 1 query for shop lookup, 1 query for low_stock_items with select_related
+        with self.assertNumQueries(2):
+            res = self.client.get(reverse("analytics:merchant-analytics-low-stock"))
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+

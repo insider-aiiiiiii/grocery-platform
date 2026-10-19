@@ -193,6 +193,9 @@ class Order(models.Model):
             models.Index(fields=["shop", "customer"], name="orders_order_shop_cust_idx"),
             models.Index(fields=["shop", "-created_at"], name="orders_order_shop_created_idx"),
             models.Index(fields=["status", "expires_at"], name="orders_order_stat_expires_idx"),
+            models.Index(fields=["shop", "status", "-created_at"], name="orders_ord_shp_stat_dt_idx"),
+            models.Index(fields=["status", "-created_at"], name="orders_ord_stat_created_idx"),
+            models.Index(fields=["-created_at"], name="orders_order_created_idx"),
         ]
 
     def __str__(self) -> str:
