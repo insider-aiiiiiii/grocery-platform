@@ -69,6 +69,7 @@ class Shop(models.Model):
         decimal_places=2,
         default=Decimal("0.00"),
     )
+    pending_order_timeout_minutes = models.PositiveSmallIntegerField(default=15)
 
     # Public identifier: used for public shop link and QR resolution (does not expose DB ID)
     public_slug = models.SlugField(
@@ -94,6 +95,10 @@ class Shop(models.Model):
             models.CheckConstraint(
                 check=Q(delivery_charge__gte=0),
                 name="shops_shop_delivery_charge_non_negative",
+            ),
+            models.CheckConstraint(
+                check=Q(pending_order_timeout_minutes__gt=0),
+                name="shops_shop_pending_timeout_positive",
             ),
         ]
 
