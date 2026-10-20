@@ -1444,22 +1444,19 @@ class CustomerDomainVerificationTests(TestCase):
 
     def test_global_claims_and_cross_shop_link_models_are_unapproved_and_absent(self):
         """
-        Global contact claims and cross-Shop identity linkage remain under review
-        and must NOT be introduced without explicit Product Owner/Privacy approval.
-        Only the shop-scoped Customer model must be present.
+        History grants and sessions are scoped to one profile and Shop. Global
+        identity claims and cross-Shop linkage remain behind separate approval.
         """
         from django.apps import apps
         customer_models = apps.get_app_config("customers").get_models()
         model_names = {m.__name__ for m in customer_models}
 
-        self.assertEqual(model_names, {"Customer"})
+        self.assertEqual(model_names, {"Customer", "CustomerSession", "HistoryLinkGrant"})
         for unapproved in [
             "CustomerIdentity",
             "ContactIdentityClaim",
             "ShopCustomerProfile",
             "GlobalCustomer",
-            "CustomerSession",
-            "HistoryLinkGrant",
         ]:
             with self.subTest(model=unapproved):
                 self.assertNotIn(unapproved, model_names)

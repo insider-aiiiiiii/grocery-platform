@@ -202,3 +202,81 @@ class CustomerSession(models.Model):
             and now < self.expires_at
             and now < self.created_at + timedelta(days=30)
         )
+
+
+class HistoryLinkGrantManager(models.Manager):
+    """Issue and atomically consume one-time credentials for a profile's history link."""
+
+    @transaction.atomic
+    def issue(self, *, customer, purpose):
+        customer = Customer.objects.select_related("shop").get(pk=customer.pk)
+        now = timezone.now()
+        secret = secrets.token_urlsafe(32)
+        grant = self.create(
+            customer=customer,
+            shop=customer.shop,
+            purpose=purpose,
+            token_digest=hashlib.sha256(secret.encode("ascii")).hexdigest(),
+            expires_at=now + timedelta(minutes=15),
+        )
+        return grant, secret
+
+    @transaction.atomic
+    def consume(self, secret, *, customer, shop, purpose):
+        digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+        now = timezone.now()
+        grant = (
+            self.select_for_update()
+            .filter(
+                token_digest=digest,
+                customer=customer,
+                shop=shop,
+                purpose=purpose,
+                consumed_at__isnull=True,
+                revoked_at__isnull=True,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if grant is None:
+            return None
+        grant.consumed_at = now
+        grant.save(update_fields=["consumed_at"])
+        return grant
+
+
+class HistoryLinkGrant(models.Model):
+    """Digest-only, single-use, short-lived grant bound to one profile and Shop."""
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="history_link_grants")
+    shop = models.ForeignKey("shops.Shop", on_delete=models.CASCADE, related_name="customer_history_grants")
+    purpose = models.CharField(max_length=64)
+    token_digest = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    objects = HistoryLinkGrantManager()
+
+    class Meta:
+        indexes = [models.Index(fields=["customer", "shop", "purpose", "expires_at"], name="cust_hist_grant_scope_idx")]
+        constraints = [
+            models.CheckConstraint(check=models.Q(expires_at__gt=models.F("created_at")), name="cust_hist_grant_exp_after_create"),
+            models.CheckConstraint(check=~(models.Q(consumed_at__isnull=False) & models.Q(revoked_at__isnull=False)), name="cust_hist_grant_single_terminal_state"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.customer_id and self.shop_id and self.customer.shop_id != self.shop_id:
+            raise ValidationError({"shop": "History link grants must use the Customer profile's Shop."})
+
+    def save(self, *args, **kwargs):
+        if self.customer_id and self.shop_id and self.customer.shop_id != self.shop_id:
+            raise ValidationError({"shop": "History link grants must use the Customer profile's Shop."})
+        return super().save(*args, **kwargs)
+
+    @property
+    def is_active(self):
+        now = timezone.now()
+        return self.consumed_at is None and self.revoked_at is None and now < self.expires_at
