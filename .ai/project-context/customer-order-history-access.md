@@ -406,7 +406,7 @@ This is the only detailed register for remaining AUTH-015/016/017/018 decisions.
 
 Bearer links can be forwarded or compromised; session theft remains possible until expiry/revocation. Mitigations are scoped/minimized history, 15-minute one-use links, secure cookie, logout/replacement, rate limits, and secret redaction. Provider delivery confirmation does not prove who opened the link. No OTP or phone-number-only access is introduced.
 
-The design does not create customer accounts or grant Customer sessions access to merchant/admin APIs. Exact technical proposals in §§3–12 require review; the fixed requirements in §2 remain approved. **Application implementation has not started:** no Customer/Order model, migration, endpoint, frontend, cookie authenticator, provider, or background worker exists in the repository.
+The design does not create customer accounts or grant Customer sessions access to merchant/admin APIs. Exact technical proposals in §§3–12 require review; the fixed requirements in §2 remain approved. ORD-008 adds a digest-only, Shop-profile-scoped `CustomerSession`, dedicated cookie authentication with Django CSRF/Origin validation, and the pending Order cancellation transition with atomic reservation release. The one-use link grant/request/exchange flow, browser landing page, authenticated CSRF bootstrap/cookie issuance, history APIs, provider, and background worker remain unimplemented. The ORD-008 endpoint uses the current `customers.Customer` model as the Shop-scoped profile; remaining technical, privacy, and deployment decisions in §12 are not resolved by that implementation.
 
 ## 14. References
 

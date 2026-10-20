@@ -1,7 +1,11 @@
+import hashlib
 import re
+import secrets
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 
 
 def normalize_whatsapp_number(value: str) -> str:
@@ -149,3 +153,52 @@ class Customer(models.Model):
             )
 
         super().save(*args, **kwargs)
+
+
+class CustomerSessionManager(models.Manager):
+    """Issue opaque credentials for the one active session of a Shop profile."""
+
+    @transaction.atomic
+    def issue_for_profile(self, profile):
+        profile = Customer.objects.select_for_update().get(pk=profile.pk)
+        now = timezone.now()
+        self.filter(customer=profile, revoked_at__isnull=True).update(revoked_at=now)
+        secret = secrets.token_urlsafe(32)
+        session = self.create(
+            customer=profile,
+            token_digest=hashlib.sha256(secret.encode("ascii")).hexdigest(),
+            expires_at=now + timedelta(days=30),
+        )
+        return session, secret
+
+
+class CustomerSession(models.Model):
+    """A dedicated, digest-only session bound to exactly one Shop Customer profile."""
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="sessions")
+    token_digest = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    objects = CustomerSessionManager()
+
+    class Meta:
+        indexes = [models.Index(fields=["customer", "revoked_at", "expires_at"], name="customers_sess_scope_exp_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["customer"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="customers_session_one_active_profile",
+            ),
+            models.CheckConstraint(check=models.Q(expires_at__gt=models.F("created_at")), name="customers_session_expiry_after_create"),
+        ]
+
+    @property
+    def is_active(self):
+        now = timezone.now()
+        return (
+            self.revoked_at is None
+            and now < self.expires_at
+            and now < self.created_at + timedelta(days=30)
+        )

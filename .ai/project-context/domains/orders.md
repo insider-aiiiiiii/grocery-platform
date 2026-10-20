@@ -171,7 +171,7 @@ The approved repeat-customer/order-history flow must not require OTP. Knowledge 
 
 Do not assume a traditional customer account/login. The approved link/token must not expose Orders outside its Customer and Shop scope or make private order/customer information publicly accessible.
 
-The scoped Customer session is the approved proof for the Customer's own `PENDING` Order cancellation. AUTH-017/018 propose its API and transaction contract in `.ai/project-context/customer-order-history-access.md`; these are pending review and no Order or Customer API is implemented.
+The scoped Customer session is the approved proof for the Customer's own `PENDING` Order cancellation. ORD-008 implements `POST /api/v1/customer/orders/{order_id}/cancellation/` with `{ "confirmed": true }`, using the current Shop-scoped `customers.Customer` profile as the `ShopCustomerProfile` scope root. The endpoint requires the dedicated Customer session cookie, a valid CSRF token, and an Origin header accepted by Django's same-origin/`CSRF_TRUSTED_ORIGINS` policy. Link request/exchange and cookie/CSRF-token bootstrap remain unimplemented; see `.ai/project-context/customer-order-history-access.md` §12 for the deployment and API decisions still open.
 
 ## 22. Order Cancellation
 
