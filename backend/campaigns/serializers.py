@@ -74,3 +74,24 @@ class CampaignSerializer(serializers.ModelSerializer):
             )
 
         return attrs
+
+
+class PublicCampaignSerializer(serializers.ModelSerializer):
+    """
+    Public customer-facing serializer for active campaigns applicable to a Shop.
+    Exposes customer-approved fields: id, title, content, status, starts_at, ends_at.
+    Internal targeting lists (selected_shops, shop_scope) and audit fields are omitted.
+    """
+
+    class Meta:
+        model = Campaign
+        fields = [
+            "id",
+            "title",
+            "content",
+            "status",
+            "starts_at",
+            "ends_at",
+        ]
+        read_only_fields = fields
+

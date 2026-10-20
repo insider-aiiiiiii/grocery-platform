@@ -38,8 +38,10 @@ from cart.views import (
     PublicShopCartDetailView,
     PublicShopCartView,
 )
+from campaigns.views import PublicShopCampaignListView
 
 app_name = "shops"
+
 
 urlpatterns = [
     path("", ShopCreateView.as_view(), name="shop-create"),
@@ -66,6 +68,7 @@ urlpatterns = [
     path("me/regenerate-qr/", MerchantShopQRRegenerationForbiddenView.as_view(), name="shop-me-regenerate-qr"),
     path("regenerate-qr/", MerchantShopQRRegenerationForbiddenView.as_view(), name="shop-regenerate-qr"),
     path("public/<slug:public_slug>/", PublicShopDetailView.as_view(), name="shop-public-detail"),
+    path("public/<slug:public_slug>/campaigns/", PublicShopCampaignListView.as_view(), name="shop-public-campaigns-list"),
     path("public/<slug:public_slug>/catalog/", PublicShopCatalogSummaryView.as_view(), name="shop-public-catalog"),
     path("public/<slug:public_slug>/products/", PublicShopProductListView.as_view(), name="shop-public-products-list"),
     path("public/<slug:public_slug>/products/<int:pk>/", PublicShopProductDetailView.as_view(), name="shop-public-products-detail"),
