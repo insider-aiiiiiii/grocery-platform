@@ -21,6 +21,8 @@ from .serializers import (
     RefreshSerializer,
     SuperAdminAdministrativeResetConfirmSerializer,
     SuperAdminAdministrativeResetRequestSerializer,
+    SuperAdminCreateMerchantSerializer,
+    SuperAdminCreatedMerchantSerializer,
     SuperAdminRecoveryConfirmSerializer,
     SuperAdminRecoveryContactSerializer,
     SuperAdminLoginSerializer,
@@ -151,6 +153,17 @@ class SuperAdminLoginView(APIView):
             "user": {"id": user.pk, "role": user.role, "shop_id": None},
             "must_change_password": False,
         })
+
+
+class SuperAdminCreateMerchantView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request):
+        serializer = SuperAdminCreateMerchantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        merchant = serializer.save()
+        response_data = SuperAdminCreatedMerchantSerializer(merchant).data
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class RefreshView(APIView):
