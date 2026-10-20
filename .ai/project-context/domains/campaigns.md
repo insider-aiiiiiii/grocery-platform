@@ -172,14 +172,17 @@ Business behavior listed above is finalized for the MVP. Remaining choices are t
 - Shop display scope is stored in a `shop_scope` field with `ALL_SHOPS` and `SELECTED_SHOPS` values. Selected Shops are represented by a many-to-many relationship to `Shop`; that relationship defines display scope, not ownership. It is ignored for `ALL_SHOPS`.
 - Campaign content is stored as a title and free-form text. Product, category, brand, and Shop mentions remain content; no Catalog target relationships are added.
 - Optional schedule bounds are nullable `DateTimeField` values. With the project's `USE_TZ = True` configuration and UTC `TIME_ZONE`, timestamps are timezone-aware and stored in UTC; no Shop-local timezone is persisted. When both bounds exist, the start must not be later than the end.
-- Expiring an Active campaign still needs application-level schedule evaluation to transition it to Ended; the model does not add a scheduler or endpoint.
+- The Super Admin management API is available under `/api/v1/campaigns/` and uses the existing authenticated Super Admin permission.
+- Campaign creation defaults to Draft. The API supports list, retrieve, create, update, and delete; only Draft campaigns may be updated or deleted.
+- `POST /api/v1/campaigns/{id}/activate/` transitions Draft to Active. It rejects Ended campaigns and Draft campaigns whose configured end time has passed.
+- `POST /api/v1/campaigns/{id}/deactivate/` transitions Active to Draft. Deactivating does not make an Ended campaign reactivatable.
+- Selected-Shop scope requires at least one existing Shop. Shop IDs are targeting only and do not grant Shop or Merchant campaign-management rights.
+- Expiry is evaluated on authorized campaign API requests: Active campaigns whose configured end time is reached are transitioned to Ended. No scheduler or public campaign retrieval endpoint is introduced by this API.
 
 ### Remaining technical/design choices
 
 | Technical/design choice | Why it remains open | Area |
 |---|---|---|
-| API shape and authorization enforcement | Endpoints and permission implementation are not specified. | Campaigns, Users |
-| Schedule evaluation mechanism | The optional time-window behavior and UTC storage are defined; the runtime mechanism for transitioning an expired Active campaign to Ended is not. | Campaigns |
 | Physical deletion, retention, and archival mechanics | Normal management behavior is approved, but storage-level retention/deletion mechanics are not. | Campaigns |
 | Customer-facing placement and presentation format | Visibility rules are approved, but exact storefront placement remains a product/UI design detail. | Campaigns, customer-facing product |
 
@@ -200,14 +203,14 @@ This specification does not define the following:
 - analytics vendor or metric definitions
 - frontend UI implementation
 - database schema or migrations
-- API endpoints or serializers
+- public customer-facing campaign retrieval endpoints and storefront placement
 - background-job infrastructure
 - advanced marketing automation
 - customer segmentation infrastructure unless explicitly approved
 
 ## 25. Implementation Gate
 
-> Campaign business rules, the initial model schema, Shop display-scope representation, and UTC schedule storage are finalized. API/authorization, runtime schedule evaluation, and retention mechanics remain future technical work.
+> Campaign business rules, the initial model schema, Shop display-scope representation, UTC schedule storage, and the Super Admin management API are finalized. Public campaign retrieval and retention mechanics remain outside this implementation.
 
 Implementation must follow `AGENTS.md`, the product and architecture documentation, the relevant domain files, and engineering standards. Do not add campaign capabilities excluded from MVP or silently change approved business behavior.
 

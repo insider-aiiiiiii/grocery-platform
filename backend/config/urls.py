@@ -46,6 +46,7 @@ urlpatterns = [
     path('api/v1/auth/logout/', LogoutView.as_view(), name='auth-logout'),
     path('api/v1/auth/refresh/', RefreshView.as_view(), name='auth-refresh'),
     path('api/v1/shops/', include('shops.urls')),
+    path('api/v1/', include('campaigns.urls')),
     path('api/v1/catalog/', include('catalog.urls')),
     path('api/v1/inventory/', include('inventory.urls')),
     path('api/v1/customers/', include('customers.urls')),
@@ -55,4 +56,3 @@ urlpatterns = [
     path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/master-products/', include((catalog_direct_router.urls, 'master-products-direct'))),
 ]
-
