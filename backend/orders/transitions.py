@@ -151,7 +151,10 @@ def _transition(shop_id, order_id, action, *, payload=None, actor=None):
 
 
 def _accept_order(order, adjustments, now, actor):
-    order_items = {item.pk: item for item in order.items.select_for_update().select_related("product", "variant")}
+    order_items = {
+        item.pk: item
+        for item in order.items.select_for_update(of=("self",)).select_related("product", "variant")
+    }
     requested = {entry["item_id"]: entry["quantity"] for entry in adjustments}
     unknown_ids = set(requested) - set(order_items)
     if unknown_ids:

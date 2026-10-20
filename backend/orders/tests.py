@@ -90,9 +90,13 @@ class OrderModelTests(TestCase):
             price=Decimal("140.00"),
         )
 
+    def create_order(self, **kwargs):
+        kwargs.setdefault("fulfillment_type", Order.FulfillmentType.PICKUP)
+        return Order.objects.create(**kwargs)
+
     def test_order_creation_with_snapshots(self):
         """Order successfully stores checkout-time customer, delivery, and financial snapshots."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -117,10 +121,20 @@ class OrderModelTests(TestCase):
         self.assertTrue(order.is_home_delivery)
         self.assertFalse(order.is_expired)
         self.assertTrue(order.can_customer_cancel)
+        OrderDeliveryAddress.objects.create(
+            order=order,
+            recipient_name="Rahul Sharma",
+            recipient_phone="+919123456789",
+            address_line="123 Market St",
+            area="Koramangala",
+            city="Bengaluru",
+            state="Karnataka",
+            pincode="560034",
+        )
 
     def test_order_item_creation_and_frozen_snapshots(self):
         """Order item stores frozen catalog snapshots; later product edits do not affect it."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -155,7 +169,7 @@ class OrderModelTests(TestCase):
 
     def test_home_delivery_address_snapshot(self):
         """Home delivery order requires and creates an immutable delivery address snapshot."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -181,7 +195,7 @@ class OrderModelTests(TestCase):
 
     def test_pickup_order_rejects_delivery_address(self):
         """Pickup orders must not have a delivery address."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -226,7 +240,7 @@ class OrderModelTests(TestCase):
             name="External Milk",
             price=Decimal("30.00"),
         )
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -247,7 +261,7 @@ class OrderModelTests(TestCase):
 
     def test_completed_order_requires_paid_status(self):
         """An order cannot be marked COMPLETED while UNPAID."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -282,7 +296,7 @@ class OrderModelTests(TestCase):
 
     def test_rejection_actor_and_reason_metadata(self):
         """Preserves semantic audit metadata for rejection, customer cancellation, and expiry."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -301,12 +315,23 @@ class OrderModelTests(TestCase):
 
     def test_merchant_controlled_partial_quantity_adjustment(self):
         """Merchant reduces fulfillable quantity; recalculate_totals updates subtotal and total."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
             customer_phone_snapshot="+919123456789",
+            fulfillment_type=Order.FulfillmentType.HOME_DELIVERY,
             delivery_charge_snapshot=Decimal("30.00"),
+        )
+        OrderDeliveryAddress.objects.create(
+            order=order,
+            recipient_name="Rahul Sharma",
+            recipient_phone="+919123456789",
+            address_line="123 Market St",
+            area="Koramangala",
+            city="Bengaluru",
+            state="Karnataka",
+            pincode="560034",
         )
 
         item1 = OrderItem.objects.create(
@@ -345,7 +370,7 @@ class OrderModelTests(TestCase):
 
     def test_quantity_cannot_exceed_ordered_quantity(self):
         """Item quantity cannot exceed originally ordered quantity."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -366,7 +391,7 @@ class OrderModelTests(TestCase):
 
     def test_catalog_deletion_does_not_delete_order_item(self):
         """Deleting a ShopProduct or ProductVariant sets FK to NULL but preserves OrderItem."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -402,7 +427,7 @@ class OrderModelTests(TestCase):
 
     def test_customer_deletion_protected_by_order(self):
         """Deleting a customer with historical orders is protected and raises ProtectedError."""
-        Order.objects.create(
+        self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -414,7 +439,7 @@ class OrderModelTests(TestCase):
 
     def test_shop_deletion_cascades_orders(self):
         """Deleting a Shop permanently deletes all its Orders and OrderItems."""
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -436,7 +461,7 @@ class OrderModelTests(TestCase):
 
     def test_idempotency_key_uniqueness_per_shop(self):
         """Idempotency key is unique per Shop; different shops can reuse key."""
-        Order.objects.create(
+        self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",
@@ -445,8 +470,8 @@ class OrderModelTests(TestCase):
         )
 
         # Same shop with duplicate key must fail unique constraint
-        with self.assertRaises(IntegrityError):
-            Order.objects.create(
+        with self.assertRaises((IntegrityError, ValidationError)):
+            self.create_order(
                 shop=self.shop,
                 customer=self.customer,
                 customer_name_snapshot="Rahul Sharma",
@@ -460,7 +485,7 @@ class OrderModelTests(TestCase):
             name="Other Customer",
             whatsapp_number="+919777766666",
         )
-        other_order = Order.objects.create(
+        other_order = self.create_order(
             shop=self.other_shop,
             customer=other_customer,
             customer_name_snapshot="Other Customer",
@@ -472,7 +497,7 @@ class OrderModelTests(TestCase):
     def test_expiry_and_cancellation_helpers(self):
         """Tests is_expired, can_customer_cancel, and can_merchant_cancel helper properties."""
         now = timezone.now()
-        order = Order.objects.create(
+        order = self.create_order(
             shop=self.shop,
             customer=self.customer,
             customer_name_snapshot="Rahul Sharma",

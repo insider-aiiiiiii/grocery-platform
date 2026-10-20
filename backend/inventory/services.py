@@ -130,7 +130,7 @@ def _get_target_item_locked(
             raise ValidationError(
                 "Independent manual changes to aggregate Product stock for a variant-based product are superseded and not permitted."
             )
-        item = InventoryItem.objects.select_for_update().filter(
+        item = InventoryItem.objects.select_for_update(of=("self",)).filter(
             shop=shop,
             product=target,
             variant__isnull=True,
@@ -142,13 +142,13 @@ def _get_target_item_locked(
                 variant=None,
                 defaults={"quantity": Decimal("0.000"), "reserved_quantity": Decimal("0.000")},
             )
-            item = InventoryItem.objects.select_for_update().get(id=item.id)
+            item = InventoryItem.objects.select_for_update(of=("self",)).get(id=item.id)
         return item
 
     if isinstance(target, ProductVariant):
         if target.product.shop_id != shop.id:
             raise ValidationError("Target variant does not belong to the authorized shop.")
-        item = InventoryItem.objects.select_for_update().filter(
+        item = InventoryItem.objects.select_for_update(of=("self",)).filter(
             shop=shop,
             product=target.product,
             variant=target,
@@ -160,7 +160,7 @@ def _get_target_item_locked(
                 variant=target,
                 defaults={"quantity": Decimal("0.000"), "reserved_quantity": Decimal("0.000")},
             )
-            item = InventoryItem.objects.select_for_update().get(id=item.id)
+            item = InventoryItem.objects.select_for_update(of=("self",)).get(id=item.id)
         return item
 
     raise ValidationError("Target must be a ShopProduct or ProductVariant.")

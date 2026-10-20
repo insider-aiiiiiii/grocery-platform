@@ -62,7 +62,7 @@ def _create_order(shop, payload, idempotency_key):
             raise ValidationError({"fulfillment_type": "Home delivery is not available at this Shop."})
 
         cart_items = list(
-            cart.items.select_for_update()
+            cart.items.select_for_update(of=("self",))
             .select_related("product", "variant", "variant__product")
             .order_by("pk")
         )
@@ -175,6 +175,13 @@ def create_order(shop, payload, idempotency_key):
         return _create_order(shop, payload, idempotency_key)
     except IntegrityError:
         # A simultaneous request may win the unique idempotency constraint.
+        existing = _get_idempotent_order(shop, idempotency_key)
+        if existing:
+            return existing, False
+        raise
+    except DjangoValidationError:
+        # Model full_clean() can detect the unique key after a concurrent request commits,
+        # before the database insert reaches the IntegrityError path above.
         existing = _get_idempotent_order(shop, idempotency_key)
         if existing:
             return existing, False
