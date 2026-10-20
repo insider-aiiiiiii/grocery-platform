@@ -9,7 +9,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 from cart.models import Cart
 from cart.validators import validate_product_orderable_and_available
 from customers.models import Customer, normalize_whatsapp_number
-from inventory.services import reserve_order_items_stock
+from inventory.services import reserve_order_creation_stock
 from orders.models import Order, OrderDeliveryAddress, OrderItem
 from shops.models import Shop
 
@@ -98,7 +98,7 @@ def _create_order(shop, payload, idempotency_key):
             })
 
         try:
-            reserve_order_items_stock(shop, inventory_entries)
+            reserve_order_creation_stock(shop, inventory_entries)
         except DjangoValidationError as exc:
             raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
 
