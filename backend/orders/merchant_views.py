@@ -73,7 +73,7 @@ class MerchantOrderViewSet(viewsets.ReadOnlyModelViewSet):
             serializer = input_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             payload = serializer.validated_data
-        order, expired = transition_order(order.shop_id, order.pk, action_name, payload)
+        order, expired = transition_order(order.shop_id, order.pk, action_name, payload, actor=request.user)
         if expired:
             return Response(
                 {"detail": "The pending Order expired and was rejected; reserved stock was released."},
