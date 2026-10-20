@@ -133,57 +133,75 @@ The system must not allow notifications to:
 
 unless a new approved business rule explicitly decides otherwise.
 
-## 6. Notification Identity
+## 6. Notification Identity & Schema Specification
 
-A notification conceptually needs an identity and delivery context, but the product requirements do not define a final schema or field set.
+A notification represents an approved communication intent created in response to a business event. The platform implements two primary data models for notification delivery:
 
-Possible conceptual attributes include:
+### 6.1 `NotificationTemplate` (Database-Driven Admin Model)
+Administrators configure approved WhatsApp templates corresponding to the 7 canonical business events. No unapproved events can be configured.
 
-- notification identifier
-- related business event
-- event type
-- recipient actor or contact
-- recipient type
-- shop context
-- channel
-- title or subject
-- message body/content
-- status
-- created timestamp
-- scheduled timestamp
-- sent timestamp
-- failure timestamp
-- provider reference
-- retry count
-- provider error details
+| Field | Type | Description |
+|---|---|---|
+| `id` | BigAutoField | Primary key |
+| `event_type` | CharField (unique) | One of the 7 approved event types (e.g., `NEW_ORDER`, `ORDER_RECEIVED_CUSTOMER`) |
+| `template_name` | CharField(100) | Meta WhatsApp Cloud API registered template name (e.g., `order_received_v1`) |
+| `language_code` | CharField(10) | BCP-47 language tag (e.g., `en_US`, `hi_IN`, default `en_US`) |
+| `body_format` | TextField | Human-readable message template format with parameter placeholders (e.g., `{{shop_name}}`) |
+| `is_active` | BooleanField | Flag indicating whether this template is active for dispatch |
+| `created_at` / `updated_at` | DateTimeField | Standard audit timestamps |
 
-These are conceptual only. The product requirements do not finalize database fields or a notification schema.
+### 6.2 `NotificationOutbox` (Reference-Only Dispatch Model)
+Records reference-only delivery intent committed in the same database transaction as the underlying order event.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUIDField (pk) | Unique notification UUID |
+| `shop` | ForeignKey(`shops.Shop`) | Shop tenant context; cascade deleted on Shop removal |
+| `order_id` | UUIDField (indexed) | Public or canonical reference of the originating Order |
+| `event_type` | CharField(50) | Canonical event type matching the 7 approved events |
+| `recipient_type` | CharField(20) | `MERCHANT` or `CUSTOMER` |
+| `recipient_phone` | CharField(20) | Authoritative normalized E.164 phone string (e.g., `+919876543210`) |
+| `template` | ForeignKey(`NotificationTemplate`) | Configured template reference |
+| `template_context` | JSONField | Dynamic parameter key-value pairs (e.g., `{"shop_name": "Fresh Market", ...}`) |
+| `status` | CharField(30) | Current lifecycle state (see §7) |
+| `retry_count` | IntegerField | Number of transient delivery attempts (default 0) |
+| `next_retry_at` | DateTimeField (nullable) | Scheduled time for the next retry attempt (indexed for worker leasing) |
+| `provider_message_id` | CharField(100, nullable) | Unique message ID returned by Meta Cloud API (`wamid.HBgL...`) |
+| `provider_error_details` | JSONField (nullable) | Error code, message, and diagnostic payload from provider |
+| `created_at` | DateTimeField | Creation timestamp (used for 30-day retention cutoff) |
+| `submitted_at` | DateTimeField (nullable) | Timestamp when Meta Cloud API accepted the message payload |
+| `delivered_at` | DateTimeField (nullable) | Timestamp when Meta confirmed delivery via webhook |
+
+**Database Constraints & Indexes**:
+- `UniqueConstraint(fields=["order_id", "event_type", "recipient_phone"], name="notif_outbox_order_event_recipient_uniq")`: Strict idempotency barrier preventing duplicate outbox records for the same business event and recipient.
+- `Index(fields=["status", "next_retry_at", "created_at"], name="notif_outbox_worker_lease_idx")`: Optimized composite index for worker batch row-leasing.
 
 ## 7. Notification Lifecycle
 
-The product requirements do not specify a complete final notification lifecycle. The following are possible conceptual states, but they are not automatically approved:
+The notification delivery lifecycle follows a monotonic state machine:
 
 ```text
-PENDING
-PROCESSING
-SENT
-FAILED
-CANCELLED
+PENDING (created in order transaction)
+   ↓
+LEASED (locked by worker process)
+   ↓
+SUBMITTED (accepted by Meta Cloud API; provider_message_id stored)
+   ↓
+DELIVERED (confirmed via authenticated Meta delivery webhook)
+   ↓
+READ (optional: confirmed via authenticated Meta read webhook)
 ```
 
-A future design may use a subset or a different lifecycle. For every notification state, the business must define:
+### State Definitions & Transition Invariants
+- `PENDING`: Outbox record is persisted and awaiting worker selection. `next_retry_at` is null or `<=` now.
+- `LEASED`: Locked by a worker instance using PostgreSQL `select_for_update(skip_locked=True)` with a temporary leasing timestamp.
+- `SUBMITTED`: Meta Cloud API accepted the request with HTTP 200 and returned a `provider_message_id`. **This does not indicate delivery to the handset.**
+- `DELIVERED`: Verified delivery receipt received from Meta webhook callback matching `provider_message_id`.
+- `READ`: Recipient has opened the message (optional terminal success).
+- `FAILED_TRANSIENT_EXHAUSTED`: 3 transient retries have been exhausted without provider acceptance. Terminal failure.
+- `FAILED_PERMANENT`: Immediate terminal failure upon receiving a non-retryable provider error (e.g., malformed phone number, non-WhatsApp number, unapproved template name). No further retries allowed.
 
-- what the state means
-- who or what triggers it
-- whether retries are allowed
-- whether the state is terminal
-- whether the recipient sees the result
-- whether provider confirmation is required
-- whether failure is temporary or permanent
-
-The current product requirements do not provide a finalized state machine; therefore the lifecycle remains subject to later approval.
-
-These are Notification-delivery states only; `CANCELLED` here does not add a separate Order state. Order rejection and cancellation use the approved Order outcome/state documented in the Orders specification.
+**Core Invariant**: A message is **never** reported or recorded as `DELIVERED` merely upon submission to the API; it remains `SUBMITTED` until the authenticated delivery callback is received. Delivery failure never affects or rolls back the originating Order state.
 
 ## 8. Triggering Notifications
 
@@ -329,132 +347,170 @@ Notifications domain
 
 This prevents notification templates from silently becoming a second source of truth for business data.
 
-## 16. Templates
+## 16. Fixed Templates & Parameter Mapping
 
-Use fixed, reviewed templates for each approved event. The product documentation does not require a template-management system.
+The platform uses database-driven `NotificationTemplate` records strictly bound to the 7 approved business events. No additional events may be configured.
 
-Possible template concepts include:
+### 16.1 Template Registry & Placeholder Contracts
 
-- notification type
-- channel
-- subject/title
-- message body
-- placeholders/variables
-- language or localizations
-- status for template activation
-- versioning
+| Event Type | Intended Recipient | Placeholder Variables | Template Copy Example |
+|---|---|---|---|
+| `NEW_ORDER` | Shop's configured merchant WhatsApp number | `shop_name`, `order_number`, `total_amount`, `item_count`, `portal_url` | `New Order #{{order_number}} received for {{shop_name}}! Total: ₹{{total_amount}} ({{item_count}} items). View in merchant portal: {{portal_url}}` |
+| `ORDER_RECEIVED_CUSTOMER` | Customer's stored WhatsApp number | `shop_name`, `order_number`, `total_amount`, `history_link` | `Your order #{{order_number}} from {{shop_name}} has been received! Total: ₹{{total_amount}}. Store will review your order shortly. View order status: {{history_link}}` |
+| `ORDER_ACCEPTED` | Customer's WhatsApp number | `shop_name`, `order_number`, `total_amount` | `Great news! Your order #{{order_number}} has been accepted by {{shop_name}}. Total: ₹{{total_amount}} is confirmed.` |
+| `ORDER_REJECTED` | Customer's WhatsApp number | `shop_name`, `order_number` | `Update: Your order #{{order_number}} could not be accepted by {{shop_name}}. Any reservation has been released.` |
+| `QUANTITY_REDUCED` | Customer's WhatsApp number | `shop_name`, `order_number`, `total_amount` | `Notice: Item quantities for order #{{order_number}} at {{shop_name}} were adjusted by the store. Updated total: ₹{{total_amount}}. Please check order details.` |
+| `CUSTOMER_CANCELLATION` | Shop's configured merchant WhatsApp number | `shop_name`, `order_number` | `Order update: Customer has cancelled pending order #{{order_number}} for {{shop_name}}. Inventory reservations have been released.` |
+| `MERCHANT_CANCELLATION` | Customer's WhatsApp number | `shop_name`, `order_number` | `Important: Your order #{{order_number}} has been cancelled by {{shop_name}}. We apologize for the inconvenience.` |
 
-Template storage, placeholder representation, localization, and versioning remain technical design choices. Templates must communicate only the approved event and use the minimum order information needed by the recipient.
+### 16.2 Dynamic Parameter Resolution & Security Rules
+- All template parameters are serialized into `NotificationOutbox.template_context` as clean key-value pairs during outbox enqueueing.
+- **AUTH-018 Security Rule**: For `ORDER_RECEIVED_CUSTOMER`, the one-use history access token is **never** written to `template_context` or stored in the outbox. The background worker mints the one-use token in memory, stores its cryptographic digest (SHA-256) into `CustomerGrant`, formats the full URL, and sends it directly in the provider payload.
 
-## 17. Delivery Attempts and Failures
+## 17. Delivery Attempts, Bounded Retries, and Error Classification
 
-Notification delivery can fail for recipient-data or provider reasons. The following examples are not an exhaustive failure taxonomy:
+Delivery attempts are tracked per outbox row and categorized into transient and permanent errors:
 
-Potential failure cases include:
+### 17.1 Bounded Retry Policy
+- **Maximum Retries**: 3 attempts (`retry_count` <= 3).
+- **Exponential Backoff**:
+  - Attempt 1: retry after 60 seconds (`now + 1 minute`)
+  - Attempt 2: retry after 300 seconds (`now + 5 minutes`)
+  - Attempt 3: retry after 900 seconds (`now + 15 minutes`)
+- Once retries exceed 3, the status transitions to `FAILED_TRANSIENT_EXHAUSTED`.
 
-- invalid or malformed phone number
-- provider timeout
-- transient provider outage
-- provider rejection
-- rate limiting
-- message queuing failure
-- invalid shop or target configuration
-
-Notifications may need to track:
-
-- retry attempts
-- failed delivery state
-- provider error metadata
-- final delivery outcome
-
-Use bounded retries for transient failures and avoid retries for permanent failures, subject to provider capabilities. Retry limits, error classification, and implementation mechanics remain technical design choices. Failure must remain distinct from Order state.
+### 17.2 Error Classification
+- **Transient Errors** (eligible for retry):
+  - HTTP 408 Request Timeout, HTTP 429 Rate Limit
+  - HTTP 500, 502, 503, 504 Provider Outage / Internal Server Error
+  - Network / TLS socket connection timeout
+- **Permanent Errors** (immediate fast-fail to `FAILED_PERMANENT` without retries):
+  - HTTP 400 Bad Request (invalid phone number format, non-E.164)
+  - Meta Error 131026: Phone number is not registered on WhatsApp
+  - Meta Error 132001: Template does not exist or has not been approved by Meta
+  - Meta Error 132000: Number of template parameters does not match approved definition
 
 ## 18. Idempotency and Duplicate Notifications
 
-Duplicate notification sending is a real business risk, especially for order events that may trigger repeated processing.
+Duplicate notifications are prevented by database constraints:
 
-The required business principle is:
+### 18.1 Database Enforced Idempotency
+`NotificationOutbox` enforces a unique constraint across:
+```sql
+CONSTRAINT notif_outbox_order_event_recipient_uniq UNIQUE (order_id, event_type, recipient_phone)
+```
+- If an order state hook is triggered multiple times for the same order and event, subsequent attempts hit an `IntegrityError` or use `get_or_create` / `bulk_create(ignore_conflicts=True)` and are safely discarded without creating duplicate outbox entries.
+
+### 18.2 Provider Idempotency Header
+During dispatch, the worker sends a unique idempotency key or client reference (`idempotency_key=str(outbox.id)`) to Meta Cloud API to ensure network retries do not result in duplicate WhatsApp messages.
+
+## 19. Provider Boundary & Meta WhatsApp Cloud API Contract
+
+The Notifications domain isolates provider-specific API calls behind an abstract provider adapter:
 
 ```text
-the same business event should not unintentionally produce duplicate messages
+Notifications Business Logic
+            ↓
+    WhatsAppProviderBase (Abstract Adapter)
+            ↓
+┌───────────────────────┬──────────────────────┐
+│ MetaWhatsAppProvider  │ MockWhatsAppProvider │
+└───────────────────────┴──────────────────────┘
+            ↓
+Meta Graph API (https://graph.facebook.com/v20.0/{phone_number_id}/messages)
 ```
 
-Possible ways to define uniqueness include:
-
-- business event identifier
-- order + event type
-- recipient + order + event type
-- channel + order + event + recipient
-
-Prevent unintended duplicate notifications for the same originating event and recipient. The exact key representation and enforcement mechanism are technical design choices; they must preserve this business rule.
-
-## 19. Provider Boundary
-
-The Notifications domain owns the communication behavior, but it must not leak provider-specific logic through the rest of the application.
-
-Conceptually:
-
-```text
-Notifications Domain
-    ↓
-Provider Adapter / Integration Boundary
-    ↓
-External Communication Provider
+### 19.1 `WhatsAppProviderBase` Interface
+```python
+class WhatsAppProviderBase(ABC):
+    @abstractmethod
+    def send_template_message(
+        self,
+        recipient_phone: str,
+        template_name: str,
+        language_code: str,
+        components: list[dict],
+        idempotency_key: str,
+    ) -> ProviderSendResult:
+        pass
 ```
 
-The business domain must not depend directly on provider APIs or provider-specific UI behavior. The provider integration boundary is where acquisition, payload formatting, retry, status handling, and provider-specific requests are handled.
+### 19.2 Meta Cloud API Implementation
+- **Base Endpoint**: `POST https://graph.facebook.com/v20.0/{META_WHATSAPP_PHONE_NUMBER_ID}/messages`
+- **Authentication**: `Authorization: Bearer {META_WHATSAPP_ACCESS_TOKEN}`
+- **Payload Format**:
+  ```json
+  {
+    "messaging_product": "whatsapp",
+    "recipient_type": "individual",
+    "to": "+919876543210",
+    "type": "template",
+    "template": {
+      "name": "order_received_v1",
+      "language": { "code": "en_US" },
+      "components": [
+        {
+          "type": "body",
+          "parameters": [
+            { "type": "text", "text": "Fresh Market" },
+            { "type": "text", "text": "ORD-1234" }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+- **Success Response**: HTTP 200 with `{"messages": [{"id": "wamid.HBgL..."}]}`. The message ID is saved to `NotificationOutbox.provider_message_id`, and status updates to `SUBMITTED`.
 
-The product requirements do not approve a specific WhatsApp provider or delivery platform. Provider-specific design remains outside this domain specification.
+## 20. Webhook Delivery Confirmation & Cryptographic Verification
 
-## 20. Provider Responses and Delivery Status
+A public webhook endpoint `/api/v1/notifications/webhooks/whatsapp/` receives asynchronous status updates from Meta:
 
-There is an important distinction between:
+### 20.1 Webhook Verification Request (GET)
+Meta verifies ownership of the webhook URL upon configuration:
+- Parameters: `hub.mode`, `hub.verify_token`, `hub.challenge`
+- Verification: If `hub.mode == "subscribe"` and `hub.verify_token == settings.META_WHATSAPP_VERIFY_TOKEN`, the endpoint returns `hub.challenge` with HTTP 200.
+- Otherwise returns HTTP 403 Forbidden.
 
-```text
-Notification requested
-```
+### 20.2 Status Notification Callbacks (POST)
+When Meta delivers a status update:
+1. **Signature Verification**:
+   - Reads request header `X-Hub-Signature-256` (`sha256=<hex_digest>`).
+   - Computes expected HMAC-SHA256 of the raw request body using `settings.META_WHATSAPP_APP_SECRET`.
+   - Uses `hmac.compare_digest` for constant-time comparison. Unsigned or invalid requests return HTTP 403.
+2. **Monotonic Status Processing**:
+   - Parses `statuses` array from the payload:
+     - `sent` -> Updates `submitted_at` if not already set.
+     - `delivered` -> Transitions outbox record to `DELIVERED` and sets `delivered_at`.
+     - `read` -> Transitions outbox record to `READ`.
+     - `failed` -> Transitions outbox record to `FAILED_PERMANENT` and records provider error details.
+   - Status updates are idempotent and strictly match on `provider_message_id`.
 
-and:
+## 21. Scheduling and Background Worker Operation
 
-```text
-Provider accepted request
-```
+In strict adherence to the Ponytail minimalism ladder, no external message broker (Celery, Redis, RabbitMQ, Kafka) is introduced into the modular monolith.
 
-and also between:
+### 21.1 Dedicated Django Worker Command
+A dedicated management command `python manage.py run_notification_worker` handles asynchronous outbox processing:
 
-```text
-Message sent
-```
-
-and:
-
-```text
-Message actually delivered to the recipient
-```
-
-Do not mark or report a message as delivered without provider confirmation. Provider-specific means of receiving confirmation remain an integration design choice. Delivery status is tracked separately from Order state.
-
-## 21. Scheduling and Background Processing
-
-Notification events are triggered by the events and timing in Section 2. The product requirements do not prescribe a particular background architecture or processing mechanism. The current repository is a modular monolith and does not require event-driven infrastructure or queue adoption.
-
-This domain should define business requirements such as:
-
-- immediate delivery after an event
-- delayed or scheduled messages
-- retry behavior after failure
-- asynchronous processing if long-running communication is a problem
-
-It must not prematurely select or require a specific infrastructure such as:
-
-- Celery
-- Redis
-- RabbitMQ
-- Kafka
-- SQS
-- event-bus architecture
-
-These are implementation details and are not approved here.
+- **Row Leasing via PostgreSQL `select_for_update(skip_locked=True)`**:
+  ```python
+  with transaction.atomic():
+      candidates = list(
+          NotificationOutbox.objects.select_for_update(skip_locked=True)
+          .filter(
+              status=Status.PENDING,
+              next_retry_at__lte=now,
+          )
+          .order_by("created_at")[:batch_size]
+      )
+      for item in candidates:
+          item.status = Status.LEASED
+          item.save(update_fields=["status"])
+  ```
+- Multiple worker processes can run concurrently without race conditions or duplicate dispatch because `skip_locked=True` automatically skips rows currently locked by other workers.
+- **Sleep Interval**: Defaults to 3 seconds when no pending records exist; processes immediately while records are present.
+- **Safe Transaction Boundary**: HTTP calls to Meta Cloud API occur **outside** database transaction locks to prevent holding open database connections during external network latency.
 
 ## 22. Campaign Relationship
 
@@ -496,42 +552,31 @@ Analytics
     aggregates and reports them if approved
 ```
 
-## 24. Notification History and Retention
+## 24. Notification History and Retention Policy
 
-Keep notification history minimal. The product requirements do not define a retention period or deletion rule; retention must be settled before implementation. Records may need only the information required for delivery status and troubleshooting, such as:
+The platform enforces a strict minimal retention and hard-deletion policy for notification records:
 
-- message content history
-- delivery status history
-- failed and retried attempts
-- provider references
-- audit references
-- customer contact exposure history
+### 24.1 Approved 30-Day Retention Window
+- **Retention Period**: Exactly **30 days** from record creation (`created_at + 30 days`).
+- **Disposal Action**: **Hard deletion**. Expired `NotificationOutbox` rows are permanently purged from the database.
+- **Privacy Rationale**: Hard deletion prevents stale phone numbers, recipient snapshots, and message metadata from lingering in storage, conforming strictly to the project's data minimization and customer privacy standards.
 
-Retention requirements must respect customer privacy and shop isolation. The system should not keep more notification history than is necessary for approved business and compliance behavior.
-
-The exact history fields, retention period, and deletion rule remain open technical/business decisions and must be decided before Notifications is implemented. Do not retain more message content or personal data than necessary. Analytics derived from Notifications delivery history is excluded from MVP.
+### 24.2 Automated Cleanup Command
+A lightweight Django management command handles routine purging:
+```bash
+python manage.py purge_expired_notifications
+```
+- Query: `NotificationOutbox.objects.filter(created_at__lt=timezone.now() - timedelta(days=30)).delete()`
+- Executed periodically (e.g., daily via scheduler/cron).
 
 ## 25. Webhooks and Provider Callbacks
 
-If the external provider supports delivery status callbacks or webhooks, those are part of the provider-integration model rather than the business domain itself. The conceptual flow is:
+Provider status callbacks are fully integrated with the Meta Cloud API:
 
-```text
-Provider callback/webhook
-    ↓
-Notification status update
-    ↓
-Platform records delivery outcome
-```
-
-The product requirements do not require provider callbacks in the current MVP. If they are introduced later, the design must specify:
-
-- callback ownership
-- authentication/validation of provider requests
-- idempotency of callback processing
-- tenant association for the message
-- mapping from provider response to notification status
-
-This should remain a future design concern until approved.
+- **Ownership**: Owned by the Notifications domain under `/api/v1/notifications/webhooks/whatsapp/`.
+- **Authentication**: Strict HMAC-SHA256 signature verification via header `X-Hub-Signature-256` matching `settings.META_WHATSAPP_APP_SECRET`.
+- **Idempotency**: Webhook status updates match `provider_message_id`. Repetitive callbacks do not mutate timestamps or cause duplicate transitions.
+- **Tenant Isolation**: Status updates update only the outbox record tied to the verified `provider_message_id`, preserving shop-scoped integrity.
 
 ## 26. Security
 
@@ -544,9 +589,10 @@ Required business/security principles include:
 - notification reads, retries, and status views must respect authorization
 - provider credential information must never be exposed in source code, logs, or APIs
 - delivery status should not leak sensitive order or customer data to unauthorized actors
-- Webhook and callback validation must confirm sender authenticity
+- Webhook and callback validation must confirm sender authenticity via HMAC-SHA256
 - Notification logs must not record secrets, tokens, or unnecessary personal data
 - customer contact details must be treated as sensitive data
+- Plaintext one-use history access tokens are **never** persisted in the outbox (AUTH-018)
 
 Do not design a notification API that allows arbitrary recipient manipulation, tenant bypass, or exposure of another shop's messages.
 
@@ -582,20 +628,21 @@ The following business invariants are supported by the approved product and arch
 | Notification delivery | Notifications | Owns message creation and delivery processing. |
 | Reporting and metrics | Analytics | Owns summarization and reporting from delivery data where approved. |
 
-## 29. Remaining Decisions
+## 29. Resolved Technical Decisions (NOT-001)
 
-The MVP business rules and notification event matrix are finalized. The following decisions remain before implementation:
+The technical blockers for the Notifications domain have been formally resolved and approved:
 
-| Decision | Classification | Impact |
+| Decision | Final Resolution | Implementation Standard |
 |---|---|---|
-| Notification schema, field set, and status representation | Technical | Delivery tracking representation remains open. |
-| WhatsApp provider, integration contract, and any callback mechanism | Technical | Provider integration design remains open. |
-| Retry limit, transient/permanent error mapping, and scheduling mechanism | Technical | Must implement bounded transient retries subject to provider capabilities. |
-| Idempotency key and enforcement mechanism | Technical | Must prevent duplicate delivery for the same event and recipient. |
-| Phone normalization/formatting and physical recipient representation | Technical | Recipient persistence and provider payloads remain open. |
-| Notification-history fields and retention/deletion policy | Technical/business | Minimal history is required; retention period must be agreed before implementation. |
-| Fixed-template storage and placeholder representation | Technical | Template delivery is required; a management system is not. |
-| APIs, authorization enforcement, and tenant-context implementation | Technical/security | Access must remain Shop-scoped. |
+| **Notification schema & status representation** | Resolved | `NotificationTemplate` (admin model) and `NotificationOutbox` (reference-only dispatch) models defined with monotonic status progression (`PENDING` -> `LEASED` -> `SUBMITTED` -> `DELIVERED` -> `READ` or `FAILED`). |
+| **WhatsApp provider & integration contract** | Resolved | Meta Cloud API (WhatsApp Business Platform) selected behind abstract adapter `WhatsAppProviderBase` (`MetaWhatsAppProvider` and `MockWhatsAppProvider`). |
+| **Retry limit & error classification** | Resolved | Maximum 3 bounded retries with exponential backoff (+1m, +5m, +15m) for transient errors; immediate terminal failure (`FAILED_PERMANENT`) for invalid numbers/templates. |
+| **Idempotency enforcement** | Resolved | Database unique constraint on `(order_id, event_type, recipient_phone)` prevents duplicate enqueueing; `outbox.id` used as provider idempotency key. |
+| **Phone normalization & recipient representation** | Resolved | Recipient stored as canonical E.164 string resolved authoritatively from Shop merchant contact or Customer contact claim. |
+| **Notification history & retention policy** | Resolved | **30-day retention** with scheduled hard deletion via `purge_expired_notifications`. |
+| **Fixed template storage & parameter contract** | Resolved | Admin-managed `NotificationTemplate` model strictly bound to the 7 approved events with clean parameter mappings and zero raw tokens in outbox (AUTH-018). |
+| **Background worker operation** | Resolved | Dedicated Django management command (`run_notification_worker`) using PostgreSQL `select_for_update(skip_locked=True)` row leasing. Zero external broker bloat. |
+| **Webhook delivery confirmation** | Resolved | Public endpoint `/api/v1/notifications/webhooks/whatsapp/` with `hub.verify_token` challenge and `X-Hub-Signature-256` HMAC-SHA256 signature verification. |
 
 No additional channels, events, preferences, campaign messages, or low-stock alerts are approved for MVP.
 
@@ -617,19 +664,13 @@ This specification does not define:
 - delivery-partner logistics
 - analytics implementation
 - frontend UI
-- database schema
-- migrations
-- API endpoints
-- provider SDK contracts
-- background worker infrastructure
-- event-driven architecture
-- vendor-specific integration details without product approval
+- external broker adoption (Celery/Redis/Kafka)
 
-## 31. Implementation Gate
+## 31. Implementation Gate & Readiness
 
-> The Notifications domain must not be implemented until this specification is reviewed and remaining technical/business decisions required for implementation, including notification-history retention, are resolved.
-
-Once approved, implementation must follow the approved documentation hierarchy and engineering standards rather than silently redefining business behavior. This includes `AGENTS.md`, project and domain context documents, and the relevant engineering skills. An implementation agent must not assume unsupported notification channels, message types, or delivery rules.
+> **Status: Gate Passed.** The technical architecture, provider contract (Meta Cloud API), template schema, bounded retry, idempotency constraint, background worker operation, delivery confirmation webhooks, and 30-day retention policy are resolved and approved.
+>
+> Implementation may now proceed with the foundational data models, provider adapter, worker command, and webhook handlers under their respective task identifiers, following the approved specifications.
 
 ## 32. Git Workflow
 
@@ -649,6 +690,3 @@ git checkout -b <task-id>/define-notifications-domain
 - Keep work limited to the notification-domain documentation.
 - Do not modify application code while defining this domain specification.
 
-## Final Requirement
-
-This specification is documentation only. Do not create models, migrations, APIs, serializers, views, workers, provider integrations, or frontend behavior as part of defining Notifications. Do not resolve remaining technical/business decisions by assumption.
