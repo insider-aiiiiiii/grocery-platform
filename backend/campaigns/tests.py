@@ -435,3 +435,294 @@ class CampaignSuperAdminAPITests(TestCase):
         self.assertEqual(campaign.title, "Active Campaign")
         self.assertEqual(campaign.status, Campaign.Status.ACTIVE)
         self.assertTrue(Campaign.objects.filter(pk=campaign.pk).exists())
+
+
+class PublicShopCampaignAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        # Create merchants and shops
+        user_a = User.objects.create_user(
+            username="public_camp_merch_a",
+            email="camp_merch_a@example.com",
+            mobile_number="+919876543220",
+            role=User.Role.MERCHANT,
+        )
+        merchant_a = Merchant.objects.create(user=user_a)
+        self.shop_a = Shop.objects.create(
+            merchant=merchant_a,
+            name="Alpha Fresh Grocery",
+            address_line="10 Alpha St",
+            area="North",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=user_a.mobile_number,
+            public_slug="slug-alpha-shop",
+            status=Shop.Status.ACTIVE,
+        )
+
+        user_b = User.objects.create_user(
+            username="public_camp_merch_b",
+            email="camp_merch_b@example.com",
+            mobile_number="+919876543221",
+            role=User.Role.MERCHANT,
+        )
+        merchant_b = Merchant.objects.create(user=user_b)
+        self.shop_b = Shop.objects.create(
+            merchant=merchant_b,
+            name="Beta Daily Mart",
+            address_line="20 Beta Ave",
+            area="South",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411002",
+            contact_number=user_b.mobile_number,
+            public_slug="slug-beta-shop",
+            status=Shop.Status.ACTIVE,
+        )
+
+        user_deact = User.objects.create_user(
+            username="public_camp_merch_deact",
+            email="camp_merch_deact@example.com",
+            mobile_number="+919876543222",
+            role=User.Role.MERCHANT,
+        )
+        merchant_deact = Merchant.objects.create(user=user_deact)
+        self.shop_deactivated = Shop.objects.create(
+            merchant=merchant_deact,
+            name="Deactivated Mart",
+            address_line="30 Deact Lane",
+            area="West",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411003",
+            contact_number=user_deact.mobile_number,
+            public_slug="slug-deact-shop",
+            status=Shop.Status.DEACTIVATED,
+        )
+
+        user_susp = User.objects.create_user(
+            username="public_camp_merch_susp",
+            email="camp_merch_susp@example.com",
+            mobile_number="+919876543223",
+            role=User.Role.MERCHANT,
+        )
+        merchant_susp = Merchant.objects.create(user=user_susp)
+        self.shop_suspended = Shop.objects.create(
+            merchant=merchant_susp,
+            name="Suspended Mart",
+            address_line="40 Susp Rd",
+            area="East",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411004",
+            contact_number=user_susp.mobile_number,
+            public_slug="slug-susp-shop",
+            status=Shop.Status.SUSPENDED,
+        )
+
+        user_closed = User.objects.create_user(
+            username="public_camp_merch_closed",
+            email="camp_merch_closed@example.com",
+            mobile_number="+919876543224",
+            role=User.Role.MERCHANT,
+        )
+        merchant_closed = Merchant.objects.create(user=user_closed)
+        self.shop_closed = Shop.objects.create(
+            merchant=merchant_closed,
+            name="Closed Mart",
+            address_line="50 Closed Blvd",
+            area="Central",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411005",
+            contact_number=user_closed.mobile_number,
+            public_slug="slug-closed-shop",
+            status=Shop.Status.ACTIVE,
+            is_temporarily_closed=True,
+        )
+
+    def test_public_unauthenticated_access_allowed(self):
+        url = f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_shop_not_found_returns_404(self):
+        url = "/api/v1/shops/public/non-existent-shop-slug/campaigns/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_NOT_FOUND")
+
+    def test_deactivated_shop_returns_404_unavailable(self):
+        url = f"/api/v1/shops/public/{self.shop_deactivated.public_slug}/campaigns/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_UNAVAILABLE")
+
+    def test_suspended_shop_returns_404_unavailable(self):
+        url = f"/api/v1/shops/public/{self.shop_suspended.public_slug}/campaigns/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data.get("code"), "SHOP_UNAVAILABLE")
+
+    def test_temporarily_closed_shop_returns_applicable_campaigns(self):
+        Campaign.objects.create(
+            title="Monsoon Sale",
+            content="Great discounts for everyone",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+        )
+        url = f"/api/v1/shops/public/{self.shop_closed.public_slug}/campaigns/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["title"], "Monsoon Sale")
+
+    def test_returns_all_shops_active_campaigns(self):
+        camp = Campaign.objects.create(
+            title="Platform Mega Deal",
+            content="Available across all stores",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+        )
+
+        res_a = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        res_b = self.client.get(f"/api/v1/shops/public/{self.shop_b.public_slug}/campaigns/")
+
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_a.data), 1)
+        self.assertEqual(len(res_b.data), 1)
+        self.assertEqual(res_a.data[0]["id"], camp.id)
+        self.assertEqual(res_b.data[0]["id"], camp.id)
+
+    def test_returns_selected_shops_campaign_only_for_included_shop(self):
+        camp = Campaign.objects.create(
+            title="Alpha Exclusive Offer",
+            content="Only at Alpha Fresh Grocery",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.SELECTED_SHOPS,
+        )
+        camp.selected_shops.add(self.shop_a)
+
+        res_a = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        res_b = self.client.get(f"/api/v1/shops/public/{self.shop_b.public_slug}/campaigns/")
+
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_a.data), 1)
+        self.assertEqual(res_a.data[0]["id"], camp.id)
+        self.assertEqual(len(res_b.data), 0)
+
+    def test_draft_and_ended_campaigns_are_not_returned(self):
+        Campaign.objects.create(
+            title="Draft Campaign",
+            status=Campaign.Status.DRAFT,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+        )
+        Campaign.objects.create(
+            title="Ended Campaign",
+            status=Campaign.Status.ENDED,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+        )
+
+        res = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+    def test_future_scheduled_campaign_not_returned(self):
+        now = timezone.now()
+        Campaign.objects.create(
+            title="Upcoming Diwali Fest",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+            starts_at=now + timedelta(days=2),
+            ends_at=now + timedelta(days=5),
+        )
+
+        res = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+    def test_expired_campaign_not_returned_and_transitions_to_ended(self):
+        now = timezone.now()
+        camp = Campaign.objects.create(
+            title="Past Flash Sale",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+            ends_at=now - timedelta(seconds=5),
+        )
+
+        res = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data, [])
+
+        camp.refresh_from_db()
+        self.assertEqual(camp.status, Campaign.Status.ENDED)
+
+    def test_active_scheduled_campaign_in_range_is_returned(self):
+        now = timezone.now()
+        camp = Campaign.objects.create(
+            title="Active Weekend Promo",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+            starts_at=now - timedelta(hours=2),
+            ends_at=now + timedelta(hours=2),
+        )
+
+        res = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["id"], camp.id)
+
+    def test_endpoint_parity_between_shops_and_campaigns_routes(self):
+        camp = Campaign.objects.create(
+            title="Dual Route Promo",
+            content="Check both endpoints",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.ALL_SHOPS,
+        )
+
+        url_shop = f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/"
+        url_camp = f"/api/v1/campaigns/public/{self.shop_a.public_slug}/"
+
+        res_shop = self.client.get(url_shop)
+        res_camp = self.client.get(url_camp)
+
+        self.assertEqual(res_shop.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_camp.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_shop.data, res_camp.data)
+        self.assertEqual(res_shop.data[0]["id"], camp.id)
+
+    def test_payload_structure_and_isolation_no_leakage(self):
+        now = timezone.now()
+        camp = Campaign.objects.create(
+            title="Isolated Campaign",
+            content="Strict public schema",
+            status=Campaign.Status.ACTIVE,
+            shop_scope=Campaign.ShopScope.SELECTED_SHOPS,
+            starts_at=now - timedelta(hours=1),
+            ends_at=now + timedelta(hours=3),
+        )
+        camp.selected_shops.add(self.shop_a, self.shop_b)
+
+        res = self.client.get(f"/api/v1/shops/public/{self.shop_a.public_slug}/campaigns/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+
+        item = res.data[0]
+        self.assertEqual(
+            set(item.keys()),
+            {"id", "title", "content", "status", "starts_at", "ends_at"},
+        )
+        self.assertEqual(item["id"], camp.id)
+        self.assertEqual(item["title"], "Isolated Campaign")
+        self.assertEqual(item["content"], "Strict public schema")
+        self.assertEqual(item["status"], "ACTIVE")
+        self.assertNotIn("selected_shops", item)
+        self.assertNotIn("shop_scope", item)
+        self.assertNotIn("created_at", item)
+        self.assertNotIn("updated_at", item)
+
