@@ -10,6 +10,7 @@ from cart.models import Cart
 from cart.validators import validate_product_orderable_and_available
 from customers.models import Customer, normalize_whatsapp_number
 from inventory.services import reserve_order_creation_stock
+from notifications.services import enqueue_order_created_notification
 from orders.models import Order, OrderDeliveryAddress, OrderItem
 from shops.models import Shop
 
@@ -167,6 +168,7 @@ def _create_order(shop, payload, idempotency_key):
 
         order.recalculate_totals(save=True)
         cart.items.all().delete()
+        enqueue_order_created_notification(order)
         return order, True
 
 
