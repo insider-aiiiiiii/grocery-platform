@@ -22,6 +22,15 @@ MERCHANT_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
     },
 }
 
+CUSTOMER_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "NEW_ORDER": {
+        "en": "Hi {shop_name}, I have placed order #{order_number} for ₹{total_amount}. Please confirm availability.",
+        "hi": "नमस्ते {shop_name}, मैंने ₹{total_amount} का ऑर्डर #{order_number} दिया है। कृपया सामान चेक करके बताएं।",
+        "hinglish": "Namaste {shop_name}, maine order #{order_number} place kiya hai total ₹{total_amount} ka. Please check karke confirm karein.",
+    },
+}
+
+
 
 def normalize_whatsapp_phone(phone_raw: Optional[str], default_country_code: str = "91") -> str:
     """
@@ -124,7 +133,13 @@ def get_template_text(event_type: str, language: str, context: Dict[str, str]) -
     except Exception:
         pass
 
-    default_template = MERCHANT_ACTION_TEMPLATES[event_type][language]
+    if event_type in MERCHANT_ACTION_TEMPLATES:
+        default_template = MERCHANT_ACTION_TEMPLATES[event_type][language]
+    elif event_type in CUSTOMER_ACTION_TEMPLATES:
+        default_template = CUSTOMER_ACTION_TEMPLATES[event_type][language]
+    else:
+        raise ValueError(f"Unknown event_type '{event_type}' for template resolution.")
+
     return _hydrate_template(default_template, context)
 
 
@@ -178,4 +193,61 @@ def get_merchant_order_action_links(
         result[lang] = build_whatsapp_link(customer_phone, message_text, default_country_code=default_country_code)
 
     return result
+
+
+def get_customer_order_notification_links(
+    order: Any,
+    language: Optional[str] = None,
+    default_country_code: str = "91",
+) -> Union[str, Dict[str, str], None]:
+    """
+    Generates pre-filled wa.me Click-to-Chat link(s) for a Customer to notify the Merchant
+    regarding their newly created Order (NEW_ORDER).
+
+    Resolves target recipient strictly from order.shop.contact_number.
+    Returns None gracefully if the shop has no valid contact number, preserving
+    strict Order state isolation without interrupting checkout flows.
+    """
+    shop = getattr(order, "shop", None)
+    if not shop:
+        return None
+
+    contact_number = getattr(shop, "contact_number", None)
+    if not contact_number:
+        return None
+
+    try:
+        clean_phone = normalize_whatsapp_phone(contact_number, default_country_code=default_country_code)
+    except ValueError:
+        return None
+
+    order_id = str(getattr(order, "id", ""))
+    short_order_num = order_id[:8] if order_id else "UNKNOWN"
+    shop_name = getattr(shop, "name", "Store")
+    total_amount = str(getattr(order, "total_amount", "0.00"))
+    customer_name = getattr(order, "customer_name_snapshot", "")
+
+    context = {
+        "order_number": short_order_num,
+        "shop_name": shop_name,
+        "total_amount": total_amount,
+        "customer_name": customer_name,
+    }
+
+    if language:
+        lang_key = language.lower().strip()
+        if lang_key not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"Unsupported language '{language}'. Supported languages: {SUPPORTED_LANGUAGES}"
+            )
+        message_text = get_template_text("NEW_ORDER", lang_key, context)
+        return build_whatsapp_link(clean_phone, message_text, default_country_code=default_country_code)
+
+    result: Dict[str, str] = {}
+    for lang in SUPPORTED_LANGUAGES:
+        message_text = get_template_text("NEW_ORDER", lang, context)
+        result[lang] = build_whatsapp_link(clean_phone, message_text, default_country_code=default_country_code)
+
+    return result
+
 

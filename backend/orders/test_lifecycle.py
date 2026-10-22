@@ -174,6 +174,22 @@ class OrderLifecycleAPITests(TestCase):
         self.assertEqual(item.unit_price_snapshot, Decimal("10.00"))
         self.assertEqual(order.customer_name_snapshot, "Checkout Name")
         self.assertEqual(order.customer_phone_snapshot, "+919123450001")
+        self.assertIn("whatsapp_notification_links", response.data)
+        links = response.data["whatsapp_notification_links"]
+        self.assertIsNotNone(links)
+        self.assertEqual(set(links.keys()), {"en", "hi", "hinglish"})
+        self.assertTrue(links["en"].startswith("https://wa.me/919876540001?text="))
+        self.assertTrue(links["hi"].startswith("https://wa.me/919876540001?text="))
+        self.assertTrue(links["hinglish"].startswith("https://wa.me/919876540001?text="))
+
+    def test_checkout_whatsapp_notification_links_isolation_when_shop_contact_missing(self):
+        Shop.objects.filter(pk=self.shop.pk).update(contact_number="")
+        response = self.checkout(key="missing-shop-contact-checkout")
+        self.assertEqual(response.status_code, 201, response.data)
+        order = Order.objects.get(pk=response.data["id"])
+        self.assertEqual(order.status, Order.Status.PENDING)
+        self.assertIn("whatsapp_notification_links", response.data)
+        self.assertIsNone(response.data["whatsapp_notification_links"])
 
     def test_delivery_requires_and_snapshots_address_but_pickup_rejects_address(self):
         missing = self.checkout(payload=self.checkout_payload(
