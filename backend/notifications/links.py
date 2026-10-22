@@ -21,6 +21,21 @@ MERCHANT_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
         "en": "Hello! Regarding your order #{order_number} at {shop_name}: some items were unavailable and quantities were adjusted. Updated total is ₹{total_amount}.",
         "hi": "नमस्ते! {shop_name} पर आपके ऑर्डर #{order_number} में कुछ सामान उपलब्ध नहीं था, इसलिए मात्रा बदली गई है। नया कुल बिल ₹{total_amount} है।",
     },
+    "ORDER_PREPARING": {
+        "hinglish": "Hello! {shop_name} par aapka order #{order_number} pack hona shuru ho gaya hai. Jald hi ready hoga!",
+        "en": "Hello! Your order #{order_number} is being packed at {shop_name} and will be ready soon.",
+        "hi": "नमस्ते! {shop_name} पर आपका ऑर्डर #{order_number} पैक होना शुरू हो गया है। जल्द ही तैयार होगा!",
+    },
+    "ORDER_READY": {
+        "hinglish": "Hello! {shop_name} par aapka order #{order_number} ready hai! Pickup ke liye aa sakte hain ya deliver hone nikal raha hai.",
+        "en": "Hello! Your order #{order_number} is ready at {shop_name}! You can pick it up or it's out for delivery.",
+        "hi": "नमस्ते! {shop_name} पर आपका ऑर्डर #{order_number} तैयार है! आप इसे ले जा सकते हैं या डिलीवरी के लिए निकल रहा है।",
+    },
+    "ORDER_COMPLETED": {
+        "hinglish": "Namaste! {shop_name} par aapka order #{order_number} deliver ho gaya hai. Shopping ke liye thank you! Dobara order karne ke liye is link par click karein: {shop_order_url}",
+        "en": "Hello! Your order #{order_number} from {shop_name} has been delivered. Thank you for shopping with us! To reorder, please visit: {shop_order_url}",
+        "hi": "नमस्ते! {shop_name} पर आपका ऑर्डर #{order_number} डिलीवर हो गया है। खरीदारी के लिए धन्यवाद! दोबारा ऑर्डर करने के लिए इस लिंक पर जाएं: {shop_order_url}",
+    },
 }
 
 CUSTOMER_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
@@ -171,11 +186,14 @@ def get_merchant_order_action_links(
     shop = getattr(order, "shop", None)
     shop_name = getattr(shop, "name", "Store") if shop else "Store"
     total_amount = str(getattr(order, "total_amount", "0.00"))
+    public_slug = getattr(shop, "public_slug", "") if shop else ""
+    shop_order_url = f"/api/v1/shops/public/{public_slug}/" if public_slug else ""
 
     context = {
         "order_number": short_order_num,
         "shop_name": shop_name,
         "total_amount": total_amount,
+        "shop_order_url": shop_order_url,
     }
 
     if language:

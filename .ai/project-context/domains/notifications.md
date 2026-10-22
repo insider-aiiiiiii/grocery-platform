@@ -659,7 +659,7 @@ git checkout -b <task-id>/define-notifications-domain
 - Keep work limited to the notification-domain documentation.
 - Do not modify application code while defining this domain specification.
 
-## 33. WhatsApp Click-to-Chat (`wa.me`) Notification Architecture (NOT-004, NOT-005, NOT-006)
+## 33. WhatsApp Click-to-Chat (`wa.me`) Notification Architecture (NOT-004, NOT-005, NOT-006, NOT-007)
 
 The MVP notification communication model uses direct WhatsApp Click-to-Chat (`wa.me`) draft links, eliminating third-party Meta Cloud API dependencies and SMS aggregators:
 
@@ -669,11 +669,17 @@ The MVP notification communication model uses direct WhatsApp Click-to-Chat (`wa
 - **Hindi (`hi`)**: Retained as an optional fallback for pure Devanagari script.
 - **Default Resolution**: If no language is explicitly requested by a customer or merchant, the system defaults to `hinglish`.
 
-### 33.2 Merchant Action One-Click Links
-When a Merchant triggers order transitions in the ERP / Web App (`accept`, `reject`, `cancel`, or `quantity_reduced`), the response payload immediately includes a pre-filled `whatsapp_action_link`:
-- Targets the Customer's snapshot phone (`order.customer_phone_snapshot`).
-- Pre-filled in the Merchant's default language (`hinglish`).
-- Eliminates repeated manual language dropdowns in ERP workflow.
+### 33.2 Merchant Action One-Click Links Across Full Lifecycle
+When a Merchant triggers order transitions in the ERP / Web App, the response payload immediately includes an optional pre-filled `whatsapp_action_link`:
+- **`accept`**: Emits `ORDER_ACCEPTED` or `QUANTITY_REDUCED` (if quantities were adjusted, displaying the updated bill total).
+- **`prepare`**: Emits `ORDER_PREPARING` informing customer that packing has commenced.
+- **`ready`**: Emits `ORDER_READY` informing customer that the order is packed and ready for pickup or out for delivery.
+- **`complete`**: Emits `ORDER_COMPLETED` containing a warm Thank You message and a direct reorder link (`{shop_order_url}`) targeting the shop's public storefront/QR slug so customers can tap to order again.
+- **`reject` / `cancel`**: Emits `ORDER_REJECTED` informing customer that the order could not be fulfilled.
+
+**Non-Mandatory Progression**:
+- Intermediate updates are completely optional for the merchant; merchant can choose to skip intermediate updates without blocking order state progression.
+- The link targets the Customer's snapshot phone (`order.customer_phone_snapshot`) in default Hinglish (or requested language).
 
 ### 33.3 Customer Checkout Confirmation Screen Integration
 Upon successful order placement via `PublicCheckoutView`:
@@ -684,4 +690,5 @@ Upon successful order placement via `PublicCheckoutView`:
 ### 33.4 Strict Order State Isolation
 - Delivery failure, network interruptions, or customer/merchant cancellation of WhatsApp interaction must **never** roll back, alter, or block order state transitions.
 - Invalid or missing contact numbers safely resolve to `null` links without raising uncaught exceptions.
+
 
