@@ -433,9 +433,18 @@ class OrderLifecycleAPITests(TestCase):
             response = merchant.post(reverse(f"merchant-order-{action}", args=[order.pk]), {}, format="json")
             self.assertEqual(response.status_code, 409, (action, response.data))
 
-        merchant.post(reverse("merchant-order-accept", args=[order.pk]), {}, format="json")
-        merchant.post(reverse("merchant-order-prepare", args=[order.pk]), {}, format="json")
-        merchant.post(reverse("merchant-order-ready", args=[order.pk]), {}, format="json")
+        resp_accept = merchant.post(reverse("merchant-order-accept", args=[order.pk]), {}, format="json")
+        self.assertIn("whatsapp_action_link", resp_accept.data)
+        self.assertIn("accept%20kar%20liya", resp_accept.data["whatsapp_action_link"])
+
+        resp_prep = merchant.post(reverse("merchant-order-prepare", args=[order.pk]), {}, format="json")
+        self.assertIn("whatsapp_action_link", resp_prep.data)
+        self.assertIn("pack%20hona%20shuru", resp_prep.data["whatsapp_action_link"])
+
+        resp_ready = merchant.post(reverse("merchant-order-ready", args=[order.pk]), {}, format="json")
+        self.assertIn("whatsapp_action_link", resp_ready.data)
+        self.assertIn("ready%20hai", resp_ready.data["whatsapp_action_link"])
+
         unpaid_complete = merchant.post(reverse("merchant-order-complete", args=[order.pk]), {}, format="json")
         self.assertEqual(unpaid_complete.status_code, 409)
         paid = merchant.post(
@@ -444,6 +453,10 @@ class OrderLifecycleAPITests(TestCase):
         self.assertEqual(paid.status_code, 200, paid.data)
         completed = merchant.post(reverse("merchant-order-complete", args=[order.pk]), {}, format="json")
         self.assertEqual(completed.status_code, 200, completed.data)
+        self.assertIn("whatsapp_action_link", completed.data)
+        self.assertIn("deliver%20ho%20gaya%20hai", completed.data["whatsapp_action_link"])
+        self.assertIn("thank%20you", completed.data["whatsapp_action_link"])
+        self.assertIn(self.shop.public_slug, completed.data["whatsapp_action_link"])
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.COMPLETED)
         self.assertEqual(order.payment_status, Order.PaymentStatus.PAID)

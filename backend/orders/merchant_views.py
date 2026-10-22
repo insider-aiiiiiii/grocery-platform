@@ -91,6 +91,12 @@ class MerchantOrderViewSet(viewsets.ReadOnlyModelViewSet):
                 event_type = "ORDER_ACCEPTED"
         elif action_name in ("reject", "cancel"):
             event_type = "ORDER_REJECTED"
+        elif action_name == "prepare":
+            event_type = "ORDER_PREPARING"
+        elif action_name == "ready":
+            event_type = "ORDER_READY"
+        elif action_name == "complete":
+            event_type = "ORDER_COMPLETED"
 
         if event_type:
             lang = request.query_params.get("language", "hinglish")

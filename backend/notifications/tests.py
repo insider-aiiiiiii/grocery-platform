@@ -654,6 +654,38 @@ class WhatsAppClickToChatDraftLinksTests(TestCase):
         reject_link = get_merchant_order_action_link(order, "ORDER_REJECTED")
         self.assertIn("nahi%20kar%20pa%20rahe", reject_link)
 
+    def test_get_merchant_order_action_link_full_lifecycle(self):
+        """Verify action links for ORDER_PREPARING, ORDER_READY, and ORDER_COMPLETED with reorder link."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00008",
+            total_amount=Decimal("450.00"),
+        )
+        # 1. Preparing / Packing
+        prep_link = get_merchant_order_action_link(order, "ORDER_PREPARING")
+        self.assertIsNotNone(prep_link)
+        self.assertTrue(prep_link.startswith("https://wa.me/919876500008?text="))
+        self.assertIn("pack%20hona%20shuru", prep_link)
+
+        # 2. Ready for pickup / delivery
+        ready_link = get_merchant_order_action_link(order, "ORDER_READY")
+        self.assertIsNotNone(ready_link)
+        self.assertIn("ready%20hai", ready_link)
+
+        # 3. Completed / Delivered with Thank You and reorder shop URL
+        comp_link = get_merchant_order_action_link(order, "ORDER_COMPLETED")
+        self.assertIsNotNone(comp_link)
+        self.assertIn("deliver%20ho%20gaya%20hai", comp_link)
+        self.assertIn("thank%20you", comp_link)
+        self.assertIn(self.shop.public_slug, comp_link)
+
+        # English version of completed
+        comp_link_en = get_merchant_order_action_links(order, "ORDER_COMPLETED", language="en")
+        self.assertIn("Thank%20you%20for%20shopping%20with%20us", comp_link_en)
+        self.assertIn(self.shop.public_slug, comp_link_en)
+
     def test_get_customer_order_notification_links_single_language(self):
         """Passing specific language returns a single link string."""
         order = Order.objects.create(

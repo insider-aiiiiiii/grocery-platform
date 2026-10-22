@@ -389,9 +389,12 @@ To support the Customer checkout confirmation screen and Merchant one-click orde
 - Ordered items snapshot list (`items`): `product_name`, `variant_name`, `sku`, `quantity`, `unit_price`, `line_total`.
 - Notification links: `whatsapp_notification_links` with `hinglish` (default) and `en` pre-filled links.
 
-### 41.2 Merchant Order Lifecycle Action Link
-In `MerchantOrderViewSet`, successful state transitions (`accept`, `reject`, `cancel`) return:
+### 41.2 Merchant Order Lifecycle Action Link (NOT-006, NOT-007)
+In `MerchantOrderViewSet`, successful state transitions (`accept`, `prepare`, `ready`, `complete`, `reject`, `cancel`) return:
 - Standard `MerchantOrderDetailSerializer` data.
 - `whatsapp_action_link`: Single pre-filled Click-to-Chat link targeting the customer in the merchant's default language (`hinglish`).
+- On `complete`, the action link contains a Thank You message and a direct reorder link (`{shop_order_url}`) targeting the shop's public storefront/QR slug.
+- Intermediate WhatsApp updates are non-mandatory for the merchant.
 - If recipient phone is invalid or missing, `whatsapp_action_link` is `null` without impacting the order state.
+
 
