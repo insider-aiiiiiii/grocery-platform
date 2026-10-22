@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from notifications.links import get_merchant_order_action_link
 from orders.merchant_serializers import (
     MerchantOrderAcceptSerializer,
     MerchantOrderDetailSerializer,
@@ -79,7 +80,24 @@ class MerchantOrderViewSet(viewsets.ReadOnlyModelViewSet):
                 {"detail": "The pending Order expired and was rejected; reserved stock was released."},
                 status=status.HTTP_409_CONFLICT,
             )
-        return Response(MerchantOrderDetailSerializer(order, context=self.get_serializer_context()).data)
+        data = MerchantOrderDetailSerializer(order, context=self.get_serializer_context()).data
+        action_link = None
+        event_type = None
+        if action_name == "accept":
+            from django.db.models import F
+            if order.items.filter(quantity__lt=F("ordered_quantity")).exists():
+                event_type = "QUANTITY_REDUCED"
+            else:
+                event_type = "ORDER_ACCEPTED"
+        elif action_name in ("reject", "cancel"):
+            event_type = "ORDER_REJECTED"
+
+        if event_type:
+            lang = request.query_params.get("language", "hinglish")
+            action_link = get_merchant_order_action_link(order, event_type, language=lang)
+
+        data["whatsapp_action_link"] = action_link
+        return Response(data)
 
     @action(detail=True, methods=["post"])
     def accept(self, request, pk=None):

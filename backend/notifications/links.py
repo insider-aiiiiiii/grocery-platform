@@ -2,31 +2,32 @@ import re
 import urllib.parse
 from typing import Any, Dict, Optional, Union
 
-SUPPORTED_LANGUAGES = ("en", "hi", "hinglish")
+DEFAULT_LANGUAGE = "hinglish"
+SUPPORTED_LANGUAGES = ("hinglish", "en", "hi")
 
 MERCHANT_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
     "ORDER_ACCEPTED": {
+        "hinglish": "Hello! {shop_name} ne aapka order #{order_number} accept kar liya hai aur packing shuru hai. Jaldi deliver karenge!",
         "en": "Hello! Your order #{order_number} has been accepted by {shop_name} and is being packed. We will deliver it soon!",
         "hi": "नमस्ते! {shop_name} ने आपका ऑर्डर #{order_number} स्वीकार कर लिया है और सामान पैक हो रहा है। जल्द ही डिलीवर करेंगे!",
-        "hinglish": "Hello! {shop_name} ne aapka order #{order_number} accept kar liya hai aur packing shuru hai. Jaldi deliver karenge!",
     },
     "ORDER_REJECTED": {
+        "hinglish": "Hello, hum abhi {shop_name} par aapka order #{order_number} accept nahi kar pa rahe hain. Asuvidha ke liye sorry.",
         "en": "Hello, we are unable to accept your order #{order_number} at {shop_name} at this time. Sorry for the inconvenience.",
         "hi": "नमस्ते, हम अभी {shop_name} पर आपका ऑर्डर #{order_number} स्वीकार करने में असमर्थ हैं। असुविधा के लिए हमें खेद है।",
-        "hinglish": "Hello, hum abhi {shop_name} par aapka order #{order_number} accept nahi kar pa rahe hain. Asuvidha ke liye sorry.",
     },
     "QUANTITY_REDUCED": {
+        "hinglish": "Hello! {shop_name} par aapke order #{order_number} me kuch items out of stock the, isliye quantity adjust ki gayi hai. Updated bill ₹{total_amount} hai.",
         "en": "Hello! Regarding your order #{order_number} at {shop_name}: some items were unavailable and quantities were adjusted. Updated total is ₹{total_amount}.",
         "hi": "नमस्ते! {shop_name} पर आपके ऑर्डर #{order_number} में कुछ सामान उपलब्ध नहीं था, इसलिए मात्रा बदली गई है। नया कुल बिल ₹{total_amount} है।",
-        "hinglish": "Hello! {shop_name} par aapke order #{order_number} me kuch items out of stock the, isliye quantity adjust ki gayi hai. Updated bill ₹{total_amount} hai.",
     },
 }
 
 CUSTOMER_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
     "NEW_ORDER": {
+        "hinglish": "Namaste {shop_name}, maine order #{order_number} place kiya hai total ₹{total_amount} ka. Please check karke confirm karein.",
         "en": "Hi {shop_name}, I have placed order #{order_number} for ₹{total_amount}. Please confirm availability.",
         "hi": "नमस्ते {shop_name}, मैंने ₹{total_amount} का ऑर्डर #{order_number} दिया है। कृपया सामान चेक करके बताएं।",
-        "hinglish": "Namaste {shop_name}, maine order #{order_number} place kiya hai total ₹{total_amount} ka. Please check karke confirm karein.",
     },
 }
 
@@ -195,6 +196,28 @@ def get_merchant_order_action_links(
     return result
 
 
+def get_merchant_order_action_link(
+    order: Any,
+    event_type: str,
+    language: str = DEFAULT_LANGUAGE,
+    default_country_code: str = "91",
+) -> Optional[str]:
+    """
+    Generates a single pre-filled wa.me Click-to-Chat link in the merchant's preferred language
+    (default: 'hinglish') to contact the customer upon order acceptance, rejection, or cancellation.
+    Returns None safely if customer phone is missing or unparseable.
+    """
+    try:
+        return get_merchant_order_action_links(
+            order=order,
+            event_type=event_type,
+            language=language,
+            default_country_code=default_country_code,
+        )
+    except Exception:
+        return None
+
+
 def get_customer_order_notification_links(
     order: Any,
     language: Optional[str] = None,
@@ -203,6 +226,10 @@ def get_customer_order_notification_links(
     """
     Generates pre-filled wa.me Click-to-Chat link(s) for a Customer to notify the Merchant
     regarding their newly created Order (NEW_ORDER).
+
+    When language is None, returns a dictionary of primary languages ('hinglish', 'en') for the
+    customer confirmation screen. If a specific language is provided, returns that single link string.
+    If language='all', returns all supported languages.
 
     Resolves target recipient strictly from order.shop.contact_number.
     Returns None gracefully if the shop has no valid contact number, preserving
@@ -234,7 +261,7 @@ def get_customer_order_notification_links(
         "customer_name": customer_name,
     }
 
-    if language:
+    if language and language.lower().strip() != "all":
         lang_key = language.lower().strip()
         if lang_key not in SUPPORTED_LANGUAGES:
             raise ValueError(
@@ -243,8 +270,9 @@ def get_customer_order_notification_links(
         message_text = get_template_text("NEW_ORDER", lang_key, context)
         return build_whatsapp_link(clean_phone, message_text, default_country_code=default_country_code)
 
+    target_languages = SUPPORTED_LANGUAGES if language == "all" else ("hinglish", "en")
     result: Dict[str, str] = {}
-    for lang in SUPPORTED_LANGUAGES:
+    for lang in target_languages:
         message_text = get_template_text("NEW_ORDER", lang, context)
         result[lang] = build_whatsapp_link(clean_phone, message_text, default_country_code=default_country_code)
 

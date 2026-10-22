@@ -18,10 +18,12 @@ from customers.models import Customer, normalize_whatsapp_number
 from inventory.models import InventoryItem
 from notifications.links import (
     CUSTOMER_ACTION_TEMPLATES,
+    DEFAULT_LANGUAGE,
     MERCHANT_ACTION_TEMPLATES,
     SUPPORTED_LANGUAGES,
     build_whatsapp_link,
     get_customer_order_notification_links,
+    get_merchant_order_action_link,
     get_merchant_order_action_links,
     normalize_whatsapp_phone,
     resolve_order_customer_phone,
@@ -605,7 +607,7 @@ class WhatsAppClickToChatDraftLinksTests(TestCase):
         self.assertIn("Yay%21", link)
 
     def test_get_customer_order_notification_links_all_languages(self):
-        """Verifies Customer-to-Merchant NEW_ORDER links target shop contact across EN, HI, Hinglish."""
+        """Verifies Customer-to-Merchant NEW_ORDER links for primary languages (EN, Hinglish) and all."""
         order = Order.objects.create(
             shop=self.shop,
             customer=self.customer,
@@ -614,10 +616,10 @@ class WhatsAppClickToChatDraftLinksTests(TestCase):
             total_amount=Decimal("350.50"),
         )
         short_id = str(order.id)[:8]
+        # Default customer confirmation screen returns primary options: hinglish and en
         links = get_customer_order_notification_links(order)
-
         self.assertIsInstance(links, dict)
-        self.assertEqual(set(links.keys()), {"en", "hi", "hinglish"})
+        self.assertEqual(set(links.keys()), {"en", "hinglish"})
 
         # Targets shop contact number: +91 98765 43210 -> 919876543210
         for lang, url in links.items():
@@ -627,8 +629,30 @@ class WhatsAppClickToChatDraftLinksTests(TestCase):
 
         # Content checks
         self.assertIn("placed%20order", links["en"])
-        self.assertIn("%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87", links["hi"])
         self.assertIn("order%20%23", links["hinglish"])
+
+        # Explicit language="all" includes pure Hindi fallback
+        all_links = get_customer_order_notification_links(order, language="all")
+        self.assertEqual(set(all_links.keys()), {"en", "hi", "hinglish"})
+        self.assertIn("%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87", all_links["hi"])
+
+    def test_get_merchant_order_action_link_default_hinglish(self):
+        """get_merchant_order_action_link returns a single Hinglish URL by default for one-click ERP actions."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00008",
+            total_amount=Decimal("450.00"),
+        )
+        link = get_merchant_order_action_link(order, "ORDER_ACCEPTED")
+        self.assertIsNotNone(link)
+        self.assertTrue(link.startswith("https://wa.me/919876500008?text="))
+        self.assertIn("accept%20kar%20liya", link)
+
+        # Rejection link
+        reject_link = get_merchant_order_action_link(order, "ORDER_REJECTED")
+        self.assertIn("nahi%20kar%20pa%20rahe", reject_link)
 
     def test_get_customer_order_notification_links_single_language(self):
         """Passing specific language returns a single link string."""

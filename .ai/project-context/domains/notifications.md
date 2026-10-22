@@ -659,3 +659,29 @@ git checkout -b <task-id>/define-notifications-domain
 - Keep work limited to the notification-domain documentation.
 - Do not modify application code while defining this domain specification.
 
+## 33. WhatsApp Click-to-Chat (`wa.me`) Notification Architecture (NOT-004, NOT-005, NOT-006)
+
+The MVP notification communication model uses direct WhatsApp Click-to-Chat (`wa.me`) draft links, eliminating third-party Meta Cloud API dependencies and SMS aggregators:
+
+### 33.1 Language Strategy & Defaults
+- **Hinglish (`hinglish`)**: The primary default language for both Customer and Merchant interfaces. Uses natural conversational Hindi in Latin script to maximize readability across diverse user demographics.
+- **English (`en`)**: The secondary selectable language.
+- **Hindi (`hi`)**: Retained as an optional fallback for pure Devanagari script.
+- **Default Resolution**: If no language is explicitly requested by a customer or merchant, the system defaults to `hinglish`.
+
+### 33.2 Merchant Action One-Click Links
+When a Merchant triggers order transitions in the ERP / Web App (`accept`, `reject`, `cancel`, or `quantity_reduced`), the response payload immediately includes a pre-filled `whatsapp_action_link`:
+- Targets the Customer's snapshot phone (`order.customer_phone_snapshot`).
+- Pre-filled in the Merchant's default language (`hinglish`).
+- Eliminates repeated manual language dropdowns in ERP workflow.
+
+### 33.3 Customer Checkout Confirmation Screen Integration
+Upon successful order placement via `PublicCheckoutView`:
+- The response returns `whatsapp_notification_links` with options for `hinglish` and `en`.
+- Includes store identity (`shop_name`, `shop_contact_number`) and line item summaries (`items`) so the customer has full order acknowledgment on the screen.
+- The customer can optionally tap the WhatsApp link to notify the merchant, or skip it entirely.
+
+### 33.4 Strict Order State Isolation
+- Delivery failure, network interruptions, or customer/merchant cancellation of WhatsApp interaction must **never** roll back, alter, or block order state transitions.
+- Invalid or missing contact numbers safely resolve to `null` links without raising uncaught exceptions.
+
