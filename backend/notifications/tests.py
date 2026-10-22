@@ -17,9 +17,11 @@ from catalog.models import ShopProduct
 from customers.models import Customer, normalize_whatsapp_number
 from inventory.models import InventoryItem
 from notifications.links import (
+    CUSTOMER_ACTION_TEMPLATES,
     MERCHANT_ACTION_TEMPLATES,
     SUPPORTED_LANGUAGES,
     build_whatsapp_link,
+    get_customer_order_notification_links,
     get_merchant_order_action_links,
     normalize_whatsapp_phone,
     resolve_order_customer_phone,
@@ -601,6 +603,87 @@ class WhatsAppClickToChatDraftLinksTests(TestCase):
         self.assertIn("Custom%20VIP%20Greeting", link)
         self.assertIn("Kirana%20Superstore", link)
         self.assertIn("Yay%21", link)
+
+    def test_get_customer_order_notification_links_all_languages(self):
+        """Verifies Customer-to-Merchant NEW_ORDER links target shop contact across EN, HI, Hinglish."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00005",
+            total_amount=Decimal("350.50"),
+        )
+        short_id = str(order.id)[:8]
+        links = get_customer_order_notification_links(order)
+
+        self.assertIsInstance(links, dict)
+        self.assertEqual(set(links.keys()), {"en", "hi", "hinglish"})
+
+        # Targets shop contact number: +91 98765 43210 -> 919876543210
+        for lang, url in links.items():
+            self.assertTrue(url.startswith("https://wa.me/919876543210?text="))
+            self.assertIn(short_id, url)
+            self.assertIn("350.50", url)
+
+        # Content checks
+        self.assertIn("placed%20order", links["en"])
+        self.assertIn("%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87", links["hi"])
+        self.assertIn("order%20%23", links["hinglish"])
+
+    def test_get_customer_order_notification_links_single_language(self):
+        """Passing specific language returns a single link string."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00006",
+            total_amount=Decimal("120.00"),
+        )
+        link_en = get_customer_order_notification_links(order, language="en")
+        self.assertTrue(link_en.startswith("https://wa.me/919876543210?text="))
+
+        with self.assertRaises(ValueError):
+            get_customer_order_notification_links(order, language="spanish")
+
+    def test_get_customer_order_notification_links_custom_database_template(self):
+        """Custom active NotificationTemplate for NEW_ORDER overrides built-in default."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00007",
+            total_amount=Decimal("850.00"),
+        )
+        NotificationTemplate.objects.create(
+            event_type="NEW_ORDER",
+            language_code="en",
+            template_name="custom_new_order_en",
+            body_format="Hello Store! I placed order #{order_number} for total ₹{total_amount}. Customer: {customer_name}",
+            is_active=True,
+        )
+        link = get_customer_order_notification_links(order, language="en")
+        self.assertIn("Hello%20Store%21", link)
+        self.assertIn("Aarav%20Sharma", link)
+
+    def test_get_customer_order_notification_links_missing_or_invalid_shop_contact(self):
+        """Missing or unparseable shop contact number safely returns None without raising."""
+        original_contact = self.shop.contact_number
+        try:
+            self.shop.contact_number = ""
+            order1 = Order(shop=self.shop, customer=self.customer)
+            self.assertIsNone(get_customer_order_notification_links(order1))
+
+            self.shop.contact_number = "invalid-text"
+            order2 = Order(shop=self.shop, customer=self.customer)
+            self.assertIsNone(get_customer_order_notification_links(order2))
+        finally:
+            self.shop.contact_number = original_contact
+
+
+        # Order with no shop
+        order3 = Order(shop=None, customer=self.customer)
+        self.assertIsNone(get_customer_order_notification_links(order3))
+
 
 
 
