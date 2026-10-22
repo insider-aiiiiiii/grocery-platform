@@ -16,9 +16,16 @@ from cart.models import Cart, CartItem
 from catalog.models import ShopProduct
 from customers.models import Customer, normalize_whatsapp_number
 from inventory.models import InventoryItem
+from notifications.links import (
+    MERCHANT_ACTION_TEMPLATES,
+    SUPPORTED_LANGUAGES,
+    build_whatsapp_link,
+    get_merchant_order_action_links,
+    normalize_whatsapp_phone,
+    resolve_order_customer_phone,
+)
 from notifications.models import NotificationOutbox, NotificationTemplate
 from notifications.providers import (
-    MetaWhatsAppProvider,
     MockWhatsAppProvider,
     ProviderSendResult,
     get_default_mock_provider,
@@ -343,146 +350,8 @@ class NotificationOutboxModelTests(TestCase):
         self.assertEqual(expired_qs.first().id, outbox_old.id)
 
 
-class WhatsAppProviderAdapterTests(TestCase):
-    """Tests for MetaWhatsAppProvider and MockWhatsAppProvider adapters."""
-
-    def test_meta_provider_success(self):
-        provider = MetaWhatsAppProvider(
-            phone_number_id="10987654321",
-            access_token="test_meta_token_123",
-        )
-        fake_response_data = {
-            "messaging_product": "whatsapp",
-            "contacts": [{"input": "919876543210", "wa_id": "919876543210"}],
-            "messages": [{"id": "wamid.HBgL1234567890"}],
-        }
-        fake_response_bytes = json.dumps(fake_response_data).encode("utf-8")
-
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = fake_response_bytes
-        mock_resp.__enter__.return_value = mock_resp
-
-        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
-            result = provider.send_template_message(
-                recipient_phone="+919876543210",
-                template_name="order_received_v1",
-                language_code="en_US",
-                components=[{"type": "body", "parameters": [{"type": "text", "text": "Fresh Corner"}]}],
-                idempotency_key="idemp-key-123",
-            )
-            self.assertTrue(result.success)
-            self.assertEqual(result.provider_message_id, "wamid.HBgL1234567890")
-            self.assertTrue(result.is_transient)
-
-            # Assert request attributes
-            mock_urlopen.assert_called_once()
-            req = mock_urlopen.call_args[0][0]
-            self.assertEqual(req.get_header("Authorization"), "Bearer test_meta_token_123")
-            self.assertEqual(req.get_header("Content-type"), "application/json")
-            self.assertEqual(req.get_header("X-idempotency-key"), "idemp-key-123")
-
-            sent_payload = json.loads(req.data.decode("utf-8"))
-            self.assertEqual(sent_payload["to"], "919876543210")
-            self.assertEqual(sent_payload["type"], "template")
-            self.assertEqual(sent_payload["template"]["name"], "order_received_v1")
-
-    def test_meta_provider_unconfigured_credentials(self):
-        provider = MetaWhatsAppProvider(phone_number_id="", access_token="")
-        result = provider.send_template_message(
-            recipient_phone="+919876543210",
-            template_name="test_v1",
-            language_code="en_US",
-        )
-        self.assertFalse(result.success)
-        self.assertFalse(result.is_transient)
-        self.assertIn("unconfigured", result.error_details["error"])
-
-    def test_meta_provider_transient_http_statuses(self):
-        provider = MetaWhatsAppProvider(
-            phone_number_id="10987654321",
-            access_token="test_token",
-        )
-        transient_codes = [408, 429, 500, 502, 503, 504]
-        for code in transient_codes:
-            exc = urllib.error.HTTPError(
-                url="https://graph.facebook.com/v20.0/messages",
-                code=code,
-                msg="Transient Error",
-                hdrs={},
-                fp=io.BytesIO(b'{"error": {"message": "Service unavailable"}}'),
-            )
-            with patch("urllib.request.urlopen", side_effect=exc):
-                result = provider.send_template_message(
-                    recipient_phone="+919876543210",
-                    template_name="order_received_v1",
-                    language_code="en_US",
-                )
-                self.assertFalse(result.success)
-                self.assertTrue(result.is_transient)
-                self.assertEqual(result.error_details["status_code"], code)
-
-    def test_meta_provider_permanent_meta_error_codes(self):
-        provider = MetaWhatsAppProvider(
-            phone_number_id="10987654321",
-            access_token="test_token",
-        )
-        permanent_codes = [100, 131026, 132000, 132001, 132005, 132015]
-        for meta_code in permanent_codes:
-            error_json = json.dumps({"error": {"code": meta_code, "message": "Fatal Meta Error"}}).encode("utf-8")
-            exc = urllib.error.HTTPError(
-                url="https://graph.facebook.com/v20.0/messages",
-                code=400,
-                msg="Bad Request",
-                hdrs={},
-                fp=io.BytesIO(error_json),
-            )
-            with patch("urllib.request.urlopen", side_effect=exc):
-                result = provider.send_template_message(
-                    recipient_phone="+919876543210",
-                    template_name="order_received_v1",
-                    language_code="en_US",
-                )
-                self.assertFalse(result.success)
-                self.assertFalse(result.is_transient)
-                self.assertEqual(result.error_details["meta_error"]["code"], meta_code)
-
-    def test_meta_provider_rate_limit_meta_error(self):
-        provider = MetaWhatsAppProvider(
-            phone_number_id="10987654321",
-            access_token="test_token",
-        )
-        error_json = json.dumps({"error": {"code": 130429, "message": "Rate limit exceeded"}}).encode("utf-8")
-        exc = urllib.error.HTTPError(
-            url="https://graph.facebook.com/v20.0/messages",
-            code=400,
-            msg="Bad Request",
-            hdrs={},
-            fp=io.BytesIO(error_json),
-        )
-        with patch("urllib.request.urlopen", side_effect=exc):
-            result = provider.send_template_message(
-                recipient_phone="+919876543210",
-                template_name="order_received_v1",
-                language_code="en_US",
-            )
-            self.assertFalse(result.success)
-            self.assertTrue(result.is_transient)
-
-    def test_meta_provider_network_error(self):
-        provider = MetaWhatsAppProvider(
-            phone_number_id="10987654321",
-            access_token="test_token",
-        )
-        exc = urllib.error.URLError("Connection reset by peer")
-        with patch("urllib.request.urlopen", side_effect=exc):
-            result = provider.send_template_message(
-                recipient_phone="+919876543210",
-                template_name="order_received_v1",
-                language_code="en_US",
-            )
-            self.assertFalse(result.success)
-            self.assertTrue(result.is_transient)
-            self.assertIn("network_error", result.error_details)
+class MockWhatsAppProviderTests(TestCase):
+    """Tests for MockWhatsAppProvider adapter."""
 
     def test_mock_provider_recording_and_reset(self):
         mock_provider = MockWhatsAppProvider()
@@ -528,19 +397,212 @@ class WhatsAppProviderAdapterTests(TestCase):
         self.assertFalse(res_permanent.success)
         self.assertFalse(res_permanent.is_transient)
 
-    @override_settings(MOCK_WHATSAPP_PROVIDER=True)
-    def test_get_whatsapp_provider_returns_mock_when_flag_true(self):
+    def test_get_whatsapp_provider_returns_mock(self):
         provider = get_whatsapp_provider()
         self.assertIsInstance(provider, MockWhatsAppProvider)
 
-    @override_settings(
-        MOCK_WHATSAPP_PROVIDER=False,
-        META_WHATSAPP_PHONE_NUMBER_ID="12345",
-        META_WHATSAPP_ACCESS_TOKEN="token_abc",
-    )
-    def test_get_whatsapp_provider_returns_meta_when_configured(self):
-        provider = get_whatsapp_provider()
-        self.assertIsInstance(provider, MetaWhatsAppProvider)
+
+class WhatsAppClickToChatDraftLinksTests(TestCase):
+    """Unit tests for WhatsApp Click-to-Chat (wa.me) phone normalization, link building, and multilingual drafts."""
+
+    def setUp(self):
+        super().setUp()
+        self.merchant_user = User.objects.create_user(
+            username="merchant_links",
+            email="merchant_links@example.com",
+            mobile_number="+919876543210",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant_profile = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant_profile,
+            name="Kirana Superstore",
+            address_line="123 Market Street",
+            area="Koramangala",
+            city="Bengaluru",
+            state="Karnataka",
+            pincode="560034",
+            contact_number="+91 98765 43210",
+        )
+        self.customer = Customer.objects.create(
+            shop=self.shop,
+            name="Aarav Sharma",
+            whatsapp_number="+919123456789",
+        )
+
+    def test_normalize_whatsapp_phone_variations(self):
+        """Tests that various raw phone inputs normalize to digits-only E.164 strings."""
+        # 10-digit Indian numbers should have default country code 91 prepended
+        self.assertEqual(normalize_whatsapp_phone("9876543210"), "919876543210")
+        # Leading zero 11-digit numbers should strip leading zero and prepend 91
+        self.assertEqual(normalize_whatsapp_phone("09876543210"), "919876543210")
+        # Numbers with +, spaces, and dashes
+        self.assertEqual(normalize_whatsapp_phone("+91 98765-43210"), "919876543210")
+        self.assertEqual(normalize_whatsapp_phone("+91 (98765) 43210"), "919876543210")
+        # Numbers already containing 91 prefix
+        self.assertEqual(normalize_whatsapp_phone("919876543210"), "919876543210")
+        # International numbers
+        self.assertEqual(normalize_whatsapp_phone("+44 7911 123456"), "447911123456")
+
+    def test_normalize_whatsapp_phone_invalid(self):
+        """Invalid or empty phone inputs must raise ValueError."""
+        with self.assertRaises(ValueError):
+            normalize_whatsapp_phone("")
+        with self.assertRaises(ValueError):
+            normalize_whatsapp_phone(None)
+        with self.assertRaises(ValueError):
+            normalize_whatsapp_phone("   ")
+        with self.assertRaises(ValueError):
+            normalize_whatsapp_phone("abc-xyz")
+
+    def test_build_whatsapp_link_encoding(self):
+        """Verifies standard wa.me format and proper URL percent-encoding of Unicode text."""
+        link_en = build_whatsapp_link("9876543210", "Hello World! Order #123")
+        self.assertTrue(link_en.startswith("https://wa.me/919876543210?text="))
+        self.assertIn("Hello%20World%21%20Order%20%23123", link_en)
+
+        # Hindi (Devanagari) characters
+        hindi_text = "नमस्ते! आपका ऑर्डर तैयार है।"
+        link_hi = build_whatsapp_link("+91 98765 43210", hindi_text)
+        self.assertTrue(link_hi.startswith("https://wa.me/919876543210?text="))
+        # Verify URL-encoded percent signs
+        self.assertIn("%E0%A4%A8%E0%A4%AE%E0%A4%B8%E0%A5%8D%E0%A4%A4%E0%A5%87", link_hi)
+
+    def test_resolve_order_customer_phone_priority(self):
+        """Tests that customer phone resolution respects order snapshot and customer fallback."""
+        order = Order(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98888 77777",
+            total_amount=Decimal("450.00"),
+        )
+        # Snapshot takes precedence
+        self.assertEqual(resolve_order_customer_phone(order), "+91 98888 77777")
+
+        # Fallback to customer profile if snapshot is empty
+        order_no_snap = Order(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="",
+            customer_phone_snapshot="",
+        )
+        self.assertEqual(resolve_order_customer_phone(order_no_snap), "+919123456789")
+
+        # Error raised when no contact exists
+        order_empty = Order(shop=self.shop, customer=None, customer_phone_snapshot="")
+        with self.assertRaises(ValueError):
+            resolve_order_customer_phone(order_empty)
+
+    def test_get_merchant_order_action_links_order_accepted(self):
+        """Verifies ORDER_ACCEPTED draft links across English, Hindi, and Hinglish."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00001",
+            total_amount=Decimal("520.00"),
+        )
+        short_id = str(order.id)[:8]
+
+        # 1. English link
+        link_en = get_merchant_order_action_links(order, "ORDER_ACCEPTED", language="en")
+        self.assertTrue(link_en.startswith("https://wa.me/919876500001?text="))
+        self.assertIn(short_id, link_en)
+        self.assertIn("Kirana%20Superstore", link_en)
+        self.assertIn("accepted", link_en)
+
+        # 2. Hindi link
+        link_hi = get_merchant_order_action_links(order, "ORDER_ACCEPTED", language="hi")
+        self.assertTrue(link_hi.startswith("https://wa.me/919876500001?text="))
+        self.assertIn(short_id, link_hi)
+        self.assertIn("Kirana%20Superstore", link_hi)
+
+        # 3. Hinglish link
+        link_hinglish = get_merchant_order_action_links(order, "ORDER_ACCEPTED", language="hinglish")
+        self.assertTrue(link_hinglish.startswith("https://wa.me/919876500001?text="))
+        self.assertIn(short_id, link_hinglish)
+        self.assertIn("Kirana%20Superstore", link_hinglish)
+        self.assertIn("accept%20kar%20liya", link_hinglish)
+
+        # 4. Multi-language dictionary when language is None
+        all_links = get_merchant_order_action_links(order, "ORDER_ACCEPTED")
+        self.assertIsInstance(all_links, dict)
+        self.assertEqual(set(all_links.keys()), {"en", "hi", "hinglish"})
+        self.assertEqual(all_links["en"], link_en)
+        self.assertEqual(all_links["hi"], link_hi)
+        self.assertEqual(all_links["hinglish"], link_hinglish)
+
+    def test_get_merchant_order_action_links_order_rejected(self):
+        """Verifies ORDER_REJECTED draft links across languages."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00002",
+            total_amount=Decimal("150.00"),
+        )
+        links = get_merchant_order_action_links(order, "ORDER_REJECTED")
+        self.assertIn("en", links)
+        self.assertIn("hi", links)
+        self.assertIn("hinglish", links)
+        self.assertIn("unable%20to%20accept", links["en"])
+        self.assertIn("nahi%20kar%20pa%20rahe", links["hinglish"])
+
+    def test_get_merchant_order_action_links_quantity_reduced(self):
+        """Verifies QUANTITY_REDUCED draft links with updated total amount."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00003",
+            total_amount=Decimal("380.00"),
+        )
+        links = get_merchant_order_action_links(order, "QUANTITY_REDUCED")
+        self.assertIn("380.00", links["en"])
+        self.assertIn("380.00", links["hi"])
+        self.assertIn("380.00", links["hinglish"])
+
+    def test_get_merchant_order_action_links_invalid_inputs(self):
+        """Unsupported event types or invalid language parameters must raise ValueError."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00004",
+        )
+        with self.assertRaises(ValueError):
+            get_merchant_order_action_links(order, "UNSUPPORTED_EVENT")
+
+        with self.assertRaises(ValueError):
+            get_merchant_order_action_links(order, "ORDER_ACCEPTED", language="french")
+
+    def test_get_merchant_order_action_links_custom_database_template(self):
+        """Custom active NotificationTemplate in DB overrides built-in default."""
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=self.customer,
+            customer_name_snapshot="Aarav Sharma",
+            customer_phone_snapshot="+91 98765 00005",
+            total_amount=Decimal("999.00"),
+        )
+        # Create custom template for ORDER_ACCEPTED in English
+        NotificationTemplate.objects.create(
+            event_type="ORDER_ACCEPTED",
+            language_code="en",
+            template_name="custom_accepted_en",
+            body_format="Custom VIP Greeting: {shop_name} has approved your order #{order_number}! Yay!",
+            is_active=True,
+        )
+        link = get_merchant_order_action_links(order, "ORDER_ACCEPTED", language="en")
+        self.assertIn("Custom%20VIP%20Greeting", link)
+        self.assertIn("Kirana%20Superstore", link)
+        self.assertIn("Yay%21", link)
+
+
 
 
 class OrderCreatedNotificationIntegrationTests(TestCase):

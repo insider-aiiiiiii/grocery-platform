@@ -203,9 +203,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# WhatsApp Provider Configuration (Meta WhatsApp Cloud API)
-META_WHATSAPP_PHONE_NUMBER_ID = os.environ.get('META_WHATSAPP_PHONE_NUMBER_ID', '')
-META_WHATSAPP_ACCESS_TOKEN = os.environ.get('META_WHATSAPP_ACCESS_TOKEN', '')
-META_WHATSAPP_APP_SECRET = os.environ.get('META_WHATSAPP_APP_SECRET', '')
-META_WHATSAPP_VERIFY_TOKEN = os.environ.get('META_WHATSAPP_VERIFY_TOKEN', '')
-MOCK_WHATSAPP_PROVIDER = os.environ.get('MOCK_WHATSAPP_PROVIDER', 'True').lower() in {'true', '1', 'yes'}
+# WhatsApp Integration Settings
+# Primary customer/merchant communication utilizes direct WhatsApp Click-to-Chat (wa.me) draft links.
+DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', '91')
+
