@@ -404,113 +404,82 @@ CONSTRAINT notif_outbox_order_event_recipient_uniq UNIQUE (order_id, event_type,
 ### 18.2 Provider Idempotency Header
 During dispatch, the worker sends a unique idempotency key or client reference (`idempotency_key=str(outbox.id)`) to Meta Cloud API to ensure network retries do not result in duplicate WhatsApp messages.
 
-## 19. Provider Boundary & Meta WhatsApp Cloud API Contract
+## 19. WhatsApp Click-to-Chat (wa.me) Deep-Link Architecture
 
-The Notifications domain isolates provider-specific API calls behind an abstract provider adapter:
+To eliminate reliance on third-party API aggregators, recurring message costs, and merchant onboarding friction, the platform uses standard WhatsApp Click-to-Chat (`https://wa.me/`) deep-links with pre-filled multilingual drafts.
 
 ```text
-Notifications Business Logic
-            ↓
-    WhatsAppProviderBase (Abstract Adapter)
-            ↓
-┌───────────────────────┬──────────────────────┐
-│ MetaWhatsAppProvider  │ MockWhatsAppProvider │
-└───────────────────────┴──────────────────────┘
-            ↓
-Meta Graph API (https://graph.facebook.com/v20.0/{phone_number_id}/messages)
+┌─────────────────────────┐          ┌───────────────────────────┐
+│  Customer Web Checkout  │          │  Merchant Order Dashboard │
+└───────────┬─────────────┘          └─────────────┬─────────────┘
+            │                                      │
+            ▼                                      ▼
+[wa.me/<shop_phone>?text=...]          [wa.me/<cust_phone>?text=...]
+ (Order Created / Cancelled)            (Accepted / Rejected / Adjusted)
+            │                                      │
+            └──────────────┬───────────────────────┘
+                           │ Launches native WhatsApp app
+                           ▼
+             ┌───────────────────────────┐
+             │ Merchant's / Customer's   │
+             │ Personal WhatsApp Account │
+             └───────────────────────────┘
 ```
 
-### 19.1 `WhatsAppProviderBase` Interface
-```python
-class WhatsAppProviderBase(ABC):
-    @abstractmethod
-    def send_template_message(
-        self,
-        recipient_phone: str,
-        template_name: str,
-        language_code: str,
-        components: list[dict],
-        idempotency_key: str,
-    ) -> ProviderSendResult:
-        pass
-```
+### 19.1 URL Construction & Encoding Rules
+1. **Endpoint Format**: `https://wa.me/<phone_digits>?text=<url_encoded_text>`
+2. **Phone Normalization (E.164 Digits Only)**:
+   - All phone numbers must be normalized to strip non-digit characters (`+`, `-`, spaces, parentheses).
+   - Standard 10-digit Indian numbers without country code are prefixed with default country code `91`.
+   - The resulting string must contain only numerical digits with no leading zero or `+` sign.
+3. **URL Encoding**:
+   - Message text must be percent-encoded using standard URL-encoding (`urllib.parse.quote`).
+   - Must properly encode Unicode characters for Hindi (Devanagari) and Hinglish as well as standard English text and symbols.
 
-### 19.2 Meta Cloud API Implementation
-- **Base Endpoint**: `POST https://graph.facebook.com/v20.0/{META_WHATSAPP_PHONE_NUMBER_ID}/messages`
-- **Authentication**: `Authorization: Bearer {META_WHATSAPP_ACCESS_TOKEN}`
-- **Payload Format**:
-  ```json
-  {
-    "messaging_product": "whatsapp",
-    "recipient_type": "individual",
-    "to": "+919876543210",
-    "type": "template",
-    "template": {
-      "name": "order_received_v1",
-      "language": { "code": "en_US" },
-      "components": [
-        {
-          "type": "body",
-          "parameters": [
-            { "type": "text", "text": "Fresh Market" },
-            { "type": "text", "text": "ORD-1234" }
-          ]
-        }
-      ]
-    }
-  }
-  ```
-- **Success Response**: HTTP 200 with `{"messages": [{"id": "wamid.HBgL..."}]}`. The message ID is saved to `NotificationOutbox.provider_message_id`, and status updates to `SUBMITTED`.
+### 19.2 Multilingual Message Matrix (English, Hindi, Hinglish)
+The platform standardizes drafts across 3 language formats for the canonical events:
 
-## 20. Webhook Delivery Confirmation & Cryptographic Verification
+1. **`ORDER_ACCEPTED`**:
+   - `en`: `"Hello! Your order #{order_number} has been accepted by {shop_name} and is being packed. We will deliver it soon!"`
+   - `hi`: `"नमस्ते! {shop_name} ने आपका ऑर्डर #{order_number} स्वीकार कर लिया है और सामान पैक हो रहा है। जल्द ही डिलीवर करेंगे!"`
+   - `hinglish`: `"Hello! {shop_name} ne aapka order #{order_number} accept kar liya hai aur packing shuru hai. Jaldi deliver karenge!"`
 
-A public webhook endpoint `/api/v1/notifications/webhooks/whatsapp/` receives asynchronous status updates from Meta:
+2. **`ORDER_REJECTED`**:
+   - `en`: `"Hello, we are unable to accept your order #{order_number} at {shop_name} at this time. Sorry for the inconvenience."`
+   - `hi`: `"नमस्ते, हम अभी {shop_name} पर आपका ऑर्डर #{order_number} स्वीकार करने में असमर्थ हैं। असुविधा के लिए हमें खेद है।"`
+   - `hinglish`: `"Hello, hum abhi {shop_name} par aapka order #{order_number} accept nahi kar pa rahe hain. Asuvidha ke liye sorry."`
 
-### 20.1 Webhook Verification Request (GET)
-Meta verifies ownership of the webhook URL upon configuration:
-- Parameters: `hub.mode`, `hub.verify_token`, `hub.challenge`
-- Verification: If `hub.mode == "subscribe"` and `hub.verify_token == settings.META_WHATSAPP_VERIFY_TOKEN`, the endpoint returns `hub.challenge` with HTTP 200.
-- Otherwise returns HTTP 403 Forbidden.
+3. **`QUANTITY_REDUCED`**:
+   - `en`: `"Hello! Regarding your order #{order_number} at {shop_name}: some items were unavailable and quantities were adjusted. Updated total is ₹{total_amount}."`
+   - `hi`: `"नमस्ते! {shop_name} पर आपके ऑर्डर #{order_number} में कुछ सामान उपलब्ध नहीं था, इसलिए मात्रा बदली गई है। नया कुल बिल ₹{total_amount} है।"`
+   - `hinglish`: `"Hello! {shop_name} par aapke order #{order_number} me kuch items out of stock the, isliye quantity adjust ki gayi hai. Updated bill ₹{total_amount} hai."`
 
-### 20.2 Status Notification Callbacks (POST)
-When Meta delivers a status update:
-1. **Signature Verification**:
-   - Reads request header `X-Hub-Signature-256` (`sha256=<hex_digest>`).
-   - Computes expected HMAC-SHA256 of the raw request body using `settings.META_WHATSAPP_APP_SECRET`.
-   - Uses `hmac.compare_digest` for constant-time comparison. Unsigned or invalid requests return HTTP 403.
-2. **Monotonic Status Processing**:
-   - Parses `statuses` array from the payload:
-     - `sent` -> Updates `submitted_at` if not already set.
-     - `delivered` -> Transitions outbox record to `DELIVERED` and sets `delivered_at`.
-     - `read` -> Transitions outbox record to `READ`.
-     - `failed` -> Transitions outbox record to `FAILED_PERMANENT` and records provider error details.
-   - Status updates are idempotent and strictly match on `provider_message_id`.
+### 19.3 Merchant Experience: Installable PWA & Incoming Order Audio Alert
+To solve the physical reality of local grocery stores—where merchants cannot constantly monitor a desktop browser:
+1. **Zero-Friction Installation (PWA)**:
+   - The merchant portal operates as a Progressive Web App (PWA).
+   - The merchant taps **"Install App"** / **"Add to Home Screen"** directly from mobile Chrome.
+   - Requires **no Google Play Store or Apple App Store submissions, fees, or approvals**.
+2. **Soundbox Audio Alert (Chime)**:
+   - Upon receiving an incoming order, the application triggers a loud, repeating audio chime (soundbox-style alert) notifying the merchant even if the device is locked, idling on the shop counter, or if their attention is on in-store customers.
+3. **One-Tap WhatsApp Reply**:
+   - The merchant reviews order availability and taps the desired response button (`Accepted`, `Rejected`, `Quantity Adjusted`).
+   - The native WhatsApp client launches instantly with the customer's chat and pre-filled message draft in the merchant's chosen language (English, Hindi, or Hinglish).
+   - The merchant sends the message directly from their own personal WhatsApp account without copying or pasting.
 
-## 21. Scheduling and Background Worker Operation
+## 20. Order State Isolation Invariant
 
-In strict adherence to the Ponytail minimalism ladder, no external message broker (Celery, Redis, RabbitMQ, Kafka) is introduced into the modular monolith.
+A strict boundary exists between Order domain state transitions and WhatsApp communication:
+- Order status changes (`PENDING` -> `ACCEPTED`, `REJECTED`) are processed and committed atomically in the database independently of notification actions.
+- Whether a merchant or customer opens, sends, or cancels the WhatsApp draft link has **zero effect** on the Order state.
+- External WhatsApp link generation failures or client-side messaging interruptions must never fail or roll back an underlying Order transition.
 
-### 21.1 Dedicated Django Worker Command
-A dedicated management command `python manage.py run_notification_worker` handles asynchronous outbox processing:
+## 21. Direct Link Generation Service
 
-- **Row Leasing via PostgreSQL `select_for_update(skip_locked=True)`**:
-  ```python
-  with transaction.atomic():
-      candidates = list(
-          NotificationOutbox.objects.select_for_update(skip_locked=True)
-          .filter(
-              status=Status.PENDING,
-              next_retry_at__lte=now,
-          )
-          .order_by("created_at")[:batch_size]
-      )
-      for item in candidates:
-          item.status = Status.LEASED
-          item.save(update_fields=["status"])
-  ```
-- Multiple worker processes can run concurrently without race conditions or duplicate dispatch because `skip_locked=True` automatically skips rows currently locked by other workers.
-- **Sleep Interval**: Defaults to 3 seconds when no pending records exist; processes immediately while records are present.
-- **Safe Transaction Boundary**: HTTP calls to Meta Cloud API occur **outside** database transaction locks to prevent holding open database connections during external network latency.
+Instead of running background daemon workers or Celery tasks, notification links are generated deterministically on-demand via `backend/notifications/links.py`:
+- `normalize_whatsapp_phone(phone_raw: str, default_country_code: str = "91") -> str`: Sanitizes input into digits-only E.164.
+- `build_whatsapp_link(phone: str, text: str) -> str`: Produces a standard `https://wa.me/` link.
+- `get_merchant_order_action_links(order, event_type: str, language: Optional[str] = None)`: Resolves customer phone and generates pre-filled links for merchant order actions.
 
 ## 22. Campaign Relationship
 
