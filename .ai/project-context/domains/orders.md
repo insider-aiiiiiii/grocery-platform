@@ -378,6 +378,20 @@ git checkout -b <task-id>/<short-description>
 
 Follow `AGENTS.md` for the complete workflow.
 
-## Final Requirement
+## 41. Public Checkout & Merchant ERP WhatsApp Action Integration (NOT-006)
 
-Create only `.ai/project-context/domains/orders.md`. Do not modify any other file. Do not create models, migrations, APIs, authentication, authorization, order functionality, payment functionality, or WhatsApp functionality. Do not resolve unresolved business decisions.
+To support the Customer checkout confirmation screen and Merchant one-click order updates via WhatsApp Click-to-Chat:
+
+### 41.1 Public Checkout Confirmation Screen Payload
+`PublicCheckoutView.post()` exposes the following payload upon successful order placement:
+- Order lifecycle fields: `id`, `status`, `payment_status`, `fulfillment_type`, `items_subtotal`, `delivery_charge`, `total_amount`, `expires_at`.
+- Shop identity: `shop_name`, `shop_contact_number`.
+- Ordered items snapshot list (`items`): `product_name`, `variant_name`, `sku`, `quantity`, `unit_price`, `line_total`.
+- Notification links: `whatsapp_notification_links` with `hinglish` (default) and `en` pre-filled links.
+
+### 41.2 Merchant Order Lifecycle Action Link
+In `MerchantOrderViewSet`, successful state transitions (`accept`, `reject`, `cancel`) return:
+- Standard `MerchantOrderDetailSerializer` data.
+- `whatsapp_action_link`: Single pre-filled Click-to-Chat link targeting the customer in the merchant's default language (`hinglish`).
+- If recipient phone is invalid or missing, `whatsapp_action_link` is `null` without impacting the order state.
+

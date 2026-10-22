@@ -40,15 +40,30 @@ class PublicCheckoutView(APIView):
                 exc,
             )
 
+        items_data = [
+            {
+                "product_name": item.product_name_snapshot,
+                "variant_name": item.variant_name_snapshot,
+                "sku": item.sku_snapshot,
+                "quantity": str(item.quantity),
+                "unit_price": str(item.unit_price_snapshot),
+                "line_total": str(item.line_total),
+            }
+            for item in order.items.all().order_by("pk")
+        ]
+
         response = {
             "id": order.pk,
             "status": order.status,
             "payment_status": order.payment_status,
             "fulfillment_type": order.fulfillment_type,
+            "shop_name": shop.name,
+            "shop_contact_number": shop.contact_number,
             "items_subtotal": str(order.items_subtotal),
             "delivery_charge": str(order.delivery_charge_snapshot),
             "total_amount": str(order.total_amount),
             "expires_at": order.expires_at,
+            "items": items_data,
             "whatsapp_notification_links": whatsapp_links,
         }
         return Response(response, status=201 if created else 200)

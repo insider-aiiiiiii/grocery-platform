@@ -174,12 +174,17 @@ class OrderLifecycleAPITests(TestCase):
         self.assertEqual(item.unit_price_snapshot, Decimal("10.00"))
         self.assertEqual(order.customer_name_snapshot, "Checkout Name")
         self.assertEqual(order.customer_phone_snapshot, "+919123450001")
+        self.assertEqual(response.data["shop_name"], "Lifecycle Shop")
+        self.assertEqual(response.data["shop_contact_number"], "+919876540001")
+        self.assertIn("items", response.data)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["items"][0]["product_name"], "Original Apples")
+        self.assertEqual(response.data["items"][0]["quantity"], "3.000")
         self.assertIn("whatsapp_notification_links", response.data)
         links = response.data["whatsapp_notification_links"]
         self.assertIsNotNone(links)
-        self.assertEqual(set(links.keys()), {"en", "hi", "hinglish"})
+        self.assertEqual(set(links.keys()), {"en", "hinglish"})
         self.assertTrue(links["en"].startswith("https://wa.me/919876540001?text="))
-        self.assertTrue(links["hi"].startswith("https://wa.me/919876540001?text="))
         self.assertTrue(links["hinglish"].startswith("https://wa.me/919876540001?text="))
 
     def test_checkout_whatsapp_notification_links_isolation_when_shop_contact_missing(self):
@@ -336,6 +341,10 @@ class OrderLifecycleAPITests(TestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("whatsapp_action_link", response.data)
+        self.assertIsNotNone(response.data["whatsapp_action_link"])
+        self.assertTrue(response.data["whatsapp_action_link"].startswith("https://wa.me/"))
+        self.assertIn("quantity%20adjust", response.data["whatsapp_action_link"])
         order.refresh_from_db()
         item.refresh_from_db()
         self.stock.refresh_from_db()
@@ -362,6 +371,10 @@ class OrderLifecycleAPITests(TestCase):
             reverse("merchant-order-reject", args=[rejected.pk]), {"rejection_note": "Unavailable"}, format="json"
         )
         self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("whatsapp_action_link", response.data)
+        self.assertIsNotNone(response.data["whatsapp_action_link"])
+        self.assertTrue(response.data["whatsapp_action_link"].startswith("https://wa.me/"))
+        self.assertIn("nahi%20kar%20pa%20rahe", response.data["whatsapp_action_link"])
         rejected.refresh_from_db()
         self.stock.refresh_from_db()
         self.assertEqual(rejected.status, Order.Status.REJECTED)
@@ -374,12 +387,20 @@ class OrderLifecycleAPITests(TestCase):
             reverse("merchant-order-accept", args=[accepted.pk]), {}, format="json"
         )
         self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("whatsapp_action_link", response.data)
+        self.assertIsNotNone(response.data["whatsapp_action_link"])
+        self.assertTrue(response.data["whatsapp_action_link"].startswith("https://wa.me/"))
+        self.assertIn("accept%20kar%20liya", response.data["whatsapp_action_link"])
         self.stock.refresh_from_db()
         self.assertEqual(self.stock.quantity, Decimal("17.000"))
         response = self.merchant_client().post(
             reverse("merchant-order-cancel", args=[accepted.pk]), {"rejection_note": "Customer called"}, format="json"
         )
         self.assertEqual(response.status_code, 200, response.data)
+        self.assertIn("whatsapp_action_link", response.data)
+        self.assertIsNotNone(response.data["whatsapp_action_link"])
+        self.assertTrue(response.data["whatsapp_action_link"].startswith("https://wa.me/"))
+        self.assertIn("nahi%20kar%20pa%20rahe", response.data["whatsapp_action_link"])
         accepted.refresh_from_db()
         self.stock.refresh_from_db()
         self.assertEqual(accepted.status, Order.Status.REJECTED)
