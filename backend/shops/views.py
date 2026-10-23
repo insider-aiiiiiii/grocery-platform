@@ -14,6 +14,8 @@ from .serializers import (
     ShopSerializer,
     ShopUpdateSerializer,
 )
+from .services import permanently_delete_shop
+
 
 
 def get_merchant_shop(user):
@@ -267,7 +269,7 @@ class SuperAdminShopDeleteView(APIView):
             )
 
         with transaction.atomic():
-            shop.delete()
+            permanently_delete_shop(shop, requested_by=request.user)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

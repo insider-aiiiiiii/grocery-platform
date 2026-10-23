@@ -3210,6 +3210,396 @@ class ShopLifecycleStatePermutationTests(TestCase):
         self.assertEqual(self.shop_b.merchant, self.merchant_b)
 
 
+class SuperAdminPermanentShopDeletionWorkflowTests(TestCase):
+    """
+    SHOP-012: Comprehensive verification of Super Admin permanent shop deletion workflow.
+    - Distinct from Merchant Shop deactivation.
+    - Full dependency cleanup across Catalog, Inventory, Customers, Carts, Orders, Notifications, Campaigns.
+    - Preserves Merchant credentials.
+    - Zero data leakage into replacement shop.
+    - Resolves ProtectedError on Customer from historical Orders.
+    """
+
+    def setUp(self):
+        import uuid
+        self.uuid = uuid
+        self.client = APIClient()
+
+        # 1. Super Admin User
+        self.admin_user = User.objects.create_superuser(
+            username="superadmin_del",
+            email="superadmin_del@example.com",
+            mobile_number="+919999900001",
+            password="adminpassword123",
+            role=User.Role.SUPER_ADMIN,
+        )
+
+        # 2. Merchant User & Merchant
+        self.merchant_user = User.objects.create_user(
+            username="merchant_del",
+            email="merchant_del@example.com",
+            mobile_number="+919876500001",
+            password="merchantpassword123",
+            role=User.Role.MERCHANT,
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+
+        # 3. Shop
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Target Deletion Shop",
+            address_line="100 MG Road",
+            area="Camp",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411001",
+            contact_number=self.merchant_user.mobile_number,
+            status=Shop.Status.ACTIVE,
+            delivery_charge=Decimal("30.00"),
+        )
+
+    def auth_admin(self):
+        res = self.client.post(
+            reverse("auth-super-admin-login"),
+            {"identifier": "superadmin_del@example.com", "password": "adminpassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def auth_merchant(self):
+        res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "merchantpassword123"},
+            format="json",
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        return res.data
+
+    def create_full_shop_hierarchy(self):
+        """Populate a complete set of dependent child data across all domains."""
+        from campaigns.models import Campaign
+        from cart.models import Cart, CartItem
+        from catalog.models import (
+            ProductVariant,
+            ShopBrand,
+            ShopCategory,
+            ShopCustomAttribute,
+            ShopProduct,
+        )
+        from customers.models import Customer, CustomerSession, HistoryLinkGrant
+        from inventory.models import InventoryItem
+        from notifications.models import NotificationOutbox, NotificationTemplate
+        from orders.models import Order, OrderDeliveryAddress, OrderItem
+
+        # Catalog
+        cat = ShopCategory.objects.create(shop=self.shop, name="Dairy & Eggs")
+        brand = ShopBrand.objects.create(shop=self.shop, name="Amul")
+        attr = ShopCustomAttribute.objects.create(shop=self.shop, name="Pack Size", values=["500ml", "1L"])
+        prod = ShopProduct.objects.create(
+            shop=self.shop,
+            name="Amul Taaza Milk",
+            price=Decimal("30.00"),
+        )
+        prod.categories.add(cat)
+        variant = ProductVariant.objects.create(
+            product=prod,
+            name="1L Pouch",
+            price=Decimal("60.00"),
+            sku="AMUL-1L",
+        )
+
+        # Inventory (auto-initialized by Catalog signals, retrieve and set stock)
+        inv = InventoryItem.objects.filter(shop=self.shop, variant=variant).first()
+        if not inv:
+            inv = InventoryItem.objects.create(
+                shop=self.shop,
+                product=prod,
+                variant=variant,
+                quantity=Decimal("50.000"),
+            )
+        else:
+            inv.quantity = Decimal("50.000")
+            inv.save()
+
+        # Customer & Credentials
+        cust = Customer.objects.create(
+            shop=self.shop,
+            name="Sneha Patil",
+            whatsapp_number="+919822000001",
+        )
+        session, _ = CustomerSession.objects.issue_for_profile(cust)
+        grant, _ = HistoryLinkGrant.objects.issue(customer=cust, purpose="history_access")
+
+        # Cart
+        cart = Cart.objects.create(shop=self.shop, customer=cust)
+        cart_item = CartItem.objects.create(cart=cart, product=prod, variant=variant, quantity=Decimal("2.000"))
+
+        # Order (causes ProtectedError if orders are not deleted before customer)
+        order = Order.objects.create(
+            shop=self.shop,
+            customer=cust,
+            status=Order.Status.PENDING,
+            fulfillment_type=Order.FulfillmentType.HOME_DELIVERY,
+            customer_name_snapshot="Sneha Patil",
+            customer_phone_snapshot="+919822000001",
+            total_amount=Decimal("150.00"),
+            items_subtotal=Decimal("120.00"),
+            delivery_charge_snapshot=Decimal("30.00"),
+        )
+        order_item = OrderItem.objects.create(
+            order=order,
+            product=prod,
+            variant=variant,
+            product_name_snapshot="Amul Taaza Milk",
+            variant_name_snapshot="1L Pouch",
+            ordered_quantity=Decimal("2.000"),
+            quantity=Decimal("2.000"),
+            unit_price_snapshot=Decimal("60.00"),
+            line_total=Decimal("120.00"),
+        )
+        order_addr = OrderDeliveryAddress.objects.create(
+            order=order,
+            recipient_name="Sneha Patil",
+            recipient_phone="+919822000001",
+            address_line="Flat 402, Sunshine Apts",
+            area="Kalyani Nagar",
+            city="Pune",
+            state="Maharashtra",
+            pincode="411006",
+        )
+
+        # Notifications
+        template, _ = NotificationTemplate.objects.get_or_create(
+            event_type=NotificationTemplate.EventType.NEW_ORDER,
+            defaults={"template_name": "new_order_v1", "body_format": "Order #{{order_number}}"},
+        )
+        outbox = NotificationOutbox.objects.create(
+            shop=self.shop,
+            order_id=order.id,
+            event_type=NotificationTemplate.EventType.NEW_ORDER,
+            recipient_type=NotificationOutbox.RecipientType.MERCHANT,
+            recipient_phone="+919876500001",
+            template=template,
+        )
+
+        # Campaign
+        camp = Campaign.objects.create(
+            title="Independence Day Sale",
+            shop_scope=Campaign.ShopScope.SELECTED_SHOPS,
+        )
+        camp.selected_shops.add(self.shop)
+
+        return {
+            "category": cat,
+            "brand": brand,
+            "attribute": attr,
+            "product": prod,
+            "variant": variant,
+            "inventory": inv,
+            "customer": cust,
+            "session": session,
+            "grant": grant,
+            "cart": cart,
+            "order": order,
+            "outbox": outbox,
+            "campaign": camp,
+        }
+
+    def test_super_admin_permanent_deletion_requires_explicit_confirmation(self):
+        """Permanent deletion without confirm=True returns 400 CONFIRMATION_REQUIRED; shop remains intact."""
+        self.auth_admin()
+        delete_url = reverse("shops:shop-admin-delete", kwargs={"pk": self.shop.pk})
+
+        # 1. No payload
+        res = self.client.delete(delete_url)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # 2. Payload with confirm=False
+        res_false = self.client.delete(delete_url, {"confirm": False}, format="json")
+        self.assertEqual(res_false.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res_false.data.get("code"), "CONFIRMATION_REQUIRED")
+
+        # Verify shop still exists and is untouched
+        self.assertTrue(Shop.objects.filter(pk=self.shop.pk).exists())
+
+    def test_super_admin_permanent_deletion_full_cascade_cleanup_via_json(self):
+        """Super Admin deletes shop with confirm=True in JSON body; all children cleaned up, merchant preserved."""
+        hierarchy = self.create_full_shop_hierarchy()
+        shop_id = self.shop.pk
+        old_slug = self.shop.public_slug
+
+        self.auth_admin()
+        delete_url = reverse("shops:shop-admin-delete", kwargs={"pk": shop_id})
+        res = self.client.delete(delete_url, {"confirm": True}, format="json")
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # 1. Shop is deleted
+        self.assertFalse(Shop.objects.filter(pk=shop_id).exists())
+
+        # 2. Public slug no longer resolves (404)
+        self.client.credentials()
+        pub_res = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": old_slug}))
+        self.assertEqual(pub_res.status_code, status.HTTP_404_NOT_FOUND)
+
+        # 3. All child records are completely removed
+        from campaigns.models import Campaign
+        from cart.models import Cart
+        from catalog.models import ShopBrand, ShopCategory, ShopCustomAttribute, ShopProduct
+        from customers.models import Customer, CustomerSession, HistoryLinkGrant
+        from inventory.models import InventoryItem
+        from notifications.models import NotificationOutbox
+        from orders.models import Order
+
+        self.assertFalse(ShopCategory.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(ShopBrand.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(ShopCustomAttribute.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(ShopProduct.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(InventoryItem.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(Customer.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(CustomerSession.objects.filter(customer__shop_id=shop_id).exists())
+        self.assertFalse(HistoryLinkGrant.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(Cart.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(Order.objects.filter(shop_id=shop_id).exists())
+        self.assertFalse(NotificationOutbox.objects.filter(shop_id=shop_id).exists())
+
+        # Campaign survives, but target link to deleted shop is removed
+        camp = hierarchy["campaign"]
+        camp.refresh_from_db()
+        self.assertNotIn(self.shop, camp.selected_shops.all())
+
+        # 4. Merchant credentials strictly preserved
+        self.merchant_user.refresh_from_db()
+        self.merchant.refresh_from_db()
+        self.assertTrue(self.merchant_user.is_active)
+        self.assertEqual(self.merchant.status, Merchant.Status.ACTIVE)
+
+        # Merchant can still authenticate and login
+        login_res = self.client.post(
+            reverse("auth-login"),
+            {"mobile_number": self.merchant_user.mobile_number, "password": "merchantpassword123"},
+            format="json",
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_200_OK)
+
+    def test_super_admin_permanent_deletion_via_query_param(self):
+        """Super Admin deletes shop using ?confirm=true query param."""
+        shop_id = self.shop.pk
+        self.auth_admin()
+        delete_url = f"{reverse('shops:shop-admin-delete', kwargs={'pk': shop_id})}?confirm=true"
+        res = self.client.delete(delete_url)
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Shop.objects.filter(pk=shop_id).exists())
+
+    def test_merchant_cannot_delete_shop(self):
+        """Merchants cannot permanently delete shops; calls return 403 Forbidden."""
+        self.auth_merchant()
+
+        # Merchant attempting delete on /me/ -> 403 SHOP_DELETION_NOT_PERMITTED
+        res_me = self.client.delete(reverse("shops:shop-me"))
+        self.assertEqual(res_me.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_me.data.get("code"), "SHOP_DELETION_NOT_PERMITTED")
+
+        # Merchant attempting delete on / -> 403 SHOP_DELETION_NOT_PERMITTED
+        res_root = self.client.delete(reverse("shops:shop-create"))
+        self.assertEqual(res_root.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res_root.data.get("code"), "SHOP_DELETION_NOT_PERMITTED")
+
+        # Merchant attempting delete on admin endpoint /<pk>/ -> 403 Forbidden (IsSuperAdmin)
+        res_admin_ep = self.client.delete(
+            reverse("shops:shop-admin-delete", kwargs={"pk": self.shop.pk}),
+            {"confirm": True},
+            format="json",
+        )
+        self.assertEqual(res_admin_ep.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Unauthenticated request -> 401
+        self.client.credentials()
+        res_unauth = self.client.delete(reverse("shops:shop-admin-delete", kwargs={"pk": self.shop.pk}))
+        self.assertEqual(res_unauth.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_replacement_shop_creation_has_zero_data_leakage(self):
+        """After permanent deletion, merchant can create a replacement shop with zero old data transferred."""
+        self.create_full_shop_hierarchy()
+        old_shop_id = self.shop.pk
+        old_slug = self.shop.public_slug
+
+        # 1. Super Admin permanently deletes Shop
+        self.auth_admin()
+        del_res = self.client.delete(
+            reverse("shops:shop-admin-delete", kwargs={"pk": old_shop_id}),
+            {"confirm": True},
+            format="json",
+        )
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+
+        # 2. Merchant accesses me -> 404 SHOP_NOT_FOUND
+        self.auth_merchant()
+        me_res = self.client.get(reverse("shops:shop-me"))
+        self.assertEqual(me_res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(me_res.data.get("code"), "SHOP_NOT_FOUND")
+
+        # 3. Merchant creates fresh replacement Shop
+        create_res = self.client.post(
+            reverse("shops:shop-create"),
+            {
+                "name": "Fresh Replacement Grocery",
+                "address_line": "500 JM Road",
+                "area": "Deccan",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "pincode": "411004",
+            },
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, status.HTTP_201_CREATED)
+        new_shop_id = create_res.data["id"]
+        new_slug = create_res.data["public_slug"]
+
+        self.assertNotEqual(new_shop_id, old_shop_id)
+        self.assertNotEqual(new_slug, old_slug)
+
+        # 4. Verify ZERO data leakage into replacement shop
+        from cart.models import Cart
+        from catalog.models import ShopBrand, ShopCategory, ShopProduct
+        from customers.models import Customer
+        from inventory.models import InventoryItem
+        from orders.models import Order
+
+        self.assertEqual(ShopCategory.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(ShopBrand.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(ShopProduct.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(InventoryItem.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(Customer.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(Cart.objects.filter(shop_id=new_shop_id).count(), 0)
+        self.assertEqual(Order.objects.filter(shop_id=new_shop_id).count(), 0)
+
+        # 5. Public access to old slug is 404, new slug is 200
+        self.client.credentials()
+        self.assertEqual(
+            self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": old_slug})).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+        new_pub_res = self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": new_slug}))
+        self.assertEqual(new_pub_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(new_pub_res.data["name"], "Fresh Replacement Grocery")
+
+    def test_direct_shop_model_delete_cascades_safely(self):
+        """Calling shop.delete() directly (e.g. from ORM/tests) cleanly cleans up all child dependencies."""
+        self.create_full_shop_hierarchy()
+        shop_id = self.shop.pk
+
+        # Calling delete directly must not raise ProtectedError
+        self.shop.delete()
+        self.assertFalse(Shop.objects.filter(pk=shop_id).exists())
+
+
+
 
 
 

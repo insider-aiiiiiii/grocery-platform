@@ -122,6 +122,14 @@ class Shop(models.Model):
             self.contact_number = self.merchant.user.mobile_number or ""
         super().save(*args, **kwargs)
 
+    def delete(self, *args, **kwargs):
+        """Coordinate child relation cleanup before deleting Shop to avoid ProtectedError."""
+        if self.pk:
+            from .services import cleanup_shop_dependencies
+
+            cleanup_shop_dependencies(self.pk)
+        return super().delete(*args, **kwargs)
+
     # Super Admin lifecycle actions
     def suspend(self, save=True) -> None:
         """Super Admin action: suspend the shop."""
