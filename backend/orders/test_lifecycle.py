@@ -426,6 +426,132 @@ class OrderLifecycleAPITests(TestCase):
         self.assertEqual(order.rejection_reason_code, "TIMEOUT_EXPIRED")
         self.assertEqual(self.stock.reserved_quantity, Decimal("0.000"))
 
+    def test_configurable_shop_timeout_and_expiry_calculation(self):
+        # Configure shop with custom timeout (e.g., 45 minutes)
+        self.shop.pending_order_timeout_minutes = 45
+        self.shop.save(update_fields=["pending_order_timeout_minutes"])
+
+        before = timezone.now()
+        order = self.place_order(key="custom-timeout-order")
+        after = timezone.now()
+
+        # Verify expires_at is roughly 45 minutes from creation
+        self.assertIsNotNone(order.expires_at)
+        expected_min = before + timedelta(minutes=45)
+        expected_max = after + timedelta(minutes=45)
+        self.assertTrue(expected_min <= order.expires_at <= expected_max)
+
+        # Verify merchant can configure timeout via Shop update API
+        merchant = self.merchant_client()
+        resp = merchant.patch(reverse("shops:shop-me"), {"pending_order_timeout_minutes": 20}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.shop.refresh_from_db()
+        self.assertEqual(self.shop.pending_order_timeout_minutes, 20)
+
+        # Invalid timeout (0 or negative) is rejected
+        resp_bad = merchant.patch(reverse("shops:shop-me"), {"pending_order_timeout_minutes": 0}, format="json")
+        self.assertEqual(resp_bad.status_code, 400)
+
+    def test_merchant_cannot_accept_order_after_expiry(self):
+        order = self.place_order(key="expired-accept-order")
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("3.000"))
+
+        # Fast forward past expires_at
+        Order.objects.filter(pk=order.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+
+        # Attempt to accept expired order
+        merchant = self.merchant_client()
+        response = merchant.post(reverse("merchant-order-accept", args=[order.pk]), {}, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.data.get("detail"),
+            "The pending Order expired and was rejected; reserved stock was released.",
+        )
+
+        # Verify order transitioned to REJECTED outcome and reservation released
+        order.refresh_from_db()
+        self.stock.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.REJECTED)
+        self.assertEqual(order.rejection_actor, Order.RejectionActor.SYSTEM)
+        self.assertEqual(order.rejection_reason_code, "TIMEOUT_EXPIRED")
+        self.assertEqual(self.stock.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(self.stock.quantity, Decimal("20.000"))
+
+        # Subsequent accept attempt on already-expired/rejected order is also blocked
+        second_resp = merchant.post(reverse("merchant-order-accept", args=[order.pk]), {}, format="json")
+        self.assertEqual(second_resp.status_code, 409)
+        self.assertIn("Only PENDING Orders can be accepted", second_resp.data.get("detail", ""))
+
+    def test_scheduled_worker_expires_overdue_orders_and_releases_reservations(self):
+        from orders.services import expire_overdue_pending_orders
+
+        # Order 1: overdue
+        overdue_order = self.place_order(key="worker-overdue")
+        Order.objects.filter(pk=overdue_order.pk).update(expires_at=timezone.now() - timedelta(minutes=5))
+
+        # Order 2: still valid pending (future expiry)
+        valid_order = self.place_order(key="worker-valid")
+        Order.objects.filter(pk=valid_order.pk).update(expires_at=timezone.now() + timedelta(minutes=10))
+
+        # Stock has reservations for both (3.000 + 3.000 = 6.000)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("6.000"))
+
+        # Run worker sweep
+        expired_count = expire_overdue_pending_orders(batch_size=10)
+        self.assertEqual(expired_count, 1)
+
+        # Overdue order is expired and reservation released
+        overdue_order.refresh_from_db()
+        self.assertEqual(overdue_order.status, Order.Status.REJECTED)
+        self.assertEqual(overdue_order.rejection_actor, Order.RejectionActor.SYSTEM)
+        self.assertEqual(overdue_order.rejection_reason_code, "TIMEOUT_EXPIRED")
+
+        # Valid order is still PENDING
+        valid_order.refresh_from_db()
+        self.assertEqual(valid_order.status, Order.Status.PENDING)
+
+        # Stock reservation released exactly for overdue order (6.000 - 3.000 = 3.000)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("3.000"))
+
+    def test_expire_pending_orders_management_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        order = self.place_order(key="command-order")
+        Order.objects.filter(pk=order.pk).update(expires_at=timezone.now() - timedelta(minutes=2))
+
+        out = StringIO()
+        call_command("expire_pending_orders", batch_size=10, stdout=out)
+        self.assertIn("Successfully expired 1 overdue pending order(s)", out.getvalue())
+
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.REJECTED)
+        self.assertEqual(order.rejection_reason_code, "TIMEOUT_EXPIRED")
+
+    def test_expiry_worker_idempotent_and_releases_exactly_once(self):
+        from orders.services import expire_overdue_pending_orders
+
+        order = self.place_order(key="idempotent-expiry-order")
+        Order.objects.filter(pk=order.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("3.000"))
+
+        # First run expires and releases
+        count1 = expire_overdue_pending_orders(batch_size=10)
+        self.assertEqual(count1, 1)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("0.000"))
+
+        # Second run is idempotent (0 orders processed, stock remains untouched)
+        count2 = expire_overdue_pending_orders(batch_size=10)
+        self.assertEqual(count2, 0)
+        self.stock.refresh_from_db()
+        self.assertEqual(self.stock.reserved_quantity, Decimal("0.000"))
+        self.assertEqual(self.stock.quantity, Decimal("20.000"))
+
     def test_payment_and_canonical_state_machine_constraints(self):
         order = self.place_order(key="state-machine")
         merchant = self.merchant_client()

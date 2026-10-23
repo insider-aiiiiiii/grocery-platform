@@ -784,7 +784,7 @@ def release_pending_order_stock(
             # for variant-based products is authoritative only on the variant.
             if getattr(oi, "variant_name_snapshot", "") and not getattr(oi, "variant_id", None):
                 continue
-            target = oi.variant if getattr(oi, "variant_id", None) else getattr(oi, "product", None)
+            target = oi.variant if (getattr(oi, "variant_id", None) or getattr(oi, "variant", None)) else getattr(oi, "product", None)
             if not target:
                 # Catalog deletion cascades the associated InventoryItem too.
                 # The historical order line remains, but there is no live stock row to release.
@@ -868,7 +868,7 @@ def restore_accepted_order_stock(
         for oi in order_items:
             if getattr(oi, "variant_name_snapshot", "") and not getattr(oi, "variant_id", None):
                 continue
-            target = oi.variant if getattr(oi, "variant_id", None) else getattr(oi, "product", None)
+            target = oi.variant if (getattr(oi, "variant_id", None) or getattr(oi, "variant", None)) else getattr(oi, "product", None)
             if not target:
                 # Catalog deletion cascades the associated InventoryItem too.
                 continue
