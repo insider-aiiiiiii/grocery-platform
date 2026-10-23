@@ -2587,6 +2587,8 @@ class OrderStockReleaseAndRestorationIntegrationTests(InventoryBaseTestCase):
         def __init__(self, product=None, variant=None, reserved_quantity=Decimal("0.000"), accepted_quantity=None, quantity=None):
             self.product = product
             self.variant = variant
+            self.variant_id = variant.id if variant else None
+            self.product_id = product.id if product else (variant.product_id if variant else None)
             self.reserved_quantity = reserved_quantity
             self.accepted_quantity = accepted_quantity
             self.quantity = quantity if quantity is not None else reserved_quantity

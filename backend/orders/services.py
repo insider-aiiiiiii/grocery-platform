@@ -188,3 +188,35 @@ def create_order(shop, payload, idempotency_key):
         if existing:
             return existing, False
         raise
+
+
+def expire_overdue_pending_orders(batch_size: int = 100, shop_id: int | None = None) -> int:
+    """
+    Sweeps and expires overdue PENDING orders whose configured timeout has elapsed.
+    - Transitions each overdue order to REJECTED outcome (actor=SYSTEM, code=TIMEOUT_EXPIRED).
+    - Releases reserved inventory exactly once.
+    - Idempotent and concurrency-safe across multiple workers.
+    - Strictly checks order.expires_at <= now without inventing an unapproved default timeout.
+    """
+    from orders.transitions import expire_pending_order_if_due
+
+    now = timezone.now()
+    qs = Order.objects.filter(
+        status=Order.Status.PENDING,
+        expires_at__isnull=False,
+        expires_at__lte=now,
+    )
+    if shop_id is not None:
+        qs = qs.filter(shop_id=shop_id)
+
+    order_candidates = list(
+        qs.order_by("expires_at", "pk").values_list("shop_id", "pk")[:batch_size]
+    )
+
+    expired_count = 0
+    for s_id, o_id in order_candidates:
+        if expire_pending_order_if_due(s_id, o_id):
+            expired_count += 1
+
+    return expired_count
+

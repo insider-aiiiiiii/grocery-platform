@@ -31,6 +31,7 @@ class ShopSerializer(serializers.ModelSerializer):
             "is_pickup_enabled",
             "delivery_fee_type",
             "delivery_charge",
+            "pending_order_timeout_minutes",
             "public_slug",
             "public_url",
             "created_at",
@@ -115,6 +116,7 @@ class ShopCreateSerializer(serializers.ModelSerializer):
             "is_pickup_enabled",
             "delivery_fee_type",
             "delivery_charge",
+            "pending_order_timeout_minutes",
             "public_slug",
             "created_at",
             "updated_at",
@@ -139,6 +141,11 @@ class ShopCreateSerializer(serializers.ModelSerializer):
     def validate_delivery_charge(self, value):
         if value < 0:
             raise serializers.ValidationError("Delivery charge cannot be negative.")
+        return value
+
+    def validate_pending_order_timeout_minutes(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Pending order timeout must be greater than zero minutes.")
         return value
 
     def create(self, validated_data):
@@ -178,6 +185,7 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
             "is_pickup_enabled",
             "delivery_fee_type",
             "delivery_charge",
+            "pending_order_timeout_minutes",
             "public_slug",
             "created_at",
             "updated_at",
@@ -202,6 +210,11 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
     def validate_delivery_charge(self, value):
         if value < 0:
             raise serializers.ValidationError("Delivery charge cannot be negative.")
+        return value
+
+    def validate_pending_order_timeout_minutes(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Pending order timeout must be greater than zero minutes.")
         return value
 
     def validate(self, attrs):
