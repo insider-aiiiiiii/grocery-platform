@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { QrCode, RefreshCw, Power, PowerOff, ShieldCheck, Clock, Ban } from "lucide-react";
+import { QrCode, RefreshCw, Power, PowerOff, ShieldCheck, Clock, Ban, Trash2 } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 
 export interface MerchantShopItem {
@@ -71,6 +71,23 @@ export function MerchantTable({ merchants, onRefresh, token }: MerchantTableProp
       setActionLoadingId(null);
     }
   };
+
+  const handleDeleteShop = async (shopId: number, shopName: string) => {
+    if (!window.confirm(`⚠️ DANGER: Permanently delete shop "${shopName}"? This action cannot be undone and will permanently delete all shop data, products, and orders.`)) {
+      return;
+    }
+    setActionLoadingId(shopId);
+    try {
+      await adminApi.deleteShop(shopId, token);
+      alert(`Shop "${shopName}" permanently deleted.`);
+      onRefresh?.();
+    } catch (e: any) {
+      alert(`Delete failed: ${e.message}`);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
 
   return (
     <div className="bg-white border border-slate-200 rounded overflow-hidden shadow-sm">
@@ -219,6 +236,16 @@ export function MerchantTable({ merchants, onRefresh, token }: MerchantTableProp
                             Reactivate
                           </button>
                         )}
+
+                        {/* Permanent Delete */}
+                        <button
+                          onClick={() => handleDeleteShop(m.shopId, m.shopName)}
+                          disabled={isLoading}
+                          title="Permanently Delete Shop"
+                          className="p-1 rounded border border-rose-200 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
