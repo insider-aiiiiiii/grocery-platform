@@ -8,9 +8,10 @@ interface MasterCatalogTableProps {
   products: MasterProduct[];
   onRefresh?: () => void;
   token?: string;
+  onOpenPromote?: () => void;
 }
 
-export function MasterCatalogTable({ products, onRefresh, token }: MasterCatalogTableProps) {
+export function MasterCatalogTable({ products, onRefresh, token, onOpenPromote }: MasterCatalogTableProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("1");
@@ -55,13 +56,24 @@ export function MasterCatalogTable({ products, onRefresh, token }: MasterCatalog
             Platform-wide standard product taxonomy and verified SKU specifications.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] shadow-sm transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Master Product</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {onOpenPromote && (
+            <button
+              onClick={onOpenPromote}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-semibold rounded hover:bg-emerald-100 transition-colors"
+            >
+              <ArrowUpRight className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Promote Merchant SKU</span>
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] shadow-sm transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Master Product</span>
+          </button>
+        </div>
       </div>
 
       {/* Table */}

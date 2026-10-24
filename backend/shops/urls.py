@@ -22,6 +22,7 @@ from .views import (
     ShopCreateView,
     SuperAdminShopDeactivateView,
     SuperAdminShopDeleteView,
+    SuperAdminShopListView,
     SuperAdminShopReactivateView,
     SuperAdminShopRegenerateQRView,
 )
@@ -88,6 +89,7 @@ urlpatterns = [
     path("public/<slug:public_slug>/cart/validate/", PublicCartValidateView.as_view(), name="shop-public-cart-validate"),
     path("public/<slug:public_slug>/cart/<int:cart_id>/customer/", CartCustomerAssociateView.as_view(), name="shop-public-cart-customer-associate"),
     path("public/<slug:public_slug>/cart/customer/", CartCustomerAssociateView.as_view(), name="shop-public-cart-customer-associate-query"),
+    path("admin/directory/", SuperAdminShopListView.as_view(), name="shop-admin-directory"),
     path("<int:pk>/", SuperAdminShopDeleteView.as_view(), name="shop-admin-delete"),
     path("<int:pk>/deactivate/", SuperAdminShopDeactivateView.as_view(), name="shop-admin-deactivate"),
     path("<int:pk>/reactivate/", SuperAdminShopReactivateView.as_view(), name="shop-admin-reactivate"),

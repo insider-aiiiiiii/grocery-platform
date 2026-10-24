@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,6 +13,7 @@ from .serializers import (
     ShopCreateSerializer,
     ShopSerializer,
     ShopUpdateSerializer,
+    SuperAdminShopDirectorySerializer,
 )
 from .services import permanently_delete_shop
 
@@ -272,6 +273,14 @@ class SuperAdminShopDeleteView(APIView):
             permanently_delete_shop(shop, requested_by=request.user)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SuperAdminShopListView(generics.ListAPIView):
+    """API endpoint allowing an authenticated Super Admin to list all platform shops."""
+
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+    serializer_class = SuperAdminShopDirectorySerializer
+    queryset = Shop.objects.all().select_related("merchant__user").order_by("-created_at")
 
 
 class PublicShopDetailView(APIView):

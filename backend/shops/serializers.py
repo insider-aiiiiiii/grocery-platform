@@ -262,3 +262,39 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
 
         return attrs
 
+
+class SuperAdminShopDirectorySerializer(serializers.ModelSerializer):
+    """Serializer for Super Admin platform shop directory."""
+
+    owner__username = serializers.CharField(source="merchant.user.username", read_only=True)
+    owner__mobile_number = serializers.CharField(source="merchant.user.mobile_number", read_only=True)
+    owner_username = serializers.CharField(source="merchant.user.username", read_only=True)
+    owner_mobile_number = serializers.CharField(source="merchant.user.mobile_number", read_only=True)
+    catalog_items_count = serializers.SerializerMethodField()
+    monthly_volume = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Shop
+        fields = [
+            "id",
+            "name",
+            "public_slug",
+            "status",
+            "city",
+            "owner__username",
+            "owner__mobile_number",
+            "owner_username",
+            "owner_mobile_number",
+            "catalog_items_count",
+            "monthly_volume",
+            "created_at",
+        ]
+
+    def get_catalog_items_count(self, obj) -> int:
+        if hasattr(obj, "products"):
+            return obj.products.count()
+        return 0
+
+    def get_monthly_volume(self, obj) -> str:
+        return "₹0"
+

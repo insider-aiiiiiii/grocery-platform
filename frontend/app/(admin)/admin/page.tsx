@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/admin/Navbar";
 import { Sidebar } from "@/components/admin/Sidebar";
 import { MetricCard } from "@/components/admin/MetricCard";
@@ -10,6 +11,7 @@ import { MasterCatalogTable } from "@/components/admin/MasterCatalogTable";
 import { CampaignsManager, CampaignItem } from "@/components/admin/CampaignsManager";
 import { TopProductsRankings, TopProductItem } from "@/components/admin/TopProductsRankings";
 import { SecurityRecoveryModal } from "@/components/admin/SecurityRecoveryModal";
+import { ProductPromotionModal } from "@/components/admin/ProductPromotionModal";
 import {
   IndianRupee,
   Store,
@@ -20,20 +22,23 @@ import {
   ShieldCheck,
   Megaphone,
   Boxes,
+  CloudUpload,
 } from "lucide-react";
 import { adminApi, PlatformAnalytics, MasterProduct } from "@/lib/api/admin";
 
 export default function SuperAdminDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("overview");
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
+  const [isPromoteOpen, setIsPromoteOpen] = useState(false);
   const [analytics, setAnalytics] = useState<PlatformAnalytics | null>(null);
   const [masterProducts, setMasterProducts] = useState<MasterProduct[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [topProducts, setTopProducts] = useState<TopProductItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Demo fallback merchants if backend database is in dev initial state
+  // Merchants state populated from live backend API, with graceful fallback
   const [merchants, setMerchants] = useState<MerchantShopItem[]>([
     {
       id: 1,
@@ -75,16 +80,20 @@ export default function SuperAdminDashboard() {
 
   const loadData = async () => {
     try {
-      const [analyticsData, catalogData, campaignsData, topProductsData] = await Promise.all([
+      const [analyticsData, catalogData, campaignsData, topProductsData, liveShops] = await Promise.all([
         adminApi.getAnalytics().catch(() => null),
         adminApi.listMasterProducts().catch(() => ({ results: [] })),
         adminApi.listCampaigns().catch(() => []),
         adminApi.getTopProducts().catch(() => ({ top_products: [] })),
+        adminApi.listShops().catch(() => null),
       ]);
       if (analyticsData) setAnalytics(analyticsData);
       if (catalogData && catalogData.results) setMasterProducts(catalogData.results);
       if (Array.isArray(campaignsData)) setCampaigns(campaignsData);
       if (topProductsData && topProductsData.top_products) setTopProducts(topProductsData.top_products);
+      if (liveShops && Array.isArray(liveShops) && liveShops.length > 0) {
+        setMerchants(liveShops);
+      }
     } catch {
       // Resilient fallback
     } finally {
@@ -93,6 +102,11 @@ export default function SuperAdminDashboard() {
   };
 
   useEffect(() => {
+    const token = localStorage.getItem("admin_access_token");
+    if (!token) {
+      router.push("/admin/login");
+      return;
+    }
     loadData();
   }, []);
 
@@ -154,6 +168,13 @@ export default function SuperAdminDashboard() {
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
                 Security & Recovery
+              </button>
+              <button
+                onClick={() => setIsPromoteOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-semibold rounded hover:bg-emerald-100 transition-all shadow-sm"
+              >
+                <CloudUpload className="w-3.5 h-3.5 text-emerald-700" />
+                Promote Merchant SKU
               </button>
               <button
                 onClick={() => setIsOnboardOpen(true)}
@@ -269,6 +290,7 @@ export default function SuperAdminDashboard() {
             <MasterCatalogTable
               products={masterProducts}
               onRefresh={loadData}
+              onOpenPromote={() => setIsPromoteOpen(true)}
             />
           )}
 
@@ -281,6 +303,16 @@ export default function SuperAdminDashboard() {
           )}
         </div>
       </main>
+
+      {/* Product Promotion Moderation Modal */}
+      <ProductPromotionModal
+        isOpen={isPromoteOpen}
+        onClose={() => setIsPromoteOpen(false)}
+        onSuccess={() => {
+          loadData();
+          setIsPromoteOpen(false);
+        }}
+      />
 
       {/* Onboard Merchant Slide-Over Modal */}
       <OnboardMerchantModal
