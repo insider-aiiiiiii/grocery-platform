@@ -87,6 +87,19 @@ export interface MasterProduct {
   is_verified?: boolean;
 }
 
+export interface MerchantShopItem {
+  id: number;
+  shopId: number;
+  shopName: string;
+  merchantName: string;
+  mobileNumber: string;
+  city: string;
+  status: "ACTIVE" | "PENDING_PASSWORD_CHANGE" | "SUSPENDED" | "DEACTIVATED";
+  catalogItemsCount: number;
+  monthlyVolume: string;
+  publicSlug: string;
+}
+
 export const adminApi = {
   login: async (payload: SuperAdminLoginRequest): Promise<SuperAdminLoginResponse> => {
     const res = await apiClient.post<SuperAdminLoginResponse>("/auth/super-admin/login/", payload);
@@ -138,8 +151,47 @@ export const adminApi = {
     return res.data;
   },
 
-  promoteShopProduct: async (productId: number, token?: string) => {
-    const res = await apiClient.post(`/catalog/shop-products/${productId}/promote/`, {}, {
+  listShops: async (token?: string): Promise<MerchantShopItem[]> => {
+    const res = await apiClient.get<Array<{
+      id: number;
+      name: string;
+      public_slug: string;
+      status: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
+      city: string;
+      owner__username?: string;
+      owner__mobile_number?: string;
+      owner_username?: string;
+      owner_mobile_number?: string;
+      catalog_items_count?: number;
+      monthly_volume?: string;
+    }>>("/shops/admin/directory/", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data.map((item) => ({
+      id: item.id,
+      shopId: item.id,
+      shopName: item.name,
+      merchantName: item.owner_username || item.owner__username || "Merchant",
+      mobileNumber: item.owner_mobile_number || item.owner__mobile_number || "—",
+      city: item.city || "—",
+      status: item.status,
+      catalogItemsCount: item.catalog_items_count ?? 0,
+      monthlyVolume: item.monthly_volume || "₹0",
+      publicSlug: item.public_slug,
+    }));
+  },
+
+  promoteShopProduct: async (
+    productId: number,
+    payload?: {
+      name?: string;
+      brand?: string;
+      description?: string;
+      category?: number;
+    },
+    token?: string
+  ) => {
+    const res = await apiClient.post(`/catalog/shop-products/${productId}/promote/`, payload || {}, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
@@ -216,7 +268,7 @@ export const adminApi = {
   },
 
   endCampaign: async (campaignId: number, token?: string) => {
-    const res = await apiClient.post(`/campaigns/${campaignId}/end/`, {}, {
+    const res = await apiClient.post(`/campaigns/${campaignId}/deactivate/`, {}, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;

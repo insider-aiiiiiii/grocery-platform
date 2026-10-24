@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { QrCode, Search, Bell, Activity, ShieldAlert, UserCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { QrCode, Search, Bell, Activity, ShieldAlert, UserCheck, LogOut } from "lucide-react";
 
 interface NavbarProps {
   adminEmail?: string;
@@ -9,6 +9,16 @@ interface NavbarProps {
 }
 
 export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarProps) {
+  const router = useRouter();
+
+  const handleLogout = () => {
+    localStorage.removeItem("admin_access_token");
+    localStorage.removeItem("admin_refresh_token");
+    localStorage.removeItem("admin_user");
+    localStorage.removeItem("admin_remember");
+    router.push("/admin/login");
+  };
+
   return (
     <header className="h-14 w-full px-6 flex items-center justify-between z-40 bg-white border-b border-slate-200 shadow-sm fixed top-0 left-0 right-0">
       {/* Brand & Live Status */}
@@ -81,6 +91,16 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
             <div className="text-[10px] text-slate-500 leading-tight">{adminEmail}</div>
           </div>
         </div>
+
+        {/* Logout Button */}
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-red-700 hover:bg-red-50 border border-slate-200 rounded-md transition-colors"
+          title="Logout from Super Admin session"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Logout</span>
+        </button>
       </div>
     </header>
   );
