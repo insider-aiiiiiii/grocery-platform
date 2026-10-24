@@ -10,6 +10,7 @@ import {
   BarChart3,
   Settings,
   Lock,
+  Megaphone,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -18,6 +19,7 @@ interface SidebarProps {
   onOpenOnboard: () => void;
   merchantCount?: number;
   catalogCount?: number;
+  campaignCount?: number;
 }
 
 export function Sidebar({
@@ -26,13 +28,15 @@ export function Sidebar({
   onOpenOnboard,
   merchantCount = 142,
   catalogCount = 820,
+  campaignCount = 4,
 }: SidebarProps) {
   const navItems = [
     { id: "overview", label: "Network Overview", icon: LayoutDashboard },
     { id: "merchants", label: "Tenant Directory", icon: Store, badge: merchantCount },
     { id: "catalog", label: "Master Catalog", icon: Boxes, badge: catalogCount },
+    { id: "campaigns", label: "Marketing Campaigns", icon: Megaphone, badge: campaignCount },
     { id: "analytics", label: "Platform Analytics", icon: BarChart3 },
-    { id: "security", label: "Security & Audit", icon: ShieldAlert },
+    { id: "security", label: "Security & Recovery", icon: ShieldAlert },
     { id: "settings", label: "Console Settings", icon: Settings },
   ];
 

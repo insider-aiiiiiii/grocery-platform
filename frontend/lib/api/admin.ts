@@ -109,6 +109,14 @@ export const adminApi = {
     return res.data;
   },
 
+  getTopProducts: async (token?: string, period: string = "today", limit: number = 10) => {
+    const res = await apiClient.get("/analytics/platform/top-products/", {
+      params: { period, limit },
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
   provisionMerchant: async (payload: ProvisionMerchantPayload, token?: string): Promise<ProvisionMerchantResponse> => {
     const res = await apiClient.post<ProvisionMerchantResponse>("/super-admin/merchants/", payload, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -160,8 +168,91 @@ export const adminApi = {
 
   deleteShop: async (shopId: number, token?: string) => {
     const res = await apiClient.delete(`/shops/${shopId}/`, {
+      params: { confirm: "true" },
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
   },
+
+  // Campaign Management (CampaignViewSet)
+  listCampaigns: async (token?: string) => {
+    const res = await apiClient.get<Array<{
+      id: number;
+      name: string;
+      banner_url: string;
+      discount_percentage: string;
+      status: "DRAFT" | "ACTIVE" | "ENDED";
+      starts_at: string;
+      ends_at: string;
+      selected_shops?: number[];
+    }>>("/campaigns/", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  createCampaign: async (
+    payload: {
+      name: string;
+      banner_url?: string;
+      discount_percentage?: string;
+      starts_at: string;
+      ends_at?: string;
+      selected_shops?: number[];
+    },
+    token?: string
+  ) => {
+    const res = await apiClient.post("/campaigns/", payload, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  activateCampaign: async (campaignId: number, token?: string) => {
+    const res = await apiClient.post(`/campaigns/${campaignId}/activate/`, {}, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  endCampaign: async (campaignId: number, token?: string) => {
+    const res = await apiClient.post(`/campaigns/${campaignId}/end/`, {}, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  deleteCampaign: async (campaignId: number, token?: string) => {
+    const res = await apiClient.delete(`/campaigns/${campaignId}/`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  // Security Self-Recovery & Admin Reset
+  requestSelfRecovery: async (payload: { channel: "EMAIL" | "SMS"; contact: string }) => {
+    const res = await apiClient.post("/auth/super-admin/recovery/", payload);
+    return res.data;
+  },
+
+  confirmSelfRecovery: async (payload: { code: string; new_password: string; contact: string }) => {
+    const res = await apiClient.post("/auth/super-admin/recovery/confirm/", payload);
+    return res.data;
+  },
+
+  requestAdminReset: async (
+    payload: { target_user_id: number; channel: "EMAIL" | "SMS"; current_password: string },
+    token?: string
+  ) => {
+    const res = await apiClient.post("/auth/super-admin/password-reset-requests/", payload, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  confirmAdminReset: async (payload: { code: string; new_password: string }) => {
+    const res = await apiClient.post("/auth/super-admin/password-reset-requests/confirm/", payload);
+    return res.data;
+  },
 };
+
