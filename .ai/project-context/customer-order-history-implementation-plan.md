@@ -1,5 +1,10 @@
 # Customer Order-History Access Implementation Plan
 
+> [!IMPORTANT]
+> **Architectural Amendment & Deprecation Notice (NOT-004 through NOT-007):**
+> Implementation tasks for the customer-facing web order-history portal and tokenized link request/exchange have been **deprecated and removed from the MVP scope**.
+> Customers receive receipts, order progress updates, and reorder links directly within their WhatsApp chat thread with the merchant using direct WhatsApp Click-to-Chat (`wa.me`) messages. Order history is maintained in the backend and exposed strictly for Merchant ERP usage.
+
 ## 1. Purpose, scope, and decision status
 
 This AUTH-016 document plans implementation of the finalized customer access-link design. It does not implement application behavior or settle deployment-dependent choices. No Customer/Order models, migrations, endpoints, providers, or tests are added by this planning task.

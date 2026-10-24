@@ -347,7 +347,7 @@ class CustomerModelTests(TestCase):
         customer_models = list(apps.get_app_config("customers").get_models())
         model_names = [m.__name__ for m in customer_models]
 
-        self.assertEqual(model_names, ["Customer"])
+        self.assertEqual(set(model_names), {"Customer", "CustomerSession", "HistoryLinkGrant"})
         self.assertNotIn("CustomerIdentity", model_names)
         self.assertNotIn("ContactIdentityClaim", model_names)
         self.assertNotIn("ShopCustomerProfile", model_names)

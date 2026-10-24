@@ -1,8 +1,15 @@
 # Customer Order-History Access and API Design
 
+> [!IMPORTANT]
+> **Architectural Amendment & Deprecation Notice (NOT-004 through NOT-007):**
+> The customer-facing web order-history portal, tokenized history-link delivery, and customer session-exchange flow described in this document have been **deprecated and removed from the MVP scope**. 
+> - **Customer Communication Model**: Customers receive order receipts, status progress notifications, and reorder links directly within their WhatsApp chat thread with the merchant using direct WhatsApp Click-to-Chat (`wa.me`) messages.
+> - **Backend Order History**: Order history is maintained in the backend and exposed strictly to authenticated Merchants through ERP APIs (`/api/v1/customers/`, `/api/v1/shops/me/customers/`, and `/api/v1/orders/`).
+> - The specifications below are retained for historical reference and context regarding customer profile isolation and data boundaries.
+
 ## 1. Status and scope
 
-This document is the single authoritative Customer Order-history access design register. It combines fixed AUTH-015 behavior, AUTH-017 API/persistence proposals, and AUTH-018 recommendations. Fixed behavior in §2 is approved and must not be reopened. AUTH-018 recommendations are not product/privacy approval: items marked **approval required** remain open. Nothing here authorizes implementation before its blocker decisions are recorded.
+This document is the historical Customer Order-history access design register. It combines fixed AUTH-015 behavior, AUTH-017 API/persistence proposals, and AUTH-018 recommendations. Fixed behavior in §2 is approved and must not be reopened. AUTH-018 recommendations are not product/privacy approval: items marked **approval required** remain open. Nothing here authorizes implementation before its blocker decisions are recorded.
 
 **Verified repository status:** Customer, Cart, Order, Inventory, and Notifications remain Django scaffolds. No Customer or Order models/APIs, link grants, Customer sessions, or WhatsApp provider integration exist. Platform authentication is Merchant/Super Admin JWT. The repository has PostgreSQL settings with SQLite fallback, Django CSRF middleware, and no Customer cookie authentication, CORS configuration, general rate-limit backend, or background task framework. See `development-status.md` and AUTH-016 implementation plan.
 

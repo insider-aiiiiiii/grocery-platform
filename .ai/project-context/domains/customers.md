@@ -2,7 +2,10 @@
 
 ## 1. Domain Purpose
 
-The Customers domain owns Shop-specific customer profiles and ordering context, customer contact information, repeat-customer recognition, customer information needed for approved checkout behavior, shop-specific history access context, and delivery-related customer information where applicable. AUTH-004 recommends a minimal global contact identity and claim boundary alongside Shop-specific Customer profiles; whether identities link across Shops is pending Product Owner/Privacy approval; see the single decision register in `.ai/project-context/customer-order-history-access.md`.
+The Customers domain owns Shop-specific customer profiles and ordering context, customer contact information, repeat-customer recognition, customer information needed for approved checkout behavior, and delivery-related customer information where applicable. AUTH-004 recommends a minimal global contact identity and claim boundary alongside Shop-specific Customer profiles; whether identities link across Shops is pending Product Owner/Privacy approval; see the single decision register in `.ai/project-context/customer-order-history-access.md`.
+
+**Product Amendment (Web Customer-History Portal Removed):**
+Per approved product amendment (NOT-004 through NOT-007), customer-facing order tracking, confirmations, receipts, and reorder links are conducted directly via WhatsApp Click-to-Chat (`wa.me`) messages within the customer's chat thread with the shop. The platform does not host a customer-facing order history web portal or tokenized history link request/redemption flow. Order history in the platform backend is maintained strictly for Merchants via ERP endpoints (`/api/v1/customers/`, `/api/v1/shops/me/customers/`, and `/api/v1/orders/`).
 
 It does not own merchant users or authentication, shop identity, products, inventory, carts, orders, payments, WhatsApp provider/integration, delivery-partner management, or analytics implementation. Those belong to their respective domains.
 
@@ -12,11 +15,11 @@ The current product does not require traditional customer accounts with username
 
 ```text
 Contact identity X (proposed; no login or history access)
-   ├── Shop A Customer profile (name/address/history scoped to A)
-   └── Shop B Customer profile (separate name/address/history scoped to B)
+   ├── Shop A Customer profile (name/address/context scoped to A)
+   └── Shop B Customer profile (separate name/address/context scoped to B)
 ```
 
-Customer profiles and Order history are Shop-scoped; the platform must not expose or combine history across Shops. The repeat-customer/order-history experience must not require OTP, and a WhatsApp number alone is never authorization. The finalized mechanism is a one-use link grant with a 15-minute expiry, exchanged for a server-side Customer session scoped to the exact Shop profile and Shop. The session lasts no more than 30 days, and only one active session is allowed per profile + Shop. See `.ai/project-context/customer-order-history-access.md` for the fixed security rules and the AUTH-018 identity/retention decision register. This mechanism is not implemented.
+Customer profiles are Shop-scoped; the platform must not expose or combine profiles across Shops. The repeat-customer experience does not require OTP, and a WhatsApp number alone is never authorization. The previously proposed web-based customer history link request and token redemption portal have been removed from the product scope; customers monitor their order progress and receipt history directly in WhatsApp.
 
 The fixed AUTH-015 requirements are approved. Identity/profile representation, retention, API/schema contract, phone normalization and deployment choices remain under review as listed only in `.ai/project-context/customer-order-history-access.md` §12.
 
@@ -111,7 +114,9 @@ Final validation rules belong in the relevant Order/checkout specification and a
 
 ## 11. Customer History
 
-Customer Order history is Shop/customer-context scoped. The repeat-customer/order-history experience must not require OTP, and a WhatsApp number alone must not expose Orders. The approved mechanism is a one-use 15-minute link exchanged for a session scoped to the exact Customer and Shop; the session has a 30-day maximum absolute lifetime and one active session is allowed per Customer + Shop. Shop deletion revokes that Shop's outstanding grants and sessions, deletes its Orders, and leaves Customer retention governed by the existing Customer rules. A retained Customer and its credentials are never transferred to a replacement Shop. Minimize exposed customer information. See `.ai/project-context/customer-order-history-access.md` for the design and deployment items still open.
+Customer Order history is Shop/customer-context scoped. Under the approved communication model (NOT-004 through NOT-007), customer-facing order history, order progress updates, and receipts are delivered and tracked directly in the customer's WhatsApp chat thread with the merchant using WhatsApp Click-to-Chat (`wa.me`) messages and reorder links.
+
+The platform does not host a customer-facing web portal for order history access, nor does it deliver tokenized history access links. A WhatsApp number alone must never authorize or expose private order history or customer records via API. Order history is maintained in the platform backend strictly for Merchant ERP operations (accessible by the authenticated Merchant owning the Shop via `/api/v1/customers/`, `/api/v1/shops/me/customers/`, and `/api/v1/orders/`).
 
 Do not assume merchants should automatically see every customer detail. Merchant visibility and access must follow approved authorization and privacy rules. Analytics definitions belong to Analytics, not this domain.
 
@@ -166,11 +171,11 @@ Customer identity
 Customer authentication
 ```
 
-The current product does not establish a traditional customer login/account system. The approved Order-history flow does not require OTP and uses a one-use 15-minute access link exchanged for a Customer + Shop-scoped session. The session has a 30-day maximum absolute lifetime, and there is one active session per Customer + Shop. A WhatsApp number alone never authorizes access. The mechanism is designed but not implemented; see `.ai/project-context/customer-order-history-access.md` for deployment decisions that remain open.
+The current product does not establish a traditional customer login/account system. Customers do not log in with usernames/passwords or OTP. The web-based customer history portal and token redemption have been removed from the product scope; order status confirmations and receipt summaries are delivered directly to the customer's WhatsApp thread. A WhatsApp number alone never authorizes access to private data.
 
 ## 17. Customer Identification and Security
 
-The approved repeat-customer/order-history flow must not require OTP. A WhatsApp number alone is not proof of identity and never authorizes access to Order history. A single-use link expires after 15 minutes and exchanges for a Customer + Shop-scoped session with a 30-day maximum absolute lifetime and one active session per Customer + Shop. Phone-number normalization and formatting remain unresolved. The access mechanism is designed but not implemented; see `.ai/project-context/customer-order-history-access.md` for security controls and open deployment decisions. Minimize exposed customer information.
+The repeat-customer flow does not require OTP. A WhatsApp number alone is not proof of identity and never authorizes API access to Order history. Customer order tracking is conducted through WhatsApp chat messages generated at checkout and during merchant status transitions. Phone-number normalization and formatting remain unresolved. Minimize exposed customer information.
 
 ## 18. Customer Access by Merchant
 
@@ -191,7 +196,8 @@ The following requirements are approved by the product and business-rule sources
 - Customer profile, contact context, and history are Shop-specific. AUTH-004's proposed minimal cross-Shop contact identity does not make profile data/history global and remains pending approval.
 - Customer profiles and accessible Order history remain in their Shop/customer context; history is not automatically linked across Shops.
 - A WhatsApp number is associated with at most one identity across all Shops and authenticated User accounts.
-- The repeat-customer/order-history flow does not require OTP, and a WhatsApp number alone never exposes Orders or customer details. A one-use access link expires after 15 minutes and exchanges for one active Customer + Shop-scoped session with a maximum absolute lifetime of 30 days. Shop deletion revokes grants and sessions for that Shop and removes its Orders, while Customer retention follows existing Customer rules; no retained Customer or access credential transfers to a replacement Shop. The finalized security design is in `.ai/project-context/customer-order-history-access.md`; delivery, deployment, and retention details remain open.
+- The platform does not host a customer-facing order history web portal; customer order tracking occurs directly via WhatsApp Click-to-Chat communication.
+- A WhatsApp number alone never exposes Orders or customer details via API.
 - Merchant access to customer information is limited to authorized shops.
 
 A returning customer may be recognized within the same Shop using the customer's WhatsApp number as the primary identifier. The intended experience may prefill a customer name or reuse previously known delivery information where appropriate.
