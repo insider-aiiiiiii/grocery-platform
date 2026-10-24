@@ -16,7 +16,7 @@ export function SecurityRecoveryModal({ isOpen, onClose }: SecurityRecoveryModal
   const [otpCode, setOtpCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [step, setStep] = useState<"request" | "confirm">("request");
-  const [targetUserId, setTargetUserId] = useState<number>(2);
+  const [targetUserId, setTargetUserId] = useState<number | "">("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -62,7 +62,7 @@ export function SecurityRecoveryModal({ isOpen, onClose }: SecurityRecoveryModal
     setMsg(null);
     try {
       await adminApi.requestAdminReset({
-        target_user_id: targetUserId,
+        target_user_id: Number(targetUserId) || 0,
         channel,
         current_password: currentPassword,
       });

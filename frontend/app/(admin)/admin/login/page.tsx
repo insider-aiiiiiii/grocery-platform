@@ -47,6 +47,11 @@ export default function SuperAdminLoginPage() {
 
       if (data.access) {
         localStorage.setItem("admin_access_token", data.access);
+        const adminName = data.user?.username || data.user?.email || identifier.trim();
+        localStorage.setItem("admin_username", adminName);
+        if (data.user) {
+          localStorage.setItem("admin_user", JSON.stringify(data.user));
+        }
         if (data.refresh) {
           localStorage.setItem("admin_refresh_token", data.refresh);
         }

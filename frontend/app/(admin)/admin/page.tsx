@@ -23,6 +23,7 @@ import {
   Megaphone,
   Boxes,
   CloudUpload,
+  UserPlus,
 } from "lucide-react";
 import { adminApi, PlatformAnalytics, MasterProduct } from "@/lib/api/admin";
 
@@ -38,45 +39,31 @@ export default function SuperAdminDashboard() {
   const [topProducts, setTopProducts] = useState<TopProductItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Merchants state populated from live backend API, with graceful fallback
-  const [merchants, setMerchants] = useState<MerchantShopItem[]>([
-    {
-      id: 1,
-      shopId: 1,
-      shopName: "Fresh Grocer Bengaluru",
-      merchantName: "fresh_grocer_merchant",
-      mobileNumber: "+91 98880 00001",
-      city: "Bengaluru, 560038",
-      status: "ACTIVE",
-      catalogItemsCount: 42,
-      monthlyVolume: "₹1,49,200",
-      publicSlug: "f4356ecdbbd6",
-    },
-    {
-      id: 2,
-      shopId: 2,
-      shopName: "Mahalaxmi Super Market",
-      merchantName: "mahalaxmi_admin",
-      mobileNumber: "+91 98201 44521",
-      city: "Mumbai, 400053",
-      status: "ACTIVE",
-      catalogItemsCount: 84,
-      monthlyVolume: "₹2,21,500",
-      publicSlug: "a18290bc91fe",
-    },
-    {
-      id: 3,
-      shopId: 3,
-      shopName: "Gupta Daily Provisions",
-      merchantName: "gupta_kirana",
-      mobileNumber: "+91 99100 81290",
-      city: "Delhi NCR, 110024",
-      status: "PENDING_PASSWORD_CHANGE",
-      catalogItemsCount: 18,
-      monthlyVolume: "₹42,000",
-      publicSlug: "b98210fe91ca",
-    },
-  ]);
+  // Merchants state populated from live backend API
+  const [merchants, setMerchants] = useState<MerchantShopItem[]>([]);
+
+  // Admin username detection
+  const [adminUsername, setAdminUsername] = useState<string>("Super Admin");
+
+  useEffect(() => {
+    const explicitUsername = localStorage.getItem("admin_username");
+    if (explicitUsername && explicitUsername.trim() !== "") {
+      setAdminUsername(explicitUsername);
+      return;
+    }
+    const storedUser = localStorage.getItem("admin_user");
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.username || parsed?.email) {
+          setAdminUsername(parsed.username || parsed.email);
+          return;
+        }
+      } catch {
+        // Fallback
+      }
+    }
+  }, []);
 
   const loadData = async () => {
     try {
@@ -91,11 +78,11 @@ export default function SuperAdminDashboard() {
       if (catalogData && catalogData.results) setMasterProducts(catalogData.results);
       if (Array.isArray(campaignsData)) setCampaigns(campaignsData);
       if (topProductsData && topProductsData.top_products) setTopProducts(topProductsData.top_products);
-      if (liveShops && Array.isArray(liveShops) && liveShops.length > 0) {
+      if (liveShops && Array.isArray(liveShops)) {
         setMerchants(liveShops);
       }
     } catch {
-      // Resilient fallback
+      // Live API error
     } finally {
       setLoading(false);
     }
@@ -121,11 +108,14 @@ export default function SuperAdminDashboard() {
   // Formatted Metric Values
   const gmv = analytics?.sales?.realized_sales
     ? `₹${parseFloat(analytics.sales.realized_sales).toLocaleString("en-IN")}`
-    : "₹1,48,920";
+    : "₹0";
   const activeShops = analytics?.shops?.active_shops ?? merchants.length;
   const totalShops = analytics?.shops?.total_shops ?? merchants.length;
-  const ordersToday = analytics?.orders?.total_orders ?? 142;
-  const outOfStock = analytics?.inventory?.out_of_stock_items_count ?? 12;
+  const ordersToday = analytics?.orders?.total_orders ?? 0;
+  const outOfStock = analytics?.inventory?.out_of_stock_items_count ?? 0;
+  const avgOrderText = analytics?.sales?.average_order_value
+    ? `Avg Order ₹${parseFloat(analytics.sales.average_order_value).toLocaleString("en-IN")}`
+    : "Avg Order ₹0";
 
   return (
     <div className="bg-slate-50 min-h-screen text-slate-900 font-sans antialiased">
@@ -136,29 +126,31 @@ export default function SuperAdminDashboard() {
       <Sidebar
         activeTab={activeTab}
         onTabChange={handleTabChange}
-        onOpenOnboard={() => setIsOnboardOpen(true)}
         merchantCount={merchants.length}
-        catalogCount={masterProducts.length || 24}
-        campaignCount={campaigns.length || 2}
+        catalogCount={masterProducts.length}
+        campaignCount={campaigns.length}
       />
 
       {/* Main Content Viewport */}
       <main className="ml-64 mt-14 p-6 min-h-[calc(100vh-3.5rem)]">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header Title Section */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 bg-white p-5 rounded-lg border shadow-sm">
             <div>
               <div className="flex items-center gap-2.5">
                 <h1 className="text-xl font-bold text-slate-900 tracking-tight">
                   Platform Governance Matrix
                 </h1>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 tracking-wider uppercase">
-                  {activeTab === "overview" ? "Pan-India Operations" : activeTab}
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#1F5D42]/10 text-[#1F5D42] tracking-wider uppercase">
+                  {activeTab}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Multi-tenant telemetry, live SKU curation, campaigns, and merchant security administration.
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                <p className="text-xs text-slate-600">
+                  Logged in as <strong className="text-slate-900 font-semibold">{adminUsername}</strong> (Super Admin)
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -180,113 +172,199 @@ export default function SuperAdminDashboard() {
                 onClick={() => setIsOnboardOpen(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] shadow-sm transition-all"
               >
-                Onboard New Merchant
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Onboard New Merchant</span>
               </button>
             </div>
           </div>
 
-          {/* KPI Metric Cards (Shown in Overview & Analytics tabs) */}
-          {(activeTab === "overview" || activeTab === "analytics") && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricCard
-                title="Platform GMV (Today)"
-                value={gmv}
-                delta="+14.2%"
-                isPositive={true}
-                contextText="Realized Sales"
-                icon={IndianRupee}
-                accentColor="green"
-              />
-              <MetricCard
-                title="Total Active Shops"
-                value={`${activeShops} / ${totalShops}`}
-                delta="95.8%"
-                isPositive={true}
-                contextText="Network Health"
-                icon={Store}
-                accentColor="emerald"
-              />
-              <MetricCard
-                title="Completed Orders"
-                value={ordersToday.toLocaleString("en-IN")}
-                delta="+8.4%"
-                isPositive={true}
-                contextText="Avg Order ₹348"
-                icon={Receipt}
-                accentColor="slate"
-              />
-              <MetricCard
-                title="Stock-Out Alerts"
-                value={`${outOfStock} SKUs`}
-                delta="-2.1%"
-                isPositive={false}
-                contextText="Action required"
-                icon={AlertTriangle}
-                accentColor="amber"
-              />
-            </div>
-          )}
+          {/* TAB 1: NETWORK OVERVIEW (Executive summary, uncluttered) */}
+          {activeTab === "overview" && (
+            <div className="space-y-6">
+              {/* KPI Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  title="Platform GMV (Today)"
+                  value={gmv}
+                  contextText="Realized Sales"
+                  icon={IndianRupee}
+                  accentColor="green"
+                />
+                <MetricCard
+                  title="Total Active Shops"
+                  value={`${activeShops} / ${totalShops}`}
+                  contextText="Network Health"
+                  icon={Store}
+                  accentColor="emerald"
+                />
+                <MetricCard
+                  title="Completed Orders"
+                  value={ordersToday.toLocaleString("en-IN")}
+                  contextText={avgOrderText}
+                  icon={Receipt}
+                  accentColor="slate"
+                />
+                <MetricCard
+                  title="Stock-Out Alerts"
+                  value={`${outOfStock} SKUs`}
+                  contextText="Critical Replenishment"
+                  icon={AlertTriangle}
+                  accentColor="amber"
+                />
+              </div>
 
-          {/* Top Performing Shops & Products (Shown in Overview & Analytics tabs) */}
-          {(activeTab === "overview" || activeTab === "analytics") && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Top Shops Leaderboard */}
-              <div className="bg-white border border-slate-200 rounded p-4 shadow-sm">
-                <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
-                  <div className="flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Top Performing Merchant Nodes
-                    </h3>
-                  </div>
-                  <span className="text-[11px] text-slate-400">Ranked by Realized Volume</span>
-                </div>
-                <div className="space-y-2.5">
-                  {(analytics?.top_shops && analytics.top_shops.length > 0
-                    ? analytics.top_shops.slice(0, 3)
-                    : [
-                        { shop_id: 1, shop_name: "Fresh Grocer Bengaluru", completed_orders: 86, realized_sales: "64200.00" },
-                        { shop_id: 2, shop_name: "Mahalaxmi Super Market", completed_orders: 54, realized_sales: "48150.00" },
-                        { shop_id: 3, shop_name: "Gupta Daily Provisions", completed_orders: 38, realized_sales: "29400.00" },
-                      ]
-                  ).map((s, idx) => (
-                    <div
-                      key={s.shop_id}
-                      className="p-3 rounded border border-slate-100 bg-slate-50/50 flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
-                        <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
-                        <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-mono font-bold text-[#1F5D42]">
-                          ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
-                        </div>
-                        <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5 justify-end">
-                          <TrendingUp className="w-3 h-3" /> Top 5%
-                        </span>
-                      </div>
+              {/* 2-Column Summary Cards */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Registered Tenants Preview */}
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Store className="w-4 h-4 text-[#1F5D42]" />
+                      <h3 className="text-sm font-bold text-slate-900">Tenant Directory Snapshot</h3>
                     </div>
-                  ))}
+                    <button
+                      onClick={() => setActiveTab("merchants")}
+                      className="text-xs font-semibold text-[#1F5D42] hover:underline"
+                    >
+                      View All {merchants.length} Tenants →
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2.5">
+                    {merchants.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        No merchants onboarded yet. Use the Onboard button above to add one.
+                      </div>
+                    ) : (
+                      merchants.slice(0, 4).map((m) => (
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"
+                        >
+                          <div>
+                            <div className="text-xs font-bold text-slate-900">{m.shopName || m.merchantName}</div>
+                            <div className="text-[11px] text-slate-500 font-mono">
+                              Mobile: {m.mobileNumber} | {m.city || "Urban Node"}
+                            </div>
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              m.status === "ACTIVE"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-amber-100 text-amber-800"
+                            }`}
+                          >
+                            {m.status}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Master Catalog Preview */}
+                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Boxes className="w-4 h-4 text-[#1F5D42]" />
+                      <h3 className="text-sm font-bold text-slate-900">Master Catalog Snapshot</h3>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab("catalog")}
+                      className="text-xs font-semibold text-[#1F5D42] hover:underline"
+                    >
+                      View All {masterProducts.length} SKUs →
+                    </button>
+                  </div>
+                  <div className="mt-4 space-y-2.5">
+                    {masterProducts.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        No master catalog products found.
+                      </div>
+                    ) : (
+                      masterProducts.slice(0, 4).map((p) => (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100"
+                        >
+                          <div>
+                            <div className="text-xs font-bold text-slate-900">{p.name}</div>
+                            <div className="text-[11px] text-slate-500">
+                              Brand: {p.brand || "Generic"} | {p.category_name || "General"}
+                            </div>
+                          </div>
+                          <div className="text-right text-xs font-semibold text-emerald-700">
+                            {p.is_verified ? "Verified SKU" : "Standard"}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Top Products Rankings */}
-              <TopProductsRankings products={topProducts} />
+              {/* Quick Navigation Panels */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div
+                  onClick={() => setActiveTab("merchants")}
+                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Store className="w-5 h-5 text-[#1F5D42]" />
+                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                      {merchants.length} Shops →
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-900">Tenant Directory</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Manage tenant credentials, activate/deactivate shops, and view store configs.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab("catalog")}
+                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Boxes className="w-5 h-5 text-[#1F5D42]" />
+                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                      {masterProducts.length} Items →
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-900">Master Catalog</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Universal barcode registry, categories, and merchant SKU promotions.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setActiveTab("campaigns")}
+                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Megaphone className="w-5 h-5 text-[#1F5D42]" />
+                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                      {campaigns.length} Active →
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-900">Marketing Campaigns</h4>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Launch platform-wide banners, discounts, and customer incentives.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Tenant Directory Section (Shown in Overview & Merchants tabs) */}
-          {(activeTab === "overview" || activeTab === "merchants") && (
+          {/* TAB 2: TENANT DIRECTORY (Exclusive dedicated view) */}
+          {activeTab === "merchants" && (
             <MerchantTable
               merchants={merchants}
               onRefresh={loadData}
             />
           )}
 
-          {/* Master Product Catalog Curation (Shown in Overview & Catalog tabs) */}
-          {(activeTab === "overview" || activeTab === "catalog") && (
+          {/* TAB 3: MASTER CATALOG (Exclusive dedicated view) */}
+          {activeTab === "catalog" && (
             <MasterCatalogTable
               products={masterProducts}
               onRefresh={loadData}
@@ -294,12 +372,117 @@ export default function SuperAdminDashboard() {
             />
           )}
 
-          {/* Marketing Campaigns (Shown in Overview & Campaigns tabs) */}
-          {(activeTab === "overview" || activeTab === "campaigns") && (
+          {/* TAB 4: MARKETING CAMPAIGNS (Exclusive dedicated view) */}
+          {activeTab === "campaigns" && (
             <CampaignsManager
               campaigns={campaigns}
               onRefresh={loadData}
             />
+          )}
+
+          {/* TAB 5: PLATFORM ANALYTICS (Metrics & Performance) */}
+          {activeTab === "analytics" && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricCard
+                  title="Platform GMV (Today)"
+                  value={gmv}
+                  contextText="Realized Sales"
+                  icon={IndianRupee}
+                  accentColor="green"
+                />
+                <MetricCard
+                  title="Total Active Shops"
+                  value={`${activeShops} / ${totalShops}`}
+                  contextText="Network Health"
+                  icon={Store}
+                  accentColor="emerald"
+                />
+                <MetricCard
+                  title="Completed Orders"
+                  value={ordersToday.toLocaleString("en-IN")}
+                  contextText={avgOrderText}
+                  icon={Receipt}
+                  accentColor="slate"
+                />
+                <MetricCard
+                  title="Stock-Out Alerts"
+                  value={`${outOfStock} SKUs`}
+                  contextText="Critical Replenishment"
+                  icon={AlertTriangle}
+                  accentColor="amber"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Top Shops Leaderboard */}
+                <div className="bg-white border border-slate-200 rounded p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4 text-amber-500" />
+                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                        Top Performing Merchant Nodes
+                      </h3>
+                    </div>
+                    <span className="text-[11px] text-slate-400">Ranked by Realized Volume</span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        No merchant order history recorded yet.
+                      </div>
+                    ) : (
+                      analytics.top_shops.slice(0, 5).map((s, idx) => (
+                        <div
+                          key={s.shop_id}
+                          className="p-3 rounded border border-slate-100 bg-slate-50/50 flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
+                            <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
+                            <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-mono font-bold text-[#1F5D42]">
+                              ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Top Products Rankings */}
+                <TopProductsRankings products={topProducts} />
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: CONSOLE SETTINGS */}
+          {activeTab === "settings" && (
+            <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Platform Console Settings</h3>
+                <p className="text-xs text-slate-500 mt-1">Super Admin runtime session configuration and environment telemetry.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <div className="font-semibold text-slate-800">Authenticated Super Admin</div>
+                  <div className="text-slate-600">Identifier: <span className="font-mono text-slate-900 font-bold">{adminUsername}</span></div>
+                  <div className="text-slate-600">Role: <span className="font-semibold text-emerald-700">SUPER_ADMIN</span></div>
+                  <div className="text-slate-600">Permissions: <span className="font-mono text-slate-700">Global Read/Write/Elevated</span></div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <div className="font-semibold text-slate-800">API Service Node</div>
+                  <div className="text-slate-600">Backend Endpoint: <span className="font-mono text-slate-900">http://localhost:8000/api/v1/</span></div>
+                  <div className="text-slate-600">Auth Gateway: <span className="font-mono text-slate-900">/api/v1/auth/super-admin/</span></div>
+                  <div className="text-slate-600">Status: <span className="text-emerald-700 font-semibold">Connected (PostgreSQL Neon Active)</span></div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </main>

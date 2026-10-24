@@ -28,25 +28,7 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Default fallback campaigns for visualization
-  const displayCampaigns = campaigns.length > 0 ? campaigns : [
-    {
-      id: 1,
-      name: "Diwali Mahabachat Festive Sale",
-      discount_percentage: "20.00",
-      status: "ACTIVE" as const,
-      starts_at: "2026-10-20T00:00:00Z",
-      ends_at: "2026-11-05T23:59:59Z",
-    },
-    {
-      id: 2,
-      name: "Weekend Fresh Veggies Blast",
-      discount_percentage: "10.00",
-      status: "DRAFT" as const,
-      starts_at: "2026-10-26T06:00:00Z",
-      ends_at: "2026-10-27T22:00:00Z",
-    },
-  ];
+  const displayCampaigns = campaigns;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,7 +113,14 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {displayCampaigns.map((c) => (
+            {displayCampaigns.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                  No promotional campaigns created yet.
+                </td>
+              </tr>
+            ) : (
+              displayCampaigns.map((c) => (
               <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
                 <td className="py-3 px-4 font-semibold text-slate-900">
                   {c.name}
@@ -185,7 +174,8 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
                   </div>
                 </td>
               </tr>
-            ))}
+            ))
+          )}
           </tbody>
         </table>
       </div>

@@ -8,7 +8,16 @@ export interface SuperAdminLoginRequest {
 export interface SuperAdminLoginResponse {
   access: string;
   refresh: string;
-  role: "SUPER_ADMIN";
+  role?: "SUPER_ADMIN";
+  user?: {
+    id: number;
+    role: string;
+    shop_id: number | null;
+    username?: string;
+    email?: string;
+    mobile_number?: string;
+  };
+  must_change_password?: boolean;
 }
 
 export interface PlatformAnalytics {
