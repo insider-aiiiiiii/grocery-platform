@@ -174,5 +174,30 @@ class Shop(models.Model):
         """Return the relative public endpoint path for this shop."""
         return f"/api/v1/shops/public/{self.public_slug}/"
 
+    @classmethod
+    def get_by_slug_or_code(cls, slug_or_code: str):
+        """
+        Lookup a Shop by either its full public_slug, case-insensitive slug,
+        or QR display code (e.g. 'QR-B4ACAB79', 'qr-b4acab79', or 'b4acab79').
+        """
+        if not slug_or_code:
+            return None
+        # 1. Exact match first
+        shop = cls.objects.filter(public_slug=slug_or_code).first()
+        if shop:
+            return shop
+
+        cleaned = str(slug_or_code).strip()
+        if cleaned.upper().startswith("QR-"):
+            cleaned = cleaned[3:]
+        cleaned = cleaned.lower()
+        if cleaned:
+            return cls.objects.filter(
+                Q(public_slug__iexact=slug_or_code)
+                | Q(public_slug__iexact=cleaned)
+                | Q(public_slug__istartswith=cleaned)
+            ).first()
+        return None
+
     def __str__(self):
         return f"{self.name} ({self.status})"

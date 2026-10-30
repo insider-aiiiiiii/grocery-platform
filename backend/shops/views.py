@@ -289,7 +289,7 @@ class PublicShopDetailView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, public_slug: str):
-        shop = Shop.objects.filter(public_slug=public_slug).first()
+        shop = Shop.get_by_slug_or_code(public_slug)
         if not shop:
             return Response(
                 {"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"},

@@ -27,7 +27,12 @@ class PublicCheckoutView(APIView):
         if len(idempotency_key) > 64:
             return Response({"detail": "Idempotency-Key must be at most 64 characters."}, status=400)
 
-        shop = get_object_or_404(Shop, public_slug=public_slug, status=Shop.Status.ACTIVE)
+        shop = Shop.get_by_slug_or_code(public_slug)
+        if not shop or shop.status != Shop.Status.ACTIVE:
+            return Response(
+                {"detail": "Shop not found or unavailable.", "code": "SHOP_UNAVAILABLE"},
+                status=404,
+            )
         order, created = create_order(shop, serializer.validated_data, idempotency_key)
 
         whatsapp_links = None

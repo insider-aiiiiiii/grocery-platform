@@ -73,7 +73,7 @@ export interface PlatformAnalytics {
 export interface ProvisionMerchantPayload {
   username: string;
   mobile_number: string;
-  email: string;
+  email?: string;
   initial_password: string;
 }
 
@@ -115,25 +115,50 @@ export const adminApi = {
     return res.data;
   },
 
-  getAnalytics: async (token?: string, period: string = "today"): Promise<PlatformAnalytics> => {
+  getAnalytics: async (
+    token?: string,
+    period: string = "today",
+    shopId?: number | null,
+    startDate?: string,
+    endDate?: string
+  ): Promise<PlatformAnalytics> => {
+    const params: Record<string, any> = { period };
+    if (shopId) params.shop_id = shopId;
+    if (period === "custom") {
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+    }
     const res = await apiClient.get<PlatformAnalytics>("/analytics/platform/", {
-      params: { period },
+      params,
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
   },
 
-  getTopShops: async (token?: string, period: string = "today") => {
+  getTopShops: async (token?: string, period: string = "today", limit: number = 10) => {
     const res = await apiClient.get("/analytics/platform/top-shops/", {
-      params: { period },
+      params: { period, limit },
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
   },
 
-  getTopProducts: async (token?: string, period: string = "today", limit: number = 10) => {
+  getTopProducts: async (
+    token?: string,
+    period: string = "today",
+    limit: number = 10,
+    shopId?: number | null,
+    startDate?: string,
+    endDate?: string
+  ) => {
+    const params: Record<string, any> = { period, limit };
+    if (shopId) params.shop_id = shopId;
+    if (period === "custom") {
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+    }
     const res = await apiClient.get("/analytics/platform/top-products/", {
-      params: { period, limit },
+      params,
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
