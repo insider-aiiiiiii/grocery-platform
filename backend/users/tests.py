@@ -610,6 +610,9 @@ class SuperAdminAuthenticationAPITests(TestCase):
                 "id": self.super_admin.pk,
                 "role": "SUPER_ADMIN",
                 "shop_id": None,
+                "username": self.super_admin.username,
+                "email": self.super_admin.email,
+                "mobile_number": self.super_admin.mobile_number,
             })
             self.assertFalse(response.data["must_change_password"])
             self.assertIn("access", response.data)
