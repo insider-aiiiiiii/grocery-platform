@@ -36,7 +36,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
       const payload: ProvisionMerchantPayload = {
         username: username.trim(),
         mobile_number: mobileNumber.trim(),
-        email: email.trim(),
+        email: email.trim() || undefined,
         initial_password: password,
       };
 
@@ -121,14 +121,13 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
             {/* Email */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Official Email *
+                Official Email (Optional)
               </label>
               <input
                 type="email"
-                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="merchant@example.com"
+                placeholder="merchant@example.com (optional)"
                 className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] outline-none"
               />
             </div>

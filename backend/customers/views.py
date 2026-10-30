@@ -51,7 +51,7 @@ def get_public_active_shop(public_slug: str):
     Resolve and validate an active Shop by its public_slug for customer-facing requests.
     Returns (shop, error_response).
     """
-    shop = Shop.objects.filter(public_slug=public_slug).first()
+    shop = Shop.get_by_slug_or_code(public_slug)
     if not shop:
         return None, Response(
             {"detail": "Shop not found.", "code": "SHOP_NOT_FOUND"},

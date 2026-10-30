@@ -10,7 +10,7 @@ interface MetricCardProps {
   isPositive?: boolean;
   contextText?: string;
   icon: LucideIcon;
-  accentColor?: "green" | "emerald" | "slate" | "amber";
+  accentColor?: "green" | "emerald" | "slate" | "amber" | "blue";
   sparkline?: number[];
 }
 
@@ -29,6 +29,7 @@ export function MetricCard({
     emerald: "bg-emerald-600",
     slate: "bg-slate-900",
     amber: "bg-amber-500",
+    blue: "bg-sky-600",
   };
 
   return (

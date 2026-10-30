@@ -10,6 +10,8 @@ import { MerchantTable, MerchantShopItem } from "@/components/admin/MerchantTabl
 import { MasterCatalogTable } from "@/components/admin/MasterCatalogTable";
 import { CampaignsManager, CampaignItem } from "@/components/admin/CampaignsManager";
 import { TopProductsRankings, TopProductItem } from "@/components/admin/TopProductsRankings";
+import { OrderStatusBreakdown } from "@/components/admin/OrderStatusBreakdown";
+import { AnalyticsToolbar } from "@/components/admin/AnalyticsToolbar";
 import { SecurityRecoveryModal } from "@/components/admin/SecurityRecoveryModal";
 import { ProductPromotionModal } from "@/components/admin/ProductPromotionModal";
 import {
@@ -24,6 +26,7 @@ import {
   Boxes,
   CloudUpload,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { adminApi, PlatformAnalytics, MasterProduct } from "@/lib/api/admin";
 
@@ -38,6 +41,13 @@ export default function SuperAdminDashboard() {
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
   const [topProducts, setTopProducts] = useState<TopProductItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Analytics filter and horizon controls
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("today");
+  const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
   // Merchants state populated from live backend API
   const [merchants, setMerchants] = useState<MerchantShopItem[]>([]);
@@ -65,13 +75,57 @@ export default function SuperAdminDashboard() {
     }
   }, []);
 
+  const refreshAnalytics = async (
+    period = selectedPeriod,
+    shopId = selectedShopId,
+    start = customStartDate,
+    end = customEndDate
+  ) => {
+    if (period === "custom" && (!start || !end)) {
+      return;
+    }
+    setAnalyticsLoading(true);
+    try {
+      const [analyticsData, topProductsData] = await Promise.all([
+        adminApi.getAnalytics(undefined, period, shopId, start, end).catch(() => null),
+        adminApi.getTopProducts(undefined, period, 10, shopId, start, end).catch(() => ({ top_products: [] })),
+      ]);
+      if (analyticsData) setAnalytics(analyticsData);
+      if (topProductsData && topProductsData.top_products) setTopProducts(topProductsData.top_products);
+    } catch {
+      // Live API error
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const handlePeriodChange = (newPeriod: string) => {
+    setSelectedPeriod(newPeriod);
+    if (newPeriod !== "custom") {
+      refreshAnalytics(newPeriod, selectedShopId, customStartDate, customEndDate);
+    }
+  };
+
+  const handleShopChange = (newShopId: number | null) => {
+    setSelectedShopId(newShopId);
+    refreshAnalytics(selectedPeriod, newShopId, customStartDate, customEndDate);
+  };
+
+  const handleCustomDatesChange = (start: string, end: string) => {
+    setCustomStartDate(start);
+    setCustomEndDate(end);
+    if (start && end) {
+      refreshAnalytics("custom", selectedShopId, start, end);
+    }
+  };
+
   const loadData = async () => {
     try {
       const [analyticsData, catalogData, campaignsData, topProductsData, liveShops] = await Promise.all([
-        adminApi.getAnalytics().catch(() => null),
+        adminApi.getAnalytics(undefined, selectedPeriod, selectedShopId, customStartDate, customEndDate).catch(() => null),
         adminApi.listMasterProducts().catch(() => ({ results: [] })),
         adminApi.listCampaigns().catch(() => []),
-        adminApi.getTopProducts().catch(() => ({ top_products: [] })),
+        adminApi.getTopProducts(undefined, selectedPeriod, 10, selectedShopId, customStartDate, customEndDate).catch(() => ({ top_products: [] })),
         adminApi.listShops().catch(() => null),
       ]);
       if (analyticsData) setAnalytics(analyticsData);
@@ -106,12 +160,25 @@ export default function SuperAdminDashboard() {
   };
 
   // Formatted Metric Values
+  const periodLabels: Record<string, string> = {
+    today: "Today",
+    yesterday: "Yesterday",
+    this_week: "This Week",
+    this_month: "This Month",
+    custom: "Custom Range",
+  };
+  const activePeriodLabel = periodLabels[selectedPeriod] || selectedPeriod;
+
+  const currentFilteredShop = merchants.find((m) => m.shopId === selectedShopId);
+  const scopePrefix = currentFilteredShop ? currentFilteredShop.shopName : "Platform";
+
   const gmv = analytics?.sales?.realized_sales
     ? `₹${parseFloat(analytics.sales.realized_sales).toLocaleString("en-IN")}`
     : "₹0";
   const activeShops = analytics?.shops?.active_shops ?? merchants.length;
   const totalShops = analytics?.shops?.total_shops ?? merchants.length;
-  const ordersToday = analytics?.orders?.total_orders ?? 0;
+  const ordersTotal = analytics?.orders?.total_orders ?? 0;
+  const orderingCustomers = analytics?.customers?.ordering_customers ?? 0;
   const outOfStock = analytics?.inventory?.out_of_stock_items_count ?? 0;
   const avgOrderText = analytics?.sales?.average_order_value
     ? `Avg Order ₹${parseFloat(analytics.sales.average_order_value).toLocaleString("en-IN")}`
@@ -184,7 +251,7 @@ export default function SuperAdminDashboard() {
               {/* KPI Metric Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Platform GMV (Today)"
+                  title={`${scopePrefix} GMV (${activePeriodLabel})`}
                   value={gmv}
                   contextText="Realized Sales"
                   icon={IndianRupee}
@@ -198,8 +265,8 @@ export default function SuperAdminDashboard() {
                   accentColor="emerald"
                 />
                 <MetricCard
-                  title="Completed Orders"
-                  value={ordersToday.toLocaleString("en-IN")}
+                  title={`Completed Orders (${activePeriodLabel})`}
+                  value={ordersTotal.toLocaleString("en-IN")}
                   contextText={avgOrderText}
                   icon={Receipt}
                   accentColor="slate"
@@ -383,77 +450,112 @@ export default function SuperAdminDashboard() {
           {/* TAB 5: PLATFORM ANALYTICS (Metrics & Performance) */}
           {activeTab === "analytics" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Analytics Interactive Filter Toolbar */}
+              <AnalyticsToolbar
+                selectedPeriod={selectedPeriod}
+                onPeriodChange={handlePeriodChange}
+                selectedShopId={selectedShopId}
+                onShopChange={handleShopChange}
+                customStartDate={customStartDate}
+                customEndDate={customEndDate}
+                onCustomDatesChange={handleCustomDatesChange}
+                merchants={merchants}
+                loading={analyticsLoading}
+                onRefresh={() => refreshAnalytics()}
+              />
+
+              {/* 5 KPI Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <MetricCard
-                  title="Platform GMV (Today)"
+                  title={`${scopePrefix} GMV (${activePeriodLabel})`}
                   value={gmv}
                   contextText="Realized Sales"
                   icon={IndianRupee}
                   accentColor="green"
                 />
                 <MetricCard
-                  title="Total Active Shops"
-                  value={`${activeShops} / ${totalShops}`}
-                  contextText="Network Health"
+                  title={currentFilteredShop ? "Tenant Status" : "Active Merchant Nodes"}
+                  value={currentFilteredShop ? currentFilteredShop.status : `${activeShops} / ${totalShops}`}
+                  contextText={currentFilteredShop ? (currentFilteredShop.city || "Single Tenant") : "Platform Coverage"}
                   icon={Store}
                   accentColor="emerald"
                 />
                 <MetricCard
-                  title="Completed Orders"
-                  value={ordersToday.toLocaleString("en-IN")}
+                  title={`Orders (${activePeriodLabel})`}
+                  value={ordersTotal.toLocaleString("en-IN")}
                   contextText={avgOrderText}
                   icon={Receipt}
                   accentColor="slate"
                 />
                 <MetricCard
+                  title="Unique Buyers"
+                  value={orderingCustomers.toLocaleString("en-IN")}
+                  contextText="Active in period"
+                  icon={Users}
+                  accentColor="blue"
+                />
+                <MetricCard
                   title="Stock-Out Alerts"
                   value={`${outOfStock} SKUs`}
-                  contextText="Critical Replenishment"
+                  contextText="Zero Available Stock"
                   icon={AlertTriangle}
                   accentColor="amber"
                 />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Top Shops Leaderboard */}
-                <div className="bg-white border border-slate-200 rounded p-4 shadow-sm">
-                  <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
-                    <div className="flex items-center gap-2">
-                      <Trophy className="w-4 h-4 text-amber-500" />
-                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                        Top Performing Merchant Nodes
-                      </h3>
-                    </div>
-                    <span className="text-[11px] text-slate-400">Ranked by Realized Volume</span>
-                  </div>
-                  <div className="space-y-2.5">
-                    {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-slate-400">
-                        No merchant order history recorded yet.
+              {/* Order Status Breakdown + Top Performers */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* 1. Order Lifecycle & Fulfillment Pipeline */}
+                <OrderStatusBreakdown
+                  distribution={analytics?.orders?.status_distribution}
+                  totalOrders={ordersTotal}
+                />
+
+                {/* 2. Top Shops Leaderboard */}
+                <div className="bg-white border border-slate-200 rounded p-4 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                      <div className="flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-amber-500" />
+                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                          Top Performing Shops
+                        </h3>
                       </div>
-                    ) : (
-                      analytics.top_shops.slice(0, 5).map((s, idx) => (
-                        <div
-                          key={s.shop_id}
-                          className="p-3 rounded border border-slate-100 bg-slate-50/50 flex items-center justify-between"
-                        >
-                          <div>
-                            <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
-                            <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
-                            <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs font-mono font-bold text-[#1F5D42]">
-                              ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                      <span className="text-[11px] text-slate-400">Ranked by Sales</span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-400">
+                          No merchant order history recorded for this period.
+                        </div>
+                      ) : (
+                        analytics.top_shops.slice(0, 5).map((s, idx) => (
+                          <div
+                            key={s.shop_id}
+                            className={`p-3 rounded border flex items-center justify-between ${
+                              selectedShopId === s.shop_id
+                                ? "border-emerald-500 bg-emerald-50/40"
+                                : "border-slate-100 bg-slate-50/50"
+                            }`}
+                          >
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
+                              <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
+                              <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-mono font-bold text-[#1F5D42]">
+                                ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
-                    )}
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Top Products Rankings */}
+                {/* 3. Top SKUs Leaderboard */}
                 <TopProductsRankings products={topProducts} />
               </div>
             </div>
