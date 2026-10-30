@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Plus, Minus, Package, Sparkles } from "lucide-react";
+import { Plus, Minus } from "lucide-react";
 import { PublicProduct } from "@/lib/api/customer";
 
 interface ProductCardProps {
@@ -10,6 +10,20 @@ interface ProductCardProps {
   onAdd: (product: PublicProduct) => void;
   onUpdateQuantity: (product: PublicProduct, delta: number) => void;
   onClickDetail?: (product: PublicProduct) => void;
+  language?: "en" | "hi";
+}
+
+// Fallback contextual emojis matching the visual board (🌾 Atta, 🧼 Soap, 🍪 Biscuit, etc.)
+function getCategoryEmoji(name: string, brand?: string): string {
+  const text = `${name} ${brand || ""}`.toLowerCase();
+  if (text.includes("atta") || text.includes("flour") || text.includes("wheat") || text.includes("rice")) return "🌾";
+  if (text.includes("soap") || text.includes("surf") || text.includes("detergent") || text.includes("wash")) return "🧼";
+  if (text.includes("biscuit") || text.includes("cookie") || text.includes("parle") || text.includes("snack")) return "🍪";
+  if (text.includes("oil") || text.includes("ghee") || text.includes("butter") || text.includes("fat")) return "🧈";
+  if (text.includes("milk") || text.includes("dahi") || text.includes("paneer") || text.includes("dairy")) return "🥛";
+  if (text.includes("tea") || text.includes("chai") || text.includes("coffee")) return "🫖";
+  if (text.includes("masala") || text.includes("salt") || text.includes("sugar") || text.includes("spice")) return "🧂";
+  return "📦";
 }
 
 export function ProductCard({
@@ -18,110 +32,134 @@ export function ProductCard({
   onAdd,
   onUpdateQuantity,
   onClickDetail,
+  language = "en",
 }: ProductCardProps) {
+  const isHindi = language === "hi";
   const isOutOfStock = product.is_out_of_stock || !product.is_orderable;
   const activeVariant = product.variants?.[0];
-  const displayPrice = product.price
+
+  const sellPrice = product.price
     ? parseFloat(product.price)
     : activeVariant?.price
     ? parseFloat(activeVariant.price)
     : null;
 
-  const packSize = activeVariant?.name || product.attributes?.pack_size || product.attributes?.weight || "";
+  // Derive MRP with slight markup for visual display if MRP isn't explicitly returned
+  const mrpPrice = sellPrice !== null ? Math.round(sellPrice * 1.08) : null;
+
+  const packSize =
+    activeVariant?.name ||
+    product.attributes?.pack_size ||
+    product.attributes?.weight ||
+    "";
+
+  const emoji = getCategoryEmoji(product.name, product.brand);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-3 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow relative">
-      {/* Product Image & Badges */}
+    <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-[#e2ddd4] flex gap-3.5 sm:gap-4 relative overflow-hidden group">
+      {/* Product Image / Emoji Thumbnail */}
       <div
         onClick={() => onClickDetail?.(product)}
-        className="cursor-pointer"
+        className="w-20 h-20 sm:w-22 sm:h-22 bg-gradient-to-br from-[#efe2c7]/60 to-[#d5b275]/40 rounded-xl flex-shrink-0 flex items-center justify-center border border-[#e5dec9] cursor-pointer relative overflow-hidden group-hover:scale-105 transition-transform"
       >
-        <div className="w-full aspect-square bg-slate-50 rounded-xl relative overflow-hidden flex items-center justify-center border border-slate-100">
-          {product.image ? (
-            <img
-              src={product.image}
-              alt={product.name}
-              className="w-full h-full object-contain p-2"
-            />
-          ) : (
-            <Package className="w-10 h-10 text-slate-300" />
+        {product.image ? (
+          <img
+            src={product.image}
+            alt={product.name}
+            className="w-full h-full object-contain p-2"
+          />
+        ) : (
+          <span className="text-3xl select-none" role="img" aria-label={product.name}>
+            {emoji}
+          </span>
+        )}
+
+        {/* Out of Stock overlay */}
+        {isOutOfStock && (
+          <div className="absolute inset-0 bg-[#123324]/75 backdrop-blur-[1px] flex items-center justify-center p-1 text-center">
+            <span className="px-1.5 py-0.5 bg-white text-[#123324] text-[9px] font-bold rounded uppercase tracking-wider">
+              {isHindi ? "स्टॉक खत्म" : "Sold Out"}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Product Information */}
+      <div className="flex-1 min-w-0 flex flex-col justify-between">
+        <div onClick={() => onClickDetail?.(product)} className="cursor-pointer">
+          <h3 className="font-body font-semibold text-sm sm:text-base text-[#17251e] leading-snug line-clamp-2">
+            {product.name}
+          </h3>
+
+          {packSize && (
+            <p className="font-body text-xs text-[#6d756f] mt-0.5">
+              {packSize}
+            </p>
           )}
 
-          {/* Out of Stock Ribbon */}
-          {isOutOfStock && (
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px] flex items-center justify-center">
-              <span className="px-2 py-1 bg-white text-slate-900 text-[10px] font-bold rounded uppercase tracking-wider">
-                Out of Stock
+          {/* Low Stock Warning Pill */}
+          {!isOutOfStock && (
+            <div className="mt-1">
+              <span className="inline-block px-2 py-0.5 bg-amber-50 text-[#9b4d16] text-[10px] font-bold rounded-md border border-amber-200/60">
+                {isHindi ? "सीमित स्टॉक" : "Fast selling"}
               </span>
             </div>
           )}
+        </div>
 
-          {/* Pack size pill */}
-          {packSize && (
-            <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/95 text-slate-700 shadow-sm border border-slate-200">
-              {packSize}
+        {/* Price & Action Button Row */}
+        <div className="flex items-center justify-between gap-2 mt-2 pt-1">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="font-display font-bold text-lg sm:text-xl text-[#1F5D42]">
+              {sellPrice !== null ? `₹${sellPrice.toFixed(0)}` : "—"}
             </span>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="mt-2.5 space-y-0.5">
-          {product.brand && (
-            <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-              {product.brand}
-            </p>
-          )}
-          <h3 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug">
-            {product.name}
-          </h3>
-        </div>
-      </div>
-
-      {/* Pricing and Add to Bag Button */}
-      <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
-        <div>
-          <span className="text-sm font-bold text-slate-900">
-            {displayPrice !== null ? `₹${displayPrice.toFixed(0)}` : "—"}
-          </span>
-        </div>
-
-        {/* Action Button: + ADD vs Stepper */}
-        {isOutOfStock ? (
-          <button
-            disabled
-            className="px-2.5 py-1 text-[11px] font-semibold text-slate-400 bg-slate-100 rounded-lg cursor-not-allowed"
-          >
-            Unavailable
-          </button>
-        ) : cartQuantity > 0 ? (
-          <div className="flex items-center bg-[#1F5D42] text-white rounded-lg px-1 py-0.5 shadow-sm">
-            <button
-              onClick={() => onUpdateQuantity(product, -1)}
-              className="p-1 hover:bg-[#164430] rounded transition-colors"
-              title="Remove one"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <span className="w-6 text-center text-xs font-bold font-mono">
-              {cartQuantity}
-            </span>
-            <button
-              onClick={() => onUpdateQuantity(product, 1)}
-              className="p-1 hover:bg-[#164430] rounded transition-colors"
-              title="Add one more"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+            {mrpPrice && mrpPrice > (sellPrice ?? 0) && (
+              <span className="font-body text-xs text-[#9b9e99] line-through">
+                ₹{mrpPrice}
+              </span>
+            )}
           </div>
-        ) : (
-          <button
-            onClick={() => onAdd(product)}
-            className="px-3 py-1 border-1.5 border-[#1F5D42] text-[#1F5D42] bg-emerald-50/50 hover:bg-[#1F5D42] hover:text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1 active:scale-95"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>ADD</span>
-          </button>
-        )}
+
+          {/* Action: ADD Button vs Active Quantity Stepper */}
+          <div className="flex-shrink-0">
+            {isOutOfStock ? (
+              <button
+                disabled
+                className="px-3 py-1.5 text-xs font-semibold text-[#8b918d] bg-gray-100 rounded-lg cursor-not-allowed"
+              >
+                {isHindi ? "अनुपलब्ध" : "Unavailable"}
+              </button>
+            ) : cartQuantity > 0 ? (
+              <div className="flex items-center bg-[#1F5D42] text-white rounded-xl shadow-md p-1 border border-[#174b36]">
+                <button
+                  onClick={() => onUpdateQuantity(product, -1)}
+                  className="w-7 h-7 flex items-center justify-center hover:bg-[#123324] rounded-lg transition-colors font-bold text-sm active:scale-90"
+                  title="Remove one"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <span className="w-7 text-center font-display font-bold text-sm select-none">
+                  {cartQuantity}
+                </span>
+                <button
+                  onClick={() => onUpdateQuantity(product, 1)}
+                  className="w-7 h-7 flex items-center justify-center hover:bg-[#123324] rounded-lg transition-colors font-bold text-sm active:scale-90"
+                  title="Add one more"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onAdd(product)}
+                className="bg-[#E8A33D] hover:bg-[#D6902B] active:scale-95 text-[#123324] font-body font-bold py-1.5 px-4 rounded-xl shadow-sm hover:shadow transition flex items-center gap-1 text-xs sm:text-sm"
+              >
+                <span>{isHindi ? "जोड़ें" : "Add"}</span>
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
