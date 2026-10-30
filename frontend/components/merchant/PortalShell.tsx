@@ -6,13 +6,11 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   BarChart3,
   Boxes,
-  ChevronDown,
-  CircleHelp,
   ClipboardList,
-  LayoutDashboard,
+  ExternalLink,
   LogOut,
   Menu,
-  PackageSearch,
+  QrCode,
   Settings2,
   ShoppingBag,
   Store,
@@ -22,14 +20,15 @@ import { useQuery } from "@tanstack/react-query";
 import { merchantApi } from "@/lib/api/merchant";
 
 const links = [
-  { href: "/merchant", label: "Overview", icon: LayoutDashboard },
-  { href: "/merchant/orders", label: "Orders", icon: ClipboardList },
-  { href: "/merchant/catalog", label: "Products", icon: ShoppingBag },
+  { href: "/merchant", label: "My QR", icon: QrCode },
   { href: "/merchant/inventory", label: "Inventory", icon: Boxes },
-  { href: "/merchant/customers", label: "Customers", icon: UsersRound },
+  { href: "/merchant/orders", label: "Orders", icon: ClipboardList },
   { href: "/merchant/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/merchant/catalog", label: "Products", icon: ShoppingBag },
+  { href: "/merchant/customers", label: "Customers", icon: UsersRound },
   { href: "/merchant/settings", label: "Shop settings", icon: Settings2 },
 ];
+
 const subscribeToHydration = () => () => {};
 const getHydratedSnapshot = () => true;
 const getServerSnapshot = () => false;
@@ -90,43 +89,172 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const accountOnlyRoute = pathname === "/merchant/setup" || pathname === "/merchant/change-password";
   if (!ready || ((shopQuery.isLoading || shopQuery.isError) && !accountOnlyRoute)) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#f6f7f4] text-sm text-[#66736b]">Opening your shop workspace…</div>;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F0E6] text-sm text-[#123324] font-medium font-sans">
+        <div className="flex items-center gap-2">
+          <Store className="w-5 h-5 animate-pulse text-[#1F5D42]" />
+          <span>Opening your shop workspace…</span>
+        </div>
+      </div>
+    );
   }
+
+  const shop = shopQuery.data;
 
   const sidebar = (
     <>
+      {/* Brand Header */}
       <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6">
-        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[#d3ef6a] text-[#193a2c]"><Store size={21} /></div>
-        <div><p className="text-[15px] font-semibold tracking-tight text-white">dukana</p><p className="text-[10px] font-medium uppercase tracking-[.18em] text-[#a2b5a8]">Merchant studio</p></div>
+        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-[#E8A33D] text-[#123324] font-bold shadow-sm">
+          <Store size={20} />
+        </div>
+        <div>
+          <p className="font-display text-xl font-bold tracking-tight text-white leading-tight">
+            Dukandaar
+          </p>
+          <p className="text-[10px] font-medium uppercase tracking-[.18em] text-[#a2b5a8]">
+            Merchant Workspace
+          </p>
+        </div>
       </div>
-      <div className="px-4 pt-7">
-        <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[.18em] text-[#8da398]">Workspace</p>
+
+      {/* Navigation */}
+      <div className="px-4 pt-6">
+        <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d9688]">
+          Navigation
+        </p>
         <nav className="space-y-1" aria-label="Merchant navigation">
           {links.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || (href !== "/merchant" && pathname.startsWith(`${href}/`));
-            return <Link key={href} href={href} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] transition ${active ? "bg-[#d3ef6a] font-semibold text-[#193a2c]" : "text-[#c5d1ca] hover:bg-white/10 hover:text-white"}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span>{label}</span>{label === "Orders" && <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] ${active ? "bg-[#193a2c]/10" : "bg-white/10 text-[#dce6df]"}`}>Live</span>}</Link>;
+            const active =
+              href === "/merchant"
+                ? pathname === "/merchant"
+                : pathname === href || pathname.startsWith(`${href}/`);
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setMobileOpen(false)}
+                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold transition ${
+                  active
+                    ? "bg-[#2a684c] text-white shadow-sm border border-[#3e8464]"
+                    : "text-[#b9c9c0] hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <Icon size={16} strokeWidth={active ? 2.4 : 1.8} className={active ? "text-[#E8A33D]" : ""} />
+                <span>{label}</span>
+                {label === "Orders" && (
+                  <span
+                    className={`ml-auto rounded-full px-2 py-0.5 text-[10px] ${
+                      active ? "bg-[#123324] text-[#E8A33D]" : "bg-white/10 text-[#dce6df]"
+                    }`}
+                  >
+                    Live
+                  </span>
+                )}
+              </Link>
+            );
           })}
         </nav>
       </div>
+
+      {/* Footer Info & Sign out */}
       <div className="mt-auto p-4">
-        <div className="mb-3 rounded-2xl border border-white/10 bg-white/[.06] p-4">
-          <div className="mb-2 flex items-center gap-2 text-[#d3ef6a]"><CircleHelp size={15} /><span className="text-xs font-semibold text-white">Need a hand?</span></div>
-          <p className="text-[11px] leading-5 text-[#adbbb2]">Your shop data stays private to your merchant account.</p>
-        </div>
-        <button onClick={signOut} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-[#c5d1ca] hover:bg-white/10 hover:text-white"><LogOut size={17} />Sign out</button>
+        {shop?.public_slug && (
+          <div className="mb-3 rounded-2xl border border-white/10 bg-white/[.06] p-3 text-xs">
+            <div className="mb-1 flex items-center justify-between text-white font-medium">
+              <span className="text-[11px] text-[#a2b5a8]">Customer View</span>
+              <span className="text-[9px] bg-[#E8A33D]/20 text-[#E8A33D] px-1.5 py-0.5 rounded font-mono font-bold">
+                Live
+              </span>
+            </div>
+            <Link
+              href={`/shop/${shop.public_slug}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 text-xs text-[#E8A33D] hover:underline font-medium mt-1"
+            >
+              <span>Open customer store</span>
+              <ExternalLink size={12} />
+            </Link>
+          </div>
+        )}
+
+        <button
+          onClick={signOut}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-[#b9c9c0] hover:bg-white/10 hover:text-white transition"
+        >
+          <LogOut size={16} />
+          <span>Sign out</span>
+        </button>
       </div>
     </>
   );
 
-  return <div className="min-h-screen bg-[#f6f7f4] text-[#1b2a22]">
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[252px] flex-col bg-[#173b2c] lg:flex">{sidebar}</aside>
-    {mobileOpen && <div className="fixed inset-0 z-50 lg:hidden"><button aria-label="Close menu" className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} /><aside className="relative flex h-full w-[280px] flex-col bg-[#173b2c]">{sidebar}</aside></div>}
-    <div className="lg:pl-[252px]">
-      <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between border-b border-[#e7eae5] bg-white/90 px-4 backdrop-blur md:px-8">
-        <div className="flex items-center gap-3"><button className="rounded-lg p-2 text-[#53645a] hover:bg-[#f1f4ef] lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu"><Menu size={20} /></button><div className="hidden items-center gap-2 text-xs text-[#87938b] sm:flex"><span>Workspace</span><span>/</span><span className="font-medium text-[#33483b]">{links.find((link) => link.href === pathname)?.label ?? (pathname.endsWith("setup") ? "Shop setup" : "Account")}</span></div><div className="sm:hidden flex items-center gap-2"><PackageSearch size={17} className="text-[#284d3a]"/><span className="text-sm font-semibold">{shopQuery.data?.name ?? "Your shop"}</span></div></div>
-        <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-xs font-semibold text-[#28392e]">{shopQuery.data?.name}</p><p className="mt-0.5 text-[10px] text-[#87938b]">Shop owner</p></div><div className="grid h-9 w-9 place-items-center rounded-full bg-[#e8f0e7] text-xs font-bold text-[#315f43]">{shopQuery.data?.name?.slice(0, 1).toUpperCase() ?? "S"}</div><ChevronDown size={15} className="hidden text-[#87938b] sm:block" /></div>
-      </header>
-      <main className="mx-auto max-w-[1440px] px-4 py-7 md:px-8 md:py-9">{children}</main>
+  return (
+    <div className="min-h-screen bg-[#F6F0E6] text-[#17251e] font-sans">
+      {/* Sidebar Desktop */}
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[240px] flex-col bg-[#123324] lg:flex border-r border-[#1F5D42]/30">
+        {sidebar}
+      </aside>
+
+      {/* Mobile Sidebar */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            aria-label="Close menu"
+            className="absolute inset-0 bg-black/50 backdrop-blur-xs"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside className="relative flex h-full w-[270px] flex-col bg-[#123324] shadow-2xl">
+            {sidebar}
+          </aside>
+        </div>
+      )}
+
+      {/* Main Container */}
+      <div className="lg:pl-[240px]">
+        {/* Top Navbar */}
+        <header className="sticky top-0 z-30 flex h-[70px] items-center justify-between border-b border-[#ddd6ca] bg-white/80 px-4 backdrop-blur md:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-lg p-2 text-[#5e665f] hover:bg-[#eee9df] lg:hidden"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <h2 className="font-display font-bold text-lg md:text-xl text-[#123324] leading-tight">
+                {shop?.name ?? "Sharma Kirana"}
+              </h2>
+              <p className="text-[11px] text-[#6d756f]">
+                My shop • {shop?.city ?? "Local"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {shop?.public_slug && (
+              <Link
+                href={`/shop/${shop.public_slug}`}
+                target="_blank"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E8A33D] hover:bg-[#d6902b] text-[#123324] font-bold text-xs shadow-xs transition"
+              >
+                <span>View My Store</span>
+                <ExternalLink size={12} />
+              </Link>
+            )}
+
+            <div className="flex items-center gap-2 pl-2 border-l border-[#ddd6ca]">
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-[#1F5D42] text-xs font-bold text-white shadow-xs">
+                {shop?.name?.slice(0, 1).toUpperCase() ?? "S"}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <main className="mx-auto max-w-[1400px] p-4 md:p-8">{children}</main>
+      </div>
     </div>
-  </div>;
+  );
 }

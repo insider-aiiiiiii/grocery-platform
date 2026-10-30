@@ -7,25 +7,29 @@ interface CategoryBarProps {
   categories: PublicCategory[];
   selectedCategory: number | string;
   onSelectCategory: (categoryId: number | string) => void;
+  language?: "en" | "hi";
 }
 
 export function CategoryBar({
   categories,
   selectedCategory,
   onSelectCategory,
+  language = "en",
 }: CategoryBarProps) {
+  const isHindi = language === "hi";
+
   return (
-    <div className="bg-white border-b border-slate-200 sticky top-0 z-20">
-      <div className="max-w-xl mx-auto px-4 py-2.5 overflow-x-auto no-scrollbar flex items-center gap-2">
+    <nav className="sticky top-0 z-10 bg-[#f7f4ee]/95 backdrop-blur-md py-3 border-b border-[#e5dec9]">
+      <div className="max-w-xl mx-auto px-4 overflow-x-auto no-scrollbar flex items-center gap-2">
         <button
           onClick={() => onSelectCategory("all")}
-          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+          className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all shadow-sm ${
             selectedCategory === "all"
-              ? "bg-[#1F5D42] text-white shadow-sm"
-              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              ? "bg-[#E8A33D] text-[#123324] font-bold shadow-md scale-105"
+              : "bg-white border border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
           }`}
         >
-          All Items
+          {isHindi ? "सभी सामान" : "All Items"}
         </button>
 
         {categories.map((cat) => {
@@ -34,10 +38,10 @@ export function CategoryBar({
             <button
               key={cat.id}
               onClick={() => onSelectCategory(cat.id)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all shadow-sm ${
                 isSelected
-                  ? "bg-[#1F5D42] text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  ? "bg-[#E8A33D] text-[#123324] font-bold shadow-md scale-105"
+                  : "bg-white border border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
               }`}
             >
               {cat.name}
@@ -45,6 +49,6 @@ export function CategoryBar({
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }

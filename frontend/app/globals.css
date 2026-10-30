@@ -1,8 +1,36 @@
 @import "tailwindcss";
 
+@theme {
+  --font-display: var(--font-baloo), "Baloo 2", cursive, sans-serif;
+  --font-body: var(--font-inter), Inter, system-ui, sans-serif;
+
+  --color-forest: #1F5D42;
+  --color-forest2: #174b36;
+  --color-deep: #123324;
+  --color-marigold: #E8A33D;
+  --color-marigold-hover: #D6902B;
+  --color-cream: #F6F0E6;
+  --color-paper: #FFFDF8;
+  --color-ink: #17251e;
+  --color-muted: #6d756f;
+  --color-line: #ddd6ca;
+  --color-mint: #e7f2eb;
+  --color-wa: #128C7E;
+  --color-wa-header: #008069;
+  --color-wa-dark: #075E54;
+  --color-wa-wall: #efeae2;
+  --color-wa-out: #dcf8c6;
+  --color-wa-in: #ffffff;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
+  --primary: #1F5D42;
+  --deep: #123324;
+  --marigold: #E8A33D;
+  --cream: #F6F0E6;
+  --paper: #FFFDF8;
+  --ink: #17251e;
+  --line: #ddd6ca;
 }
 
 * {
@@ -16,7 +44,22 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), Inter, system-ui, sans-serif;
+  background-color: #f7f4ee;
+  color: #17251e;
+}
+
+.font-display {
+  font-family: var(--font-baloo), "Baloo 2", cursive, sans-serif;
+}
+
+.font-body {
+  font-family: var(--font-inter), Inter, system-ui, sans-serif;
+}
+
+.wa-chat-bg {
+  background-color: #efeae2;
+  background-image: radial-gradient(#ded7cd 1px, transparent 1px), radial-gradient(#ded7cd 1px, transparent 1px);
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
 }
