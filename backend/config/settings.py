@@ -233,7 +233,20 @@ DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', 
 # CORS Configuration
 from corsheaders.defaults import default_headers
 
-CORS_ALLOWED_ORIGINS =  ["*"]
+_cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if _cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip().rstrip('/')
+        for origin in _cors_origins_env.split(',')
+        if origin.strip()
+    ]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'https://grocery-platform-frontend.vercel.app',
+    ]
+
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
