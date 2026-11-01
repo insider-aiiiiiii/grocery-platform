@@ -4235,6 +4235,72 @@ class PublicShopCatalogAPITests(TestCase):
         self.assertEqual(len(res1.data), len(res2.data))
 
 
+class MerchantMasterCatalogActionTests(TestCase):
+    def setUp(self):
+        self.merchant_user = User.objects.create_user(
+            username="test_merchant_master",
+            email="test_merchant_master@example.com",
+            mobile_number="+919876543299",
+            role=User.Role.MERCHANT,
+            password="testpassword123",
+        )
+        self.merchant = Merchant.objects.create(
+            user=self.merchant_user,
+            status=Merchant.Status.ACTIVE,
+            must_change_password=False,
+        )
+        self.shop = Shop.objects.create(
+            merchant=self.merchant,
+            name="Test Dukaan",
+            public_slug="test-dukaan",
+            status=Shop.Status.ACTIVE,
+        )
+        self.master_product = MasterProduct.objects.create(
+            name="Amul Gold Milk 1L",
+            brand="Amul",
+            description="Fresh full cream milk",
+            is_active=True,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.merchant_user)
+
+    def test_merchant_master_catalog_list(self):
+        url = "/api/v1/catalog/products/master-catalog/"
+        res = self.client.get(url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["id"], self.master_product.id)
+        self.assertEqual(res.data[0]["name"], "Amul Gold Milk 1L")
+        self.assertFalse(res.data[0]["is_in_shop"])
+        self.assertIsNone(res.data[0]["shop_product_id"])
+
+    def test_merchant_toggle_master_product(self):
+        url = "/api/v1/catalog/products/toggle-master/"
+
+        # Toggle ON
+        res_add = self.client.post(url, {"master_product_id": self.master_product.id}, format="json")
+        self.assertEqual(res_add.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_add.data["added"])
+        self.assertTrue(res_add.data["is_in_shop"])
+        self.assertIsNotNone(res_add.data["shop_product_id"])
+        self.assertTrue(ShopProduct.objects.filter(shop=self.shop, master_product=self.master_product).exists())
+
+        # Check list reflection
+        res_list = self.client.get("/api/v1/catalog/products/master-catalog/")
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        self.assertTrue(res_list.data[0]["is_in_shop"])
+        self.assertEqual(res_list.data[0]["shop_product_id"], res_add.data["shop_product_id"])
+
+        # Toggle OFF
+        res_remove = self.client.post(url, {"master_product_id": self.master_product.id}, format="json")
+        self.assertEqual(res_remove.status_code, status.HTTP_200_OK)
+        self.assertFalse(res_remove.data["added"])
+        self.assertFalse(res_remove.data["is_in_shop"])
+        self.assertIsNone(res_remove.data["shop_product_id"])
+        self.assertFalse(ShopProduct.objects.filter(shop=self.shop, master_product=self.master_product).exists())
+
+
+
 
 
 

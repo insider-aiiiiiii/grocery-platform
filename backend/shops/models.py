@@ -38,6 +38,7 @@ class Shop(models.Model):
     city = models.CharField(max_length=128)
     state = models.CharField(max_length=128)
     pincode = models.CharField(max_length=16)
+    google_maps_url = models.URLField(max_length=500, blank=True, default="")
 
     # Contact number strictly mirrors merchant's mobile number
     contact_number = models.CharField(max_length=32)

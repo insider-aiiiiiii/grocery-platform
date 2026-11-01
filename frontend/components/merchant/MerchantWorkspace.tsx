@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -29,6 +29,11 @@ import {
   X,
   ClipboardList,
   AlertTriangle,
+  Upload,
+  Image as ImageIcon,
+  Trash2,
+  Boxes,
+  CheckCircle2,
 } from "lucide-react";
 import { getApiError, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
 
@@ -55,12 +60,14 @@ type BatchInput = z.input<typeof batchSchema>;
 
 const shopSettingsSchema = z.object({
   name: z.string().min(1),
+  logo: z.string().optional(),
   description: z.string().optional(),
   address_line: z.string().min(1),
   area: z.string().min(1),
   city: z.string().min(1),
   state: z.string().min(1),
   pincode: z.string().min(1),
+  google_maps_url: z.string().optional(),
   opening_time: z.string().optional(),
   closing_time: z.string().optional(),
   is_home_delivery_enabled: z.boolean(),
@@ -154,15 +161,45 @@ export default function MerchantWorkspace() {
   const [newProductOpen, setNewProductOpen] = useState(false);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [lang, setLang] = useState<"en" | "hi">("en");
+  const [catalogTab, setCatalogTab] = useState<"shop" | "master">("shop");
+  const [masterSearch, setMasterSearch] = useState("");
+
+  useEffect(() => {
+    const syncLang = () => {
+      const saved = (localStorage.getItem("portal_language") as "en" | "hi") || "en";
+      setLang(saved);
+    };
+    syncLang();
+    window.addEventListener("portal-lang-changed", syncLang);
+    return () => window.removeEventListener("portal-lang-changed", syncLang);
+  }, []);
 
   const analytics = useQuery({ queryKey: ["merchant", "analytics", period], queryFn: () => merchantApi.analytics(period), enabled: ["overview", "analytics"].includes(section) });
   const orders = useQuery({ queryKey: ["merchant", "orders"], queryFn: merchantApi.orders, enabled: ["overview", "orders"].includes(section), refetchInterval: section === "orders" ? 30000 : false });
   const products = useQuery({ queryKey: ["merchant", "products"], queryFn: merchantApi.products, enabled: ["overview", "catalog", "inventory"].includes(section) });
+  const masterCatalog = useQuery({ queryKey: ["merchant", "master-catalog"], queryFn: merchantApi.getMasterCatalog, enabled: section === "catalog" });
   const stock = useQuery({ queryKey: ["merchant", "inventory"], queryFn: merchantApi.inventory, enabled: ["overview", "inventory"].includes(section) });
   const customers = useQuery({ queryKey: ["merchant", "customers"], queryFn: merchantApi.customers, enabled: section === "customers" });
   const shop = useQuery({ queryKey: ["merchant", "shop"], queryFn: merchantApi.shop });
 
   const refresh = (key?: string) => queryClient.invalidateQueries({ queryKey: key ? ["merchant", key] : ["merchant"] });
+
+  const toggleMasterMutation = useMutation({
+    mutationFn: ({ master_product_id, selected, price }: { master_product_id: number; selected: boolean; price?: string }) =>
+      merchantApi.toggleMasterProduct(master_product_id, selected, price),
+    onSuccess: (res) => {
+      setNotice(
+        res.is_in_shop
+          ? (lang === "hi" ? "आइटम आपकी दुकान में जोड़ दिया गया (✓)" : "Item added to your Dukaan (✓)")
+          : (lang === "hi" ? "आइटम आपकी दुकान से हटा दिया गया (✗)" : "Item removed from your Dukaan (✗)")
+      );
+      refresh("master-catalog");
+      refresh("products");
+      refresh("inventory");
+    },
+    onError: (e) => setNotice(getApiError(e)),
+  });
 
   const orderMutation = useMutation({
     mutationFn: ({ id, action }: { id: number; action: string }) => merchantApi.orderAction(id, action),
@@ -186,11 +223,11 @@ export default function MerchantWorkspace() {
   });
 
   const productMutation = useMutation({
-    mutationFn: (payload: { name: string; description?: string; brand?: string; price: string; sku?: string }) =>
+    mutationFn: (payload: (Partial<Product> & { name: string }) | FormData) =>
       merchantApi.createProduct(payload),
     onSuccess: () => {
       setNewProductOpen(false);
-      setNotice("Product added to your catalog.");
+      setNotice(lang === "hi" ? "प्रोडक्ट कैटलॉग में सफलतापूर्वक जोड़ा गया।" : "Product added to your catalog.");
       refresh("products");
     },
     onError: (e) => setNotice(getApiError(e)),
@@ -216,6 +253,7 @@ export default function MerchantWorkspace() {
         orders={orders}
         period={period}
         setPeriod={setPeriod}
+        lang={lang}
       />
     );
   }
@@ -416,61 +454,227 @@ export default function MerchantWorkspace() {
 
   // Catalog / Products Section
   if (section === "catalog") {
+    const filteredMaster = (masterCatalog.data ?? []).filter((mp) => {
+      if (!masterSearch.trim()) return true;
+      const q = masterSearch.toLowerCase();
+      return (
+        mp.name?.toLowerCase().includes(q) ||
+        mp.brand?.toLowerCase().includes(q) ||
+        mp.category_name?.toLowerCase().includes(q) ||
+        mp.description?.toLowerCase().includes(q)
+      );
+    });
+
     return (
       <>
         <Title
           eyebrow="Your store"
           title="Product catalog"
-          description="Manage products customers can discover in your shop."
+          description="Manage products customers can discover in your shop, or add verified items from the platform Master Catalog."
           action={
-            <button
-              onClick={() => setNewProductOpen(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#1F5D42] px-4 text-xs font-bold text-white hover:bg-[#123324] shadow-xs transition"
-            >
-              <Plus size={15} />
-              <span>Add product</span>
-            </button>
+            catalogTab === "shop" ? (
+              <button
+                onClick={() => setNewProductOpen(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#1F5D42] px-4 text-xs font-bold text-white hover:bg-[#123324] shadow-xs transition"
+              >
+                <Plus size={15} />
+                <span>Add custom product</span>
+              </button>
+            ) : null
           }
         />
-        {products.isLoading ? (
-          <LoadingRows />
-        ) : products.isError ? (
-          <Notice error={products.error} onRetry={() => products.refetch()} />
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-[#ddd6ca] bg-white">
-            <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] gap-3 border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
-              <span>Product</span>
-              <span>Price</span>
-              <span>Visibility</span>
-              <span>Action</span>
-            </div>
-            {products.data?.length ? (
-              products.data.map((item) => (
-                <ProductRow
-                  key={item.id}
-                  product={item}
-                  onToggle={() =>
-                    merchantApi
-                      .updateProduct(item.id, { is_visible: !item.is_visible })
-                      .then(() => refresh("products"))
-                      .catch((e) => setNotice(getApiError(e)))
-                  }
-                  onDelete={() => {
-                    if (window.confirm(`Remove ${item.name} from catalog?`))
+
+        {/* Catalog Navigation Tabs */}
+        <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-[#ddd6ca] pb-3">
+          <button
+            onClick={() => setCatalogTab("shop")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+              catalogTab === "shop"
+                ? "bg-[#1F5D42] text-white shadow-xs"
+                : "bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#F6F0E6]"
+            }`}
+          >
+            {lang === "hi"
+              ? `मेरी दुकान के प्रोडक्ट्स (${products.data?.length ?? 0})`
+              : `My Dukaan Products (${products.data?.length ?? 0})`}
+          </button>
+          <button
+            onClick={() => setCatalogTab("master")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              catalogTab === "master"
+                ? "bg-[#1F5D42] text-white shadow-xs"
+                : "bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#F6F0E6]"
+            }`}
+          >
+            <Boxes size={14} />
+            <span>
+              {lang === "hi"
+                ? `मास्टर कैटलॉग से चुनें (${masterCatalog.data?.length ?? 0})`
+                : `Select from Master Catalog (${masterCatalog.data?.length ?? 0})`}
+            </span>
+          </button>
+        </div>
+
+        {catalogTab === "shop" ? (
+          products.isLoading ? (
+            <LoadingRows />
+          ) : products.isError ? (
+            <Notice error={products.error} onRetry={() => products.refetch()} />
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-[#ddd6ca] bg-white">
+              <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] gap-3 border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
+                <span>Product</span>
+                <span>Price</span>
+                <span>Visibility</span>
+                <span>Action</span>
+              </div>
+              {products.data?.length ? (
+                products.data.map((item) => (
+                  <ProductRow
+                    key={item.id}
+                    product={item}
+                    onToggle={() =>
                       merchantApi
-                        .deleteProduct(item.id)
+                        .updateProduct(item.id, { is_visible: !item.is_visible })
                         .then(() => refresh("products"))
-                        .catch((e) => setNotice(getApiError(e)));
-                  }}
+                        .catch((e) => setNotice(getApiError(e)))
+                    }
+                    onDelete={() => {
+                      if (window.confirm(`Remove ${item.name} from catalog?`))
+                        merchantApi
+                          .deleteProduct(item.id)
+                          .then(() => refresh("products"))
+                          .catch((e) => setNotice(getApiError(e)));
+                    }}
+                  />
+                ))
+              ) : (
+                <Empty icon={ShoppingBag} title="Your catalog is ready" text="Add products so customers can browse and order from your shop, or click 'Select from Master Catalog' to import verified items with one click." />
+              )}
+            </div>
+          )
+        ) : (
+          /* Master Catalog Browser with Tick / Cross Selection */
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-[#ddd6ca]">
+              <div className="relative w-full max-w-sm">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8b948d]" />
+                <input
+                  type="text"
+                  value={masterSearch}
+                  onChange={(e) => setMasterSearch(e.target.value)}
+                  placeholder={lang === "hi" ? "मास्टर प्रोडक्ट्स में खोजें..." : "Search Master Catalog items..."}
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
                 />
-              ))
+              </div>
+              <p className="text-xs text-[#6d756f]">
+                {lang === "hi"
+                  ? "जो सामान आपकी दुकान में उपलब्ध है उसे टिक (✓) करें। वह सीधे आपकी दुकान में जुड़ जाएगा।"
+                  : "Tick (✓) items you have in stock. Selected items persist automatically in your Dukaan."}
+              </p>
+            </div>
+
+            {masterCatalog.isLoading ? (
+              <LoadingRows />
+            ) : masterCatalog.isError ? (
+              <Notice error={masterCatalog.error} onRetry={() => masterCatalog.refetch()} />
+            ) : filteredMaster.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-[#ddd6ca] p-8 text-center text-[#869088]">
+                <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
+                <p className="font-semibold text-sm text-[#123324]">No master products found</p>
+                <p className="text-xs text-[#6d756f] mt-1">Super Admin has not added any master items matching this search yet.</p>
+              </div>
             ) : (
-              <Empty icon={ShoppingBag} title="Your catalog is ready" text="Add products so customers can browse and order from your shop." />
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredMaster.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+                      item.is_in_shop
+                        ? "bg-[#f4f9f6] border-[#a8d3ba] shadow-xs ring-1 ring-[#1F5D42]/20"
+                        : "bg-white border-[#ddd6ca] hover:border-[#bbb0a0]"
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-start gap-3 mb-3">
+                        {item.image ? (
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="w-12 h-12 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
+                            <ImageIcon className="w-5 h-5 text-[#869088]" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-bold text-sm text-[#123324] leading-snug line-clamp-2">
+                            {item.name}
+                          </h4>
+                          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                            {item.brand && (
+                              <span className="text-[10px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
+                                {item.brand}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
+                              {item.category_name || "Grocery"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {item.description && (
+                        <p className="text-xs text-[#6d756f] line-clamp-2 mb-3">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Tick / Cross Status and Action Bar */}
+                    <div className="pt-3 border-t border-[#eee9df] flex items-center justify-between gap-2">
+                      {item.is_in_shop ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1F5D42]">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#1F5D42]" />
+                          <span>{lang === "hi" ? "दुकान में उपलब्ध (✓)" : "In My Dukaan (✓)"}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#869088]">
+                          <X className="w-3.5 h-3.5 text-[#869088]" />
+                          <span>{lang === "hi" ? "दुकान में नहीं (✗)" : "Not in Dukaan (✗)"}</span>
+                        </span>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={toggleMasterMutation.isPending}
+                        onClick={() =>
+                          toggleMasterMutation.mutate({
+                            master_product_id: item.id,
+                            selected: !item.is_in_shop,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs ${
+                          item.is_in_shop
+                            ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                            : "bg-[#1F5D42] hover:bg-[#123324] text-white"
+                        }`}
+                      >
+                        {item.is_in_shop
+                          ? (lang === "hi" ? "हटाएं ✗" : "Remove ✗")
+                          : (lang === "hi" ? "+ जोड़ें ✓" : "+ Add to Dukaan ✓")}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
+
         {newProductOpen && (
-          <ProductModal onClose={() => setNewProductOpen(false)} onSave={(payload) => productMutation.mutate(payload)} saving={productMutation.isPending} />
+          <ProductModal lang={lang} onClose={() => setNewProductOpen(false)} onSave={(payload) => productMutation.mutate(payload)} saving={productMutation.isPending} />
         )}
         {notice && <Toast text={notice} onClose={() => setNotice("")} />}
       </>
@@ -530,7 +734,7 @@ export default function MerchantWorkspace() {
 
   // Shop Settings Section
   if (section === "settings") {
-    return <ShopSettings shop={shop.data} loading={shop.isLoading} error={shop.error} refetch={() => shop.refetch()} onSaved={() => refresh("shop")} />;
+    return <ShopSettings shop={shop.data} loading={shop.isLoading} error={shop.error} refetch={() => shop.refetch()} onSaved={() => refresh("shop")} lang={lang} />;
   }
 
   return (
@@ -550,12 +754,14 @@ function MyQrHomePage({
   orders,
   period,
   setPeriod,
+  lang = "en",
 }: {
   shop?: Shop;
   analytics: UseQueryResult<Overview>;
   orders: UseQueryResult<MerchantOrder[]>;
   period: string;
   setPeriod: (val: string) => void;
+  lang?: "en" | "hi";
 }) {
   const [copied, setCopied] = useState(false);
   const data = analytics.data;
@@ -680,20 +886,32 @@ function MyQrHomePage({
           <div className="space-y-4">
             <div className="rounded-2xl bg-[#e7f2eb] border border-[#cbe1d5] p-5">
               <h3 className="font-display font-bold text-base text-[#123324]">
-                How Customers Order from Your Dukaan
+                {lang === "hi" ? "ग्राहक आपकी दुकान से कैसे ऑर्डर करते हैं" : "How Customers Order from Your Dukaan"}
               </h3>
               <ul className="mt-2 space-y-2 text-xs text-[#2b4c39]">
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-[#E8A33D]">1.</span>
-                  <span>Customer scans this QR code with their phone camera — no app to install.</span>
+                  <span>
+                    {lang === "hi"
+                      ? "ग्राहक अपने फ़ोन कैमरे से यह QR कोड स्कैन करता है — कोई ऐप डाउनलोड करने की ज़रूरत नहीं।"
+                      : "Customer scans this QR code with their phone camera — no app to install."}
+                  </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-[#E8A33D]">2.</span>
-                  <span>They pick items in English or Hindi and enter their name + WhatsApp number.</span>
+                  <span>
+                    {lang === "hi"
+                      ? "वे हिंदी या अंग्रेजी में सामान चुनते हैं और अपना नाम व व्हाट्सएप नंबर दर्ज करते हैं।"
+                      : "They pick items in English or Hindi and enter their name + WhatsApp number."}
+                  </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="font-bold text-[#E8A33D]">3.</span>
-                  <span>You receive the alert on your order desk & WhatsApp instantly to pack and deliver.</span>
+                  <span>
+                    {lang === "hi"
+                      ? "आपको तुरंत अपने आर्डर डेस्क और व्हाट्सएप पर अलर्ट मिलता है ताकि आप पैक और डिलीवर कर सकें।"
+                      : "You receive the alert on your order desk & WhatsApp instantly to pack and deliver."}
+                  </span>
                 </li>
               </ul>
             </div>
@@ -701,13 +919,17 @@ function MyQrHomePage({
             {/* Quick Metrics */}
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-[#ddd6ca] bg-white p-4">
-                <span className="text-[11px] font-medium text-[#6d756f]">Sales realized</span>
+                <span className="text-[11px] font-medium text-[#6d756f]">
+                  {lang === "hi" ? "कुल बिक्री (Sales)" : "Sales realized"}
+                </span>
                 <p className="font-display text-xl font-bold text-[#1F5D42] mt-1">
                   {money(data?.sales.realized_sales)}
                 </p>
               </div>
               <div className="rounded-xl border border-[#ddd6ca] bg-white p-4">
-                <span className="text-[11px] font-medium text-[#6d756f]">Orders today</span>
+                <span className="text-[11px] font-medium text-[#6d756f]">
+                  {lang === "hi" ? "आज के ऑर्डर्स" : "Orders today"}
+                </span>
                 <p className="font-display text-xl font-bold text-[#123324] mt-1">
                   {data?.orders.total_orders ?? 0}
                 </p>
@@ -721,11 +943,15 @@ function MyQrHomePage({
       <div className="rounded-2xl border border-[#ddd6ca] bg-white overflow-hidden shadow-xs">
         <div className="flex items-center justify-between border-b border-[#eee9df] px-5 py-4 bg-[#faf8f3]">
           <div>
-            <h3 className="font-display font-bold text-sm text-[#123324]">Recent incoming orders</h3>
-            <p className="text-[11px] text-[#6d756f]">Live customer orders awaiting fulfillment</p>
+            <h3 className="font-display font-bold text-sm text-[#123324]">
+              {lang === "hi" ? "हालिया नए ऑर्डर्स" : "Recent incoming orders"}
+            </h3>
+            <p className="text-[11px] text-[#6d756f]">
+              {lang === "hi" ? "नए ग्राहक ऑर्डर्स जो पूर्ति के इंतज़ार में हैं" : "Live customer orders awaiting fulfillment"}
+            </p>
           </div>
           <Link href="/merchant/orders" className="text-xs font-bold text-[#1F5D42] hover:underline flex items-center gap-1">
-            <span>Go to Order Desk</span>
+            <span>{lang === "hi" ? "ऑर्डर डेस्क पर जाएं" : "Go to Order Desk"}</span>
             <ArrowRight size={13} />
           </Link>
         </div>
@@ -993,13 +1219,12 @@ function VisualOrderCard({
 // Visual Board Component 4: Simple Analytics
 // -------------------------------------------------------------
 function VisualAnalyticsPanel({ data }: { data: Overview }) {
-  // Mock top items with realistic percentages for visual display matching Visual Board
-  const topList = [
-    { name: "Aashirvaad Atta 5kg", width: "86%", count: "86" },
-    { name: "Surf Excel 1kg", width: "65%", count: "65" },
-    { name: "Parle-G 800g", width: "51%", count: "51" },
-    { name: "Fortune Oil 1L", width: "38%", count: "38" },
-  ];
+  const topProducts = data.top_products || [];
+  const maxUnits = topProducts.reduce((max, item) => Math.max(max, Number(item.units_sold) || 0), 0) || 1;
+
+  const totalOrders = data.orders?.total_orders ?? 0;
+  const completedOrders = data.orders?.completed_orders ?? 0;
+  const outOfStockCount = data.inventory?.out_of_stock_items_count ?? 0;
 
   return (
     <div className="space-y-6">
@@ -1008,9 +1233,9 @@ function VisualAnalyticsPanel({ data }: { data: Overview }) {
         <div className="rounded-2xl border border-[#ddd6ca] bg-white p-6 shadow-xs">
           <p className="text-xs font-bold text-[#6d756f] uppercase tracking-wider">Orders Today</p>
           <p className="font-display font-bold text-4xl text-[#1F5D42] mt-2">
-            {data.orders.total_orders || 24}
+            {totalOrders}
           </p>
-          <p className="text-[11px] text-[#7d857e] mt-1">{data.orders.completed_orders || 18} fulfilled & collected</p>
+          <p className="text-[11px] text-[#7d857e] mt-1">{completedOrders} fulfilled & collected</p>
         </div>
 
         <div className="rounded-2xl border border-[#f5deb5] bg-[#fff9ed] p-6 shadow-xs">
@@ -1019,32 +1244,61 @@ function VisualAnalyticsPanel({ data }: { data: Overview }) {
             <span>Low Stock Warning</span>
           </p>
           <p className="font-display font-bold text-2xl text-[#8a5b1d] mt-2">
-            {data.inventory.out_of_stock_items_count > 0 ? `${data.inventory.out_of_stock_items_count} items need attention` : "3 items low on stock"}
+            {outOfStockCount > 0 ? `${outOfStockCount} items out of stock` : "0 items low on stock"}
           </p>
-          <p className="text-[11px] text-[#7a531d] mt-1">Aashirvaad Atta 5kg · only 2 left</p>
+          <p className="text-[11px] text-[#7a531d] mt-1">
+            {outOfStockCount > 0 ? "Review stock batches and restock items" : "All product inventory levels are healthy"}
+          </p>
         </div>
       </div>
 
-      {/* Visual Board Top Selling Progress Bars */}
+      {/* Visual Board Top Selling Progress Bars from Live Backend */}
       <div className="rounded-2xl border border-[#ddd6ca] bg-white p-6 shadow-xs">
         <h4 className="font-display font-bold text-sm text-[#123324] mb-4">Top-selling items (Units sold)</h4>
-        <div className="space-y-4">
-          {topList.map((item) => (
-            <div key={item.name} className="grid grid-cols-[100px_1fr_40px] items-center gap-3 text-xs">
-              <span className="truncate font-medium text-[#123324]">{item.name}</span>
-              <div className="h-2.5 rounded-full bg-[#eee9df] overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-[#1F5D42] to-[#5f967a]" style={{ width: item.width }} />
-              </div>
-              <b className="text-right font-mono text-[#123324]">{item.count}</b>
-            </div>
-          ))}
-        </div>
+        {topProducts.length === 0 ? (
+          <div className="py-6 text-center text-xs text-[#869088]">
+            No sales recorded yet. Fulfilled customer orders will populate top selling items automatically.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {topProducts.map((item) => {
+              const units = Number(item.units_sold) || 0;
+              const widthPct = Math.round((units / maxUnits) * 100);
+              return (
+                <div key={item.product_name} className="grid grid-cols-[140px_1fr_40px] items-center gap-3 text-xs">
+                  <span className="truncate font-medium text-[#123324]" title={item.product_name}>
+                    {item.product_name}
+                  </span>
+                  <div className="h-2.5 rounded-full bg-[#eee9df] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#1F5D42] to-[#5f967a]"
+                      style={{ width: `${Math.max(widthPct, 8)}%` }}
+                    />
+                  </div>
+                  <b className="text-right font-mono text-[#123324]">{units}</b>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Realized Sales Details */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Metric icon={IndianRupee} label="Realized sales" value={money(data.sales.realized_sales)} note={`Avg order: ${money(data.sales.average_order_value)}`} tint="green" />
-        <Metric icon={UsersRound} label="Active customers" value={data.customers.ordering_customers} note={`${data.customers.returning_customers} returning customers`} tint="blue" />
+        <Metric
+          icon={IndianRupee}
+          label="Realized sales"
+          value={money(data.sales?.realized_sales ?? 0)}
+          note={`Avg order: ${money(data.sales?.average_order_value ?? 0)}`}
+          tint="green"
+        />
+        <Metric
+          icon={UsersRound}
+          label="Active customers"
+          value={data.customers?.ordering_customers ?? 0}
+          note={`${data.customers?.returning_customers ?? 0} returning customers`}
+          tint="blue"
+        />
       </div>
     </div>
   );
@@ -1128,48 +1382,150 @@ function ProductRow({ product, onToggle, onDelete }: { product: Product; onToggl
   );
 }
 
-function ProductModal({ onClose, onSave, saving }: { onClose: () => void; onSave: (payload: { name: string; description?: string; brand?: string; price: string; sku?: string }) => void; saving: boolean }) {
+function ProductModal({
+  onClose,
+  onSave,
+  saving,
+  lang = "en",
+}: {
+  onClose: () => void;
+  onSave: (payload: (Partial<Product> & { name: string }) | FormData) => void;
+  saving: boolean;
+  lang?: "en" | "hi";
+}) {
   const { register, trigger, getValues } = useForm<ProductInput, unknown, ProductValues>({
     resolver: zodResolver(productSchema),
     defaultValues: { name: "", price: 0, brand: "", sku: "", description: "" },
   });
 
+  const [images, setImages] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const productInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const incoming = Array.from(e.target.files);
+    const combined = [...images, ...incoming].slice(0, 4); // enforce max 4 images
+    setImages(combined);
+    setPreviews(combined.map((f) => URL.createObjectURL(f)));
+  };
+
+  const removeImage = (index: number) => {
+    const updated = images.filter((_, i) => i !== index);
+    setImages(updated);
+    setPreviews(updated.map((f) => URL.createObjectURL(f)));
+  };
+
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!(await trigger())) return;
     const values = getValues();
-    onSave({ ...values, price: String(values.price) });
+    if (images.length > 0) {
+      const formData = new FormData();
+      formData.append("name", values.name);
+      formData.append("price", String(values.price));
+      if (values.brand) formData.append("brand", values.brand);
+      if (values.sku) formData.append("sku", values.sku);
+      if (values.description) formData.append("description", values.description);
+      formData.append("image", images[0]); // primary image
+      onSave(formData);
+    } else {
+      onSave({ ...values, price: String(values.price) });
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
       <form onSubmit={submit} className="w-full max-w-[500px] rounded-2xl bg-white p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
-          <h2 className="font-display font-bold text-base text-[#123324]">Add New Product</h2>
+          <h2 className="font-display font-bold text-base text-[#123324]">
+            {lang === "hi" ? "नया प्रोडक्ट जोड़ें" : "Add New Product"}
+          </h2>
           <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
             <X size={16} />
           </button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 text-xs">
           <label className="sm:col-span-2">
-            <span className="block font-bold text-[#123324] mb-1">Product Name</span>
+            <span className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "प्रोडक्ट का नाम *" : "Product Name *"}
+            </span>
             <input {...register("name")} required className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
           </label>
           <label>
-            <span className="block font-bold text-[#123324] mb-1">Selling Price (₹)</span>
+            <span className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "विक्रय मूल्य (₹) *" : "Selling Price (₹) *"}
+            </span>
             <input {...register("price", { valueAsNumber: true })} type="number" min="0" step="0.5" required className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
           </label>
           <label>
-            <span className="block font-bold text-[#123324] mb-1">Brand</span>
+            <span className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "ब्रांड (वैकल्पिक)" : "Brand (Optional)"}
+            </span>
             <input {...register("brand")} className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
           </label>
+
+          {/* Product Images (Max 4) */}
+          <div className="sm:col-span-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="block font-bold text-[#123324]">
+                {lang === "hi" ? "प्रोडक्ट की तस्वीरें (अधिकतम 4)" : "Product Photos (Max 4 images)"}
+              </span>
+              <span className="text-[10px] font-semibold text-[#6d756f]">
+                {images.length}/4
+              </span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2">
+              {previews.map((src, idx) => (
+                <div key={idx} className="relative aspect-square rounded-xl border border-[#ddd6ca] overflow-hidden bg-[#FAF8F3]">
+                  <img src={src} alt={`Product thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(idx)}
+                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 shadow-sm"
+                  >
+                    <X size={10} />
+                  </button>
+                  {idx === 0 && (
+                    <span className="absolute bottom-1 left-1 text-[8px] bg-[#1F5D42] text-white px-1 py-0.5 rounded font-bold">
+                      {lang === "hi" ? "मुख्य" : "Main"}
+                    </span>
+                  )}
+                </div>
+              ))}
+
+              {images.length < 4 && (
+                <button
+                  type="button"
+                  onClick={() => productInputRef.current?.click()}
+                  className="aspect-square rounded-xl border-2 border-dashed border-[#c8c0b2] hover:border-[#1F5D42] bg-[#FAF8F3] hover:bg-[#e7f2eb]/40 flex flex-col items-center justify-center text-[#6d756f] hover:text-[#1F5D42] transition"
+                >
+                  <Upload size={16} />
+                  <span className="text-[9px] font-bold mt-1">{lang === "hi" ? "जोड़ें" : "Upload"}</span>
+                </button>
+              )}
+            </div>
+
+            <input
+              ref={productInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <span className="mt-1 block text-[10px] text-[#869088]">
+              {lang === "hi" ? "पहली फोटो ग्राहक को मुख्य कैटलॉग में दिखेगी।" : "The first image will be the primary catalog display photo."}
+            </span>
+          </div>
         </div>
         <div className="flex justify-end gap-2 pt-3 border-t border-[#eee9df]">
           <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#6d756f]">
-            Cancel
+            {lang === "hi" ? "रद्द करें" : "Cancel"}
           </button>
           <button disabled={saving} className="px-4 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] disabled:opacity-60">
-            {saving ? "Adding…" : "Add to Catalog"}
+            {saving ? (lang === "hi" ? "जोड़ा जा रहा है…" : "Adding…") : (lang === "hi" ? "कैटलॉग में जोड़ें" : "Add to Catalog")}
           </button>
         </div>
       </form>
@@ -1177,22 +1533,160 @@ function ProductModal({ onClose, onSave, saving }: { onClose: () => void; onSave
   );
 }
 
-function ShopSettings({ shop, loading, error, refetch, onSaved }: { shop?: Shop; loading: boolean; error: unknown; refetch: () => void; onSaved: () => void }) {
+function ShopSettings({
+  shop,
+  loading,
+  error,
+  refetch,
+  onSaved,
+  lang = "en",
+}: {
+  shop?: Shop;
+  loading: boolean;
+  error: unknown;
+  refetch: () => void;
+  onSaved: () => void;
+  lang?: "en" | "hi";
+}) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [saveError, setSaveError] = useState("");
+
+  interface ShopPhotoSlot {
+    id: string;
+    url: string;
+    file?: File;
+    labelEn: string;
+    labelHi: string;
+  }
+
+  const [photos, setPhotos] = useState<ShopPhotoSlot[]>([
+    { id: "cover", url: shop?.logo ?? "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
+  ]);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [activeSlotIdx, setActiveSlotIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && shop?.public_slug) {
+      try {
+        const stored = localStorage.getItem(`dukaandar_shop_photos_${shop.public_slug}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const slotsMeta = [
+              { labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
+              { labelEn: "Store Entrance / Board", labelHi: "बोर्ड / प्रवेश द्वार" },
+              { labelEn: "Shelves & Products", labelHi: "सामान के रैक" },
+              { labelEn: "Counter & Inside", labelHi: "बिलिंग काउंटर" },
+            ];
+            const restored = parsed
+              .map((item: any, idx: number) => {
+                const url = typeof item === "string" ? item : item?.url || "";
+                const meta = slotsMeta[idx] || slotsMeta[0];
+                return {
+                  id: `photo-${idx}`,
+                  url,
+                  labelEn: meta.labelEn,
+                  labelHi: meta.labelHi,
+                };
+              })
+              .filter((p: ShopPhotoSlot) => Boolean(p.url));
+
+            if (restored.length > 0) {
+              setPhotos(restored);
+              return;
+            }
+          }
+        }
+      } catch {
+        // fallback
+      }
+    }
+    if (shop?.logo && (!photos[0] || !photos[0].url)) {
+      setPhotos([
+        { id: "cover", url: shop.logo, labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
+      ]);
+    }
+  }, [shop?.logo, shop?.public_slug]);
+
+  const handlePhotosSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    if (activeSlotIdx !== null) {
+      // Replacing a specific slot
+      const file = files[0];
+      const newUrl = URL.createObjectURL(file);
+      setPhotos((prev) => {
+        const next = [...prev];
+        next[activeSlotIdx] = {
+          ...next[activeSlotIdx],
+          url: newUrl,
+          file,
+        };
+        return next;
+      });
+      setActiveSlotIdx(null);
+    } else {
+      // Adding new photos up to 4 total
+      const slots: { labelEn: string; labelHi: string }[] = [
+        { labelEn: "Main Storefront", labelHi: "मुख्य दुकान" },
+        { labelEn: "Store Entrance / Board", labelHi: "बोर्ड / प्रवेश द्वार" },
+        { labelEn: "Shelves & Products", labelHi: "सामान के रैक" },
+        { labelEn: "Counter & Inside", labelHi: "बिलिंग काउंटर" },
+      ];
+
+      setPhotos((prev) => {
+        const remaining = 4 - prev.length;
+        const toAdd = files.slice(0, remaining).map((f, i) => {
+          const slotMeta = slots[prev.length + i] || slots[0];
+          return {
+            id: `photo-${Date.now()}-${i}`,
+            url: URL.createObjectURL(f),
+            file: f,
+            labelEn: slotMeta.labelEn,
+            labelHi: slotMeta.labelHi,
+          };
+        });
+        return [...prev, ...toAdd];
+      });
+    }
+
+    if (photoInputRef.current) {
+      photoInputRef.current.value = "";
+    }
+  };
+
+  const handleRemovePhoto = (idx: number) => {
+    setPhotos((prev) => {
+      const filtered = prev.filter((_, i) => i !== idx);
+      const nextPhotos =
+        filtered.length === 0
+          ? [{ id: "cover", url: "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" }]
+          : filtered;
+      if (typeof window !== "undefined" && shop?.public_slug) {
+        localStorage.setItem(
+          `dukaandar_shop_photos_${shop.public_slug}`,
+          JSON.stringify(nextPhotos.map((p) => p.url).filter(Boolean))
+        );
+      }
+      return nextPhotos;
+    });
+  };
 
   const settingsValues = useMemo(
     () =>
       shop
         ? {
             name: shop.name,
-            description: shop.description,
+            logo: shop.logo ?? "",
+            description: shop.description ?? "",
             address_line: shop.address_line,
             area: shop.area,
             city: shop.city,
             state: shop.state,
             pincode: shop.pincode,
+            google_maps_url: shop.google_maps_url ?? "",
             opening_time: shop.opening_time?.slice(0, 5) ?? "",
             closing_time: shop.closing_time?.slice(0, 5) ?? "",
             is_home_delivery_enabled: shop.is_home_delivery_enabled,
@@ -1206,7 +1700,7 @@ function ShopSettings({ shop, loading, error, refetch, onSaved }: { shop?: Shop;
     [shop]
   );
 
-  const { register, handleSubmit } = useForm<ShopSettingsInput, unknown, ShopSettingsValues>({
+  const { register, handleSubmit, setValue } = useForm<ShopSettingsInput, unknown, ShopSettingsValues>({
     resolver: zodResolver(shopSettingsSchema),
     values: settingsValues,
   });
@@ -1219,14 +1713,54 @@ function ShopSettings({ shop, loading, error, refetch, onSaved }: { shop?: Shop;
     setMessage("");
     setSaveError("");
     try {
-      await merchantApi.updateShop({
-        ...values,
-        opening_time: values.opening_time || null,
-        closing_time: values.closing_time || null,
-        delivery_charge: String(values.delivery_charge),
-      });
-      setMessage("Shop details saved successfully.");
+      const { logo, ...restValues } = values;
+      const primaryPhoto = photos.find((p) => p.file || p.url);
+      if (primaryPhoto?.file) {
+        const formData = new FormData();
+        Object.entries(restValues).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== "") {
+            formData.append(k, String(v));
+          }
+        });
+        formData.append("delivery_charge", String(values.delivery_charge));
+        if (values.opening_time) formData.append("opening_time", values.opening_time);
+        if (values.closing_time) formData.append("closing_time", values.closing_time);
+        if (values.google_maps_url) formData.append("google_maps_url", values.google_maps_url);
+        formData.append("logo", primaryPhoto.file);
+        await merchantApi.updateShop(formData);
+      } else {
+        await merchantApi.updateShop({
+          ...restValues,
+          opening_time: values.opening_time || null,
+          closing_time: values.closing_time || null,
+          delivery_charge: String(values.delivery_charge),
+          google_maps_url: values.google_maps_url || "",
+        });
+      }
+      if (typeof window !== "undefined" && shop?.public_slug) {
+        const processedUrls: string[] = [];
+        for (const p of photos) {
+          if (p.file) {
+            try {
+              const base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(p.file!);
+              });
+              processedUrls.push(base64);
+            } catch {
+              if (p.url) processedUrls.push(p.url);
+            }
+          } else if (p.url) {
+            processedUrls.push(p.url);
+          }
+        }
+        localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
+      }
+      setMessage(lang === "hi" ? "दुकान का विवरण सफलतापूर्वक सहेजा गया।" : "Shop details saved successfully.");
       onSaved();
+      refetch();
     } catch (e) {
       setSaveError(getApiError(e));
     } finally {
@@ -1236,43 +1770,284 @@ function ShopSettings({ shop, loading, error, refetch, onSaved }: { shop?: Shop;
 
   return (
     <>
-      <Title eyebrow="Your store" title="Shop settings" description="Keep your storefront details and delivery settings up to date." />
+      <Title
+        eyebrow={lang === "hi" ? "आपकी दुकान" : "Your store"}
+        title={lang === "hi" ? "दुकान सेटिंग्स" : "Shop settings"}
+        description={lang === "hi" ? "दुकान की जानकारी, 4 तस्वीरें और डिलीवरी सेटिंग्स को अपडेट रखें।" : "Keep your storefront details, 4 shop photos, and delivery settings up to date."}
+      />
       <form onSubmit={handleSubmit(submit)} className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-5 sm:p-7 shadow-xs">
         <div className="mb-6 flex flex-col gap-4 border-b border-[#eee9df] pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#e7f2eb] text-[#1F5D42]">
-              <Store size={20} />
-            </span>
+            {photos[0]?.url ? (
+              <img src={photos[0].url} alt={shop.name} className="h-12 w-12 rounded-2xl object-cover border border-[#ddd6ca]" />
+            ) : (
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#e7f2eb] text-[#1F5D42]">
+                <Store size={22} />
+              </span>
+            )}
             <div>
               <h2 className="font-display font-bold text-base text-[#123324]">{shop.name}</h2>
               <p className="text-[11px] text-[#6d756f]">{shop.city}, {shop.state}</p>
             </div>
           </div>
-          <label className="flex items-center gap-2 text-xs">
+          <label className="flex items-center gap-2 text-xs cursor-pointer">
             <input {...register("is_temporarily_closed")} type="checkbox" className="accent-[#1F5D42]" />
-            <span className="font-bold text-[#123324]">Temporarily closed</span>
+            <span className="font-bold text-[#123324]">{lang === "hi" ? "दुकान अस्थायी रूप से बंद है" : "Temporarily closed"}</span>
           </label>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 text-xs">
           {([
-            ["name", "Shop name"],
-            ["address_line", "Address"],
-            ["area", "Area"],
-            ["city", "City"],
-            ["state", "State"],
-            ["pincode", "PIN code"],
+            ["name", lang === "hi" ? "दुकान का नाम *" : "Shop name *"],
+            ["address_line", lang === "hi" ? "पता *" : "Address *"],
+            ["area", lang === "hi" ? "इलाका / क्षेत्र *" : "Area *"],
+            ["city", lang === "hi" ? "शहर *" : "City *"],
+            ["state", lang === "hi" ? "राज्य *" : "State *"],
+            ["pincode", lang === "hi" ? "पिन कोड *" : "PIN code *"],
           ] as const).map(([key, label]) => (
             <label key={key}>
               <span className="mb-1 block font-bold text-[#123324]">{label}</span>
               <input {...register(key)} className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
             </label>
           ))}
+
+          {/* Storefront Photos: Up to 4 Photos Gallery (Google Maps Place style) */}
+          <div className="sm:col-span-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="block font-bold text-[#123324]">
+                {lang === "hi" ? "दुकान की तस्वीरें (अधिकतम 4 तस्वीरें)" : "Shop Storefront Photos (Up to 4 Photos)"}
+              </span>
+              <span className="text-[11px] text-[#6d756f] font-mono">
+                {photos.filter((p) => p.url).length}/4 {lang === "hi" ? "अपलोड की गई" : "uploaded"}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#6d756f] mb-3">
+              {lang === "hi"
+                ? "दुकान की मुख्य तस्वीरें अपलोड करें (जैसे दुकान का बोर्ड, मुख्य गेट, सामान के रैक और बिलिंग काउंटर)। ये तस्वीरें ग्राहक को स्टोरफ्रंट पर दिखेंगी।"
+                : "Upload real shop photos (main storefront, board, shelves, billing counter). These will appear on your customer storefront gallery."}
+            </p>
+
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              multiple
+              onChange={handlePhotosSelected}
+            />
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[0, 1, 2, 3].map((idx) => {
+                const photo = photos[idx];
+                const hasPhoto = Boolean(photo && photo.url);
+                const slotLabels = [
+                  { en: "1. Main Storefront", hi: "1. मुख्य स्टोरफ्रंट" },
+                  { en: "2. Entrance / Board", hi: "2. बोर्ड / प्रवेश द्वार" },
+                  { en: "3. Shelves & Racks", hi: "3. रैक व सामान" },
+                  { en: "4. Inside / Counter", hi: "4. काउंटर व अंदर" },
+                ];
+                const slotLabel = lang === "hi" ? slotLabels[idx].hi : slotLabels[idx].en;
+
+                return (
+                  <div
+                    key={idx}
+                    className="relative flex flex-col rounded-2xl border border-[#ddd6ca] bg-[#FAF8F3] overflow-hidden shadow-2xs group"
+                  >
+                    <div className="relative h-28 w-full bg-[#eee9df] flex items-center justify-center">
+                      {hasPhoto ? (
+                        <>
+                          <img
+                            src={photo.url}
+                            alt={slotLabel}
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePhoto(idx)}
+                            className="absolute top-1.5 right-1.5 rounded-full bg-red-600/90 hover:bg-red-700 text-white p-1 shadow-sm transition"
+                            title={lang === "hi" ? "फोटो हटाएं" : "Remove photo"}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveSlotIdx(idx);
+                            photoInputRef.current?.click();
+                          }}
+                          className="h-full w-full flex flex-col items-center justify-center gap-1.5 p-2 text-[#7d857e] hover:bg-[#e7f2eb]/60 hover:text-[#1F5D42] transition border-2 border-dashed border-[#c8c0b2] rounded-2xl m-1"
+                        >
+                          <Upload size={16} />
+                          <span className="text-[10px] font-bold">
+                            {lang === "hi" ? "+ फोटो जोड़ें" : "+ Add Photo"}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-2 bg-white border-t border-[#eee9df] text-center">
+                      <p className="text-[10px] font-semibold text-[#123324] truncate">{slotLabel}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Google Maps Location Link */}
+          <label className="sm:col-span-2">
+            <span className="mb-1 block font-bold text-[#123324]">
+              {lang === "hi" ? "गूगल मैप्स लोकेशन लिंक (वैकल्पिक)" : "Google Maps Location Link (Optional)"}
+            </span>
+            <input
+              {...register("google_maps_url")}
+              type="url"
+              placeholder="https://maps.google.com/?q=..."
+              className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]"
+            />
+            <span className="mt-1 block text-[10px] text-[#869088]">
+              {lang === "hi"
+                ? "ग्राहक आपकी दुकान के पते पर क्लिक करके सीधे गूगल मैप्स पर दिशा-निर्देश (directions) प्राप्त कर सकेंगे।"
+                : "Customers can click your shop address on the storefront to open turn-by-turn directions on Google Maps."}
+            </span>
+          </label>
+
+          {/* Description */}
+          <label className="sm:col-span-2">
+            <span className="mb-1 block font-bold text-[#123324]">
+              {lang === "hi" ? "दुकान का विवरण (About / Description)" : "About / Description"}
+            </span>
+            <textarea
+              {...register("description")}
+              rows={2}
+              placeholder={lang === "hi" ? "ग्राहकों को अपनी दुकान के बारे में बताएं..." : "Tell customers about your shop..."}
+              className="w-full rounded-xl border border-[#ddd6ca] p-3 outline-none focus:border-[#1F5D42]"
+            />
+          </label>
+        </div>
+
+        {/* Store Schedule & Timings (Matching Screenshot) */}
+        <div className="mt-6 border-t border-[#eee9df] pt-5">
+          <h3 className="font-display font-bold text-sm text-[#123324] mb-3 flex items-center gap-2">
+            <Clock3 size={16} className="text-[#1F5D42]" />
+            <span>{lang === "hi" ? "दुकान का समय व दैनिक शेड्यूल" : "Store Schedule & Daily Timings"}</span>
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2 text-xs">
+            <label>
+              <span className="mb-1 block font-bold text-[#123324]">
+                {lang === "hi" ? "दुकान खुलने का समय (Opening Time)" : "Opening Time (e.g. 07:00 AM)"}
+              </span>
+              <input
+                {...register("opening_time")}
+                type="time"
+                className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42] bg-white font-mono"
+              />
+            </label>
+            <label>
+              <span className="mb-1 block font-bold text-[#123324]">
+                {lang === "hi" ? "दुकान बंद होने का समय (Closing Time)" : "Closing Time (e.g. 11:00 PM)"}
+              </span>
+              <input
+                {...register("closing_time")}
+                type="time"
+                className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42] bg-white font-mono"
+              />
+            </label>
+            <div className="sm:col-span-2 flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-[11px] text-[#6d756f] font-medium mr-1">
+                {lang === "hi" ? "त्वरित विकल्प (Presets):" : "Quick Presets:"}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setValue("opening_time", "07:00"); setValue("closing_time", "23:00"); }}
+                className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
+              >
+                7:00 AM – 11:00 PM
+              </button>
+              <button
+                type="button"
+                onClick={() => { setValue("opening_time", "08:00"); setValue("closing_time", "22:00"); }}
+                className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
+              >
+                8:00 AM – 10:00 PM
+              </button>
+              <button
+                type="button"
+                onClick={() => { setValue("opening_time", "09:00"); setValue("closing_time", "21:00"); }}
+                className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
+              >
+                9:00 AM – 9:00 PM
+              </button>
+              <button
+                type="button"
+                onClick={() => { setValue("opening_time", "00:00"); setValue("closing_time", "23:59"); }}
+                className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
+              >
+                24 Hours Open (24x7)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery & Fulfillment Preferences */}
+        <div className="mt-6 border-t border-[#eee9df] pt-5">
+          <h3 className="font-display font-bold text-sm text-[#123324] mb-3">
+            {lang === "hi" ? "डिलीवरी एवं ऑर्डर पूर्ति सेटिंग्स" : "Delivery & Order Fulfillment"}
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2 text-xs">
+            <label>
+              <span className="mb-1 block font-bold text-[#123324]">
+                {lang === "hi" ? "डिलीवरी शुल्क (₹)" : "Delivery Charge (₹)"}
+              </span>
+              <input
+                {...register("delivery_charge", { valueAsNumber: true })}
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]"
+              />
+              <span className="mt-1 block text-[10px] text-[#869088]">
+                {lang === "hi"
+                  ? "0 = मुफ्त डिलीवरी (Free Delivery)। कोई राशि डालने पर वह ग्राहक के ऑर्डर बिल में जुड़ेगी।"
+                  : "0 = Free Delivery. Any amount set will be added to customer's order total."}
+              </span>
+            </label>
+
+            <label>
+              <span className="mb-1 block font-bold text-[#123324]">
+                {lang === "hi" ? "डिलीवरी शुल्क प्रकार" : "Delivery Fee Mode"}
+              </span>
+              <select
+                {...register("delivery_fee_type")}
+                className="h-9 w-full rounded-xl border border-[#ddd6ca] bg-white px-3 outline-none focus:border-[#1F5D42]"
+              >
+                <option value="FIXED">{lang === "hi" ? "निर्धारित शुल्क (Fixed Amount)" : "Fixed Amount"}</option>
+                <option value="CONFIRMED_ON_WHATSAPP">{lang === "hi" ? "व्हाट्सएप पर पुष्टि (Confirm on WhatsApp)" : "Confirm on WhatsApp"}</option>
+              </select>
+            </label>
+
+            <div className="sm:col-span-2 flex flex-wrap gap-5 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input {...register("is_home_delivery_enabled")} type="checkbox" className="accent-[#1F5D42]" />
+                <span className="font-semibold text-[#123324]">
+                  {lang === "hi" ? "होम डिलीवरी उपलब्ध है" : "Home Delivery Allowed"}
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input {...register("is_pickup_enabled")} type="checkbox" className="accent-[#1F5D42]" />
+                <span className="font-semibold text-[#123324]">
+                  {lang === "hi" ? "दुकान से पिकअप उपलब्ध है" : "Store Pickup Allowed"}
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 flex justify-end border-t border-[#eee9df] pt-4">
           <button disabled={saving} className="h-10 rounded-xl bg-[#1F5D42] px-6 text-xs font-bold text-white hover:bg-[#123324] disabled:opacity-50">
-            {saving ? "Saving…" : "Save changes"}
+            {saving ? (lang === "hi" ? "सहेजा जा रहा है…" : "Saving…") : (lang === "hi" ? "बदलाव सहेजें" : "Save changes")}
           </button>
         </div>
         {saveError && <p className="mt-3 text-xs text-red-600">{saveError}</p>}

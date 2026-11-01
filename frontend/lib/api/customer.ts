@@ -20,6 +20,7 @@ export interface PublicShopInfo {
   city: string;
   state: string;
   pincode: string;
+  google_maps_url?: string;
   contact_number: string;
   is_temporarily_closed: boolean;
   opening_time: string | null;

@@ -298,7 +298,13 @@ export default function CustomerCartCheckoutPage() {
                 {fulfillmentType === "HOME_DELIVERY" && (
                   <div className="flex justify-between text-[#6d756f]">
                     <span>Delivery Charge</span>
-                    <span>{deliveryCharge === 0 ? "Free" : `₹${deliveryCharge.toFixed(0)}`}</span>
+                    <span className={shop?.delivery_fee_type === "CONFIRMED_ON_WHATSAPP" ? "text-[#1F5D42] font-semibold" : ""}>
+                      {shop?.delivery_fee_type === "CONFIRMED_ON_WHATSAPP"
+                        ? "To be confirmed on WhatsApp"
+                        : deliveryCharge === 0
+                        ? "Free"
+                        : `₹${deliveryCharge.toFixed(0)}`}
+                    </span>
                   </div>
                 )}
                 <div className="pt-2 border-t border-[#eee9df] flex justify-between items-baseline font-bold">

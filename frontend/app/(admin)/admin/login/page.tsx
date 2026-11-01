@@ -1,22 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  Shield,
-  ShieldCheck,
-  Lock,
-  Mail,
+  ArrowRight,
+  CheckCircle2,
   Eye,
   EyeOff,
-  Key,
-  RefreshCw,
-  Usb,
-  MessageSquare,
-  AlertCircle,
   HelpCircle,
-  PhoneCall,
-  CheckCircle2,
+  KeyRound,
+  Languages,
+  Lock,
+  Mail,
+  RefreshCw,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Store,
 } from "lucide-react";
 import { adminApi } from "@/lib/api/admin";
 
@@ -28,11 +30,35 @@ export default function SuperAdminLoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Recovery modal
   const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
   const [recoveryContact, setRecoveryContact] = useState("");
   const [recoveryChannel, setRecoveryChannel] = useState<"EMAIL" | "SMS">("EMAIL");
   const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
+
+  // Language state synced with portal
+  const [lang, setLang] = useState<"en" | "hi">("en");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("portal_language") as "en" | "hi" | null;
+    if (saved === "hi" || saved === "en") setLang(saved);
+
+    const onStorageChange = () => {
+      const current = localStorage.getItem("portal_language") as "en" | "hi" | null;
+      if (current === "hi" || current === "en") setLang(current);
+    };
+    window.addEventListener("portal-lang-changed", onStorageChange);
+    return () => window.removeEventListener("portal-lang-changed", onStorageChange);
+  }, []);
+
+  const toggleLanguage = () => {
+    const next = lang === "hi" ? "en" : "hi";
+    setLang(next);
+    localStorage.setItem("portal_language", next);
+    window.dispatchEvent(new Event("portal-lang-changed"));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,7 +93,9 @@ export default function SuperAdminLoginPage() {
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
         err?.response?.data?.non_field_errors?.[0] ||
-        "Invalid credentials or insufficient Super Admin privileges.";
+        (lang === "hi"
+          ? "अमान्य क्रेडेंशियल्स या सुपर एडमिन अनुमतियां अनुपलब्ध हैं।"
+          : "Invalid credentials or insufficient Super Admin privileges.");
       setErrorMessage(typeof detail === "string" ? detail : JSON.stringify(detail));
     } finally {
       setLoading(false);
@@ -83,12 +111,16 @@ export default function SuperAdminLoginPage() {
         channel: recoveryChannel,
         contact: recoveryContact.trim(),
       });
-      setRecoveryStatus("Recovery token dispatched. Check your security inbox/SMS.");
+      setRecoveryStatus(
+        lang === "hi"
+          ? "रिकवरी टोकन भेज दिया गया है। अपने इनबॉक्स या SMS की जांच करें।"
+          : "Recovery token dispatched. Check your security inbox or SMS."
+      );
     } catch (err: any) {
       const detail =
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
-        "Recovery request failed. Verify your registered identifier.";
+        (lang === "hi" ? "रिकवरी अनुरोध विफल रहा।" : "Recovery request failed. Verify your registered identifier.");
       setRecoveryStatus(`Error: ${detail}`);
     } finally {
       setRecoveryLoading(false);
@@ -96,287 +128,330 @@ export default function SuperAdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col font-sans relative overflow-x-hidden selection:bg-[#1F5D42] selection:text-white">
-      {/* Radial Ambient Glow */}
-      <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#1F5D42]/20 via-[#0F172A] to-[#060E20] z-0" />
+    <main className="grid min-h-screen bg-[#F6F0E6] lg:grid-cols-[1.05fr_.95fr] font-sans text-[#17251e]">
+      {/* Left Brand Showcase Section */}
+      <section className="relative hidden overflow-hidden bg-[#123324] px-14 py-12 text-white lg:flex lg:flex-col lg:justify-between xl:px-20 border-r border-[#1F5D42]/30">
+        {/* Ambient Ring Elements */}
+        <div className="absolute -right-28 top-20 h-[460px] w-[460px] rounded-full border border-white/10 pointer-events-none" />
+        <div className="absolute -right-12 top-36 h-[320px] w-[320px] rounded-full border border-white/10 pointer-events-none" />
+        <div className="absolute left-10 -bottom-24 h-[300px] w-[300px] rounded-full border border-white/5 pointer-events-none" />
 
-      {/* Top Security Status Header */}
-      <header className="w-full px-6 flex justify-between items-center border-b border-slate-800 bg-[#0B1326]/90 backdrop-blur-md sticky top-0 h-16 z-30 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-[#95D4B2] shadow-inner">
-            <Shield className="w-5 h-5 text-[#95D4B2]" />
+        {/* Brand Header */}
+        <div className="relative flex items-center gap-3.5 z-10">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#E8A33D] text-[#123324] font-bold shadow-md">
+            <Store size={22} />
           </div>
-          <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight text-white">DukaanQR Sovereign Portal</span>
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#95D4B2] animate-pulse" />
-              <span className="text-[10px] font-mono tracking-wider text-slate-400 uppercase">
-                Level-4 Cryptographic Auth Cluster
+          <div>
+            <p className="font-display text-2xl font-bold tracking-tight text-white leading-tight">
+              Dukandaar
+            </p>
+            <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[#a2b5a8]">
+              {lang === "hi" ? "सुपर एडमिन कंसोल" : "Super Admin Console"}
+            </p>
+          </div>
+        </div>
+
+        {/* Central Hero Pitch */}
+        <div className="relative max-w-lg z-10 my-auto py-8">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.08] px-3.5 py-1.5 text-xs text-[#dce7df] backdrop-blur-xs">
+            <span className="h-2 w-2 rounded-full bg-[#E8A33D] animate-pulse" />
+            <span>
+              {lang === "hi"
+                ? "प्लेटफॉर्म नेटवर्क गवर्नेंस व कंट्रोल"
+                : "Platform Network Governance & Control"}
+            </span>
+          </div>
+
+          <h1 className="text-4xl font-bold leading-[1.15] tracking-[-.03em] xl:text-[50px] font-display">
+            {lang === "hi" ? (
+              <>
+                केंद्रीय नियंत्रण <br />
+                समस्त <span className="text-[#E8A33D]">दुकानदार नेटवर्क</span> के लिए।
+              </>
+            ) : (
+              <>
+                Unified control for the <br />
+                <span className="text-[#E8A33D]">Dukandaar network.</span>
+              </>
+            )}
+          </h1>
+
+          <p className="mt-5 max-w-md text-sm leading-relaxed text-[#b9cac0]">
+            {lang === "hi"
+              ? "सभी मर्चेंट टैलेंट्स, मास्टर कैटलॉग क्युरेशन, प्रचार अभियान और लाइव सुरक्षा टेलीमेट्री का संपूर्ण प्रशासन।"
+              : "Enterprise governance across all retail tenants, master catalog curation, marketing campaigns, and real-time platform telemetry."}
+          </p>
+
+          {/* Value Highlights */}
+          <div className="mt-8 space-y-3 max-w-md">
+            <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
+              <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
+              <span>
+                {lang === "hi"
+                  ? "मल्टी-टेनेंट दुकान डायरेक्टरी और स्टेटस एक्टिवेशन"
+                  : "Multi-tenant shop directory & status activation"}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
+              <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
+              <span>
+                {lang === "hi"
+                  ? "यूनिवर्सल मास्टर कैटलॉग, JSON/Excel एक्सपोर्ट व बल्क इंपोर्ट"
+                  : "Universal Master Catalog, JSON/Excel bulk import & exports"}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
+              <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
+              <span>
+                {lang === "hi"
+                  ? "रोल-आधारित ऑथराइजेशन और ऑटोमेटेड सेशन सिक्योरिटी"
+                  : "Role-based token validation & emergency self-recovery"}
               </span>
             </div>
           </div>
+
+          {/* Security Tag */}
+          <div className="mt-10 flex items-center gap-3 border-t border-white/10 pt-6">
+            <div className="grid h-8 w-8 place-items-center rounded-xl bg-white/10 text-[#E8A33D]">
+              <Shield size={16} />
+            </div>
+            <p className="text-xs text-[#b4c3b9]">
+              {lang === "hi"
+                ? "256-बिट सुरक्षित एन्क्रिप्शन व सत्र अलगाव सक्रिय।"
+                : "Secured with JWT session validation & tenant isolation."}
+            </p>
+          </div>
         </div>
 
-        {/* Live Telemetry Badges */}
-        <div className="flex items-center gap-3">
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-800/80 border border-slate-700 rounded-full text-xs text-slate-200">
-            <ShieldCheck className="w-4 h-4 text-[#95D4B2]" />
-            <span>System Operational • Level 4 Auth Node</span>
-          </div>
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-[#1F5D42]/20 border border-[#1F5D42]/40 rounded-full text-xs text-[#95D4B2]">
-            <Usb className="w-3.5 h-3.5" />
-            <span>FIDO2 / WebAuthn Ready</span>
-          </div>
-          <button
-            onClick={() => setRecoveryModalOpen(true)}
-            className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-amber-500/50 text-amber-400 hover:bg-amber-500/10 transition-colors text-xs font-semibold"
-            type="button"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Emergency Recovery</span>
-          </button>
-        </div>
-      </header>
+        {/* Footer */}
+        <p className="relative text-[11px] text-[#81998b] z-10">
+          © 2026 Dukandaar · {lang === "hi" ? "प्लेटफॉर्म प्रशासन" : "Super Admin Console"}
+        </p>
+      </section>
 
-      {/* Main Authentication Canvas */}
-      <main className="flex-1 flex items-center justify-center px-4 py-12 relative z-10">
-        <div className="w-full max-w-lg mx-auto">
-          {/* Main Card */}
-          <div className="bg-[#171F33]/90 backdrop-blur-xl border border-slate-700/80 rounded-2xl shadow-2xl p-6 sm:p-8 relative">
-            {/* Top Border Accent Line */}
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-[#1F5D42] to-transparent rounded-t-2xl" />
+      {/* Right Form Section */}
+      <section className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-8">
+        <div className="w-full max-w-[430px]">
+          {/* Card Container */}
+          <div className="rounded-3xl border border-[#ddd6ca] bg-[#FFFDF8] p-6 sm:p-9 shadow-sm">
+            {/* Top Bar: Mobile Brand + Language Switcher */}
+            <div className="mb-6 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 lg:hidden">
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#E8A33D] text-[#123324] font-bold shadow-xs">
+                  <Store size={18} />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-base text-[#123324] leading-none">
+                    Dukandaar
+                  </p>
+                  <p className="text-[9px] uppercase tracking-wider text-[#6d756f] mt-0.5">
+                    Super Admin
+                  </p>
+                </div>
+              </div>
 
-            {/* Emblem & Titles */}
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#1F5D42]/20 border border-[#1F5D42]/50 text-[#95D4B2] mb-3 shadow-[0_0_24px_rgba(31,93,66,0.35)]">
-                <ShieldCheck className="w-8 h-8" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">Super Admin Portal</h1>
-              <p className="text-xs text-slate-400 mt-1">Enterprise Network Governance & Sovereign Key Access</p>
-              <div className="inline-flex items-center gap-1.5 mt-2.5 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] text-slate-300 font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#95D4B2] animate-ping" />
-                <span>ROOT INSTANCE: AP-SOUTH-IND-1</span>
-              </div>
+              {/* Language Switcher */}
+              <button
+                type="button"
+                onClick={toggleLanguage}
+                className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#ddd6ca] bg-white hover:bg-[#eee9df] text-xs font-semibold text-[#123324] transition shadow-2xs"
+                title="Switch Language / भाषा बदलें"
+              >
+                <Languages size={14} className="text-[#1F5D42]" />
+                <span>{lang === "hi" ? "English" : "हिंदी"}</span>
+              </button>
             </div>
 
-            {/* Error Banner */}
+            {/* Header Titles */}
+            <div className="mb-7">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#e7f2eb] border border-[#cbe1d5] text-[10px] font-bold text-[#1F5D42] tracking-wider uppercase mb-2">
+                <Sparkles size={11} className="text-[#E8A33D]" />
+                <span>{lang === "hi" ? "प्रशासनिक पहुंच" : "Administrative Access"}</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-bold font-display tracking-tight text-[#123324]">
+                {lang === "hi" ? "कंसोल में लॉगिन करें" : "Sign in to console"}
+              </h2>
+              <p className="mt-1.5 text-xs text-[#5e665f] leading-relaxed">
+                {lang === "hi"
+                  ? "सुपर एडमिन क्रेडेंशियल्स दर्ज करके प्लेटफॉर्म कंसोल खोलें।"
+                  : "Enter your Super Admin identifier and passphrase to access console."}
+              </p>
+            </div>
+
+            {/* Error Alert */}
             {errorMessage && (
-              <div className="mb-5 p-3 rounded-lg bg-red-950/60 border border-red-500/50 text-red-200 text-xs flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{errorMessage}</span>
+              <div
+                role="alert"
+                className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2.5 leading-relaxed"
+              >
+                <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
               </div>
             )}
 
-            {/* Login Form */}
+            {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Field 1: Identifier */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <label htmlFor="admin-identifier" className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <span>Administrative Identifier</span>
-                  </label>
-                  <span className="text-[10px] font-medium text-[#95D4B2] bg-[#1F5D42]/20 border border-[#1F5D42]/30 px-2 py-0.5 rounded">
-                    SSO / GovID Enabled
-                  </span>
-                </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Mail className="w-4 h-4" />
-                  </div>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-[#123324]">
+                  {lang === "hi" ? "एडमिनिस्ट्रेटिव पहचानकर्ता" : "Administrative identifier"}
+                </span>
+                <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
+                  <Mail size={16} className="text-[#6d756f] shrink-0" />
                   <input
-                    id="admin-identifier"
                     type="text"
                     required
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="admin@dukaanqr.internal or +91 98XXX XXXXX"
-                    className="w-full h-11 pl-10 pr-4 bg-[#0F172A] border border-slate-700 text-white placeholder:text-slate-500 rounded-lg text-xs focus:border-[#95D4B2] focus:ring-1 focus:ring-[#95D4B2] focus:outline-none transition-all"
+                    placeholder="admin or admin@dukandaar.internal"
+                    className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
-                </div>
-              </div>
+                </span>
+              </label>
 
-              {/* Field 2: Passphrase */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <label htmlFor="admin-passphrase" className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <span>Master Passphrase</span>
-                  </label>
-                  <span className="text-[10px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
-                    HSM Backed
+              {/* Field 2: Password */}
+              <label className="block">
+                <div className="mb-1.5 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-[#123324]">
+                    {lang === "hi" ? "मास्टर पासफ़्रेज़" : "Passphrase"}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setRecoveryModalOpen(true)}
+                    className="text-[#1F5D42] hover:text-[#123324] font-medium hover:underline text-[11px]"
+                  >
+                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot passphrase?"}
+                  </button>
                 </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Lock className="w-4 h-4" />
-                  </div>
+                <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
+                  <Lock size={16} className="text-[#6d756f] shrink-0" />
                   <input
-                    id="admin-passphrase"
                     type={showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter master passphrase"
-                    className="w-full h-11 pl-10 pr-10 bg-[#0F172A] border border-slate-700 text-white placeholder:text-slate-500 rounded-lg text-xs focus:border-[#95D4B2] focus:ring-1 focus:ring-[#95D4B2] focus:outline-none transition-all"
+                    placeholder={lang === "hi" ? "मास्टर पासवर्ड दर्ज करें" : "Enter master passphrase"}
+                    className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
                   <button
                     type="button"
+                    className="text-[#6d756f] hover:text-[#123324] p-1"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
-                </div>
-              </div>
+                </span>
+              </label>
 
-              {/* Field 3: Remember Me & Recovery Link */}
+              {/* Remember Workstation Checkbox */}
               <div className="flex items-center justify-between text-xs pt-1">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-[#5e665f]">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded bg-[#0F172A] border-slate-700 text-[#1F5D42] focus:ring-[#1F5D42]"
+                    className="w-4 h-4 rounded border-[#ddd6ca] text-[#1F5D42] focus:ring-[#1F5D42]"
                   />
-                  <span>Remember workstation for 30 days</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setRecoveryModalOpen(true)}
-                  className="text-[#95D4B2] hover:underline text-xs"
-                >
-                  Forgot Passphrase?
-                </button>
-              </div>
-
-              {/* Field 4: Submit Button */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full h-11 bg-[#1F5D42] hover:bg-[#277553] disabled:opacity-60 text-white font-semibold rounded-lg flex items-center justify-center gap-2 transition-all shadow-[0_0_16px_rgba(31,93,66,0.35)] text-sm cursor-pointer"
-                >
-                  {loading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Authenticating Sovereign Node...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Key className="w-4 h-4" />
-                      <span>Authenticate Sovereign Node</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Step-Up Divider */}
-              <div className="relative py-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-800" />
-                </div>
-                <div className="relative flex justify-center text-[10px] tracking-wider uppercase">
-                  <span className="bg-[#171F33] px-2 text-slate-500">Or Step-Up Validation</span>
-                </div>
-              </div>
-
-              {/* Secondary Gateways */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => alert("Hardware Security Key: Insert YubiKey and touch sensor when prompted.")}
-                  className="h-9 px-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-lg flex items-center justify-center gap-2 text-xs transition-colors"
-                >
-                  <Usb className="w-3.5 h-3.5 text-[#95D4B2]" />
-                  <span className="truncate">YubiKey FIDO2</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRecoveryModalOpen(true)}
-                  className="h-9 px-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-slate-300 rounded-lg flex items-center justify-center gap-2 text-xs transition-colors"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="truncate">WhatsApp OTP Escrow</span>
-                </button>
-              </div>
-
-              {/* Field 5: Security Assurance Block */}
-              <div className="mt-5 pt-3.5 border-t border-slate-800 space-y-2 bg-[#0F172A]/80 rounded-lg p-3 text-xs">
-                <div className="flex items-center justify-between text-slate-400">
-                  <div className="flex items-center gap-1.5 text-[#95D4B2] font-semibold text-[11px]">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>256-BIT AES ENCRYPTION</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">
-                      TLS 1.3
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded bg-[#1F5D42]/20 border border-[#1F5D42]/30 text-[#95D4B2]">
-                      SOC2 TYPE II
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1 border-t border-slate-800">
-                  <span>Current Session: BLR-DC-04 | 103.21.244.0/24</span>
-                  <span className="text-[#95D4B2] flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#95D4B2]" />
-                    Geo-Guard: IN-KA
+                  <span>
+                    {lang === "hi" ? "30 दिनों के लिए याद रखें" : "Remember workstation for 30 days"}
                   </span>
-                </div>
+                </label>
               </div>
-            </form>
-          </div>
 
-          {/* Footer Contacts */}
-          <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-slate-400 text-xs px-2">
-            <div className="flex items-center gap-1.5">
-              <PhoneCall className="w-3.5 h-3.5 text-slate-500" />
-              <span>DukaanQR Network SOC: +91 80 4900 2000</span>
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1F5D42] text-sm font-semibold text-white shadow-xs transition hover:bg-[#164732] active:scale-[0.99] disabled:opacity-60 cursor-pointer mt-2"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>
+                      {lang === "hi" ? "सत्यापन हो रहा है…" : "Authenticating Super Admin…"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span>
+                      {lang === "hi" ? "एडमिन कंसोल में प्रवेश करें" : "Access Admin Console"}
+                    </span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Portal Switcher & Footer */}
+            <div className="mt-7 pt-5 border-t border-[#eee9df] text-center space-y-2.5">
+              <p className="text-xs text-[#5e665f]">
+                {lang === "hi" ? "दुकानदार / मर्चेंट पोर्टल चाहिए?" : "Looking for Merchant Portal?"}{" "}
+                <Link
+                  href="/merchant/login"
+                  className="font-semibold text-[#1F5D42] hover:underline"
+                >
+                  {lang === "hi" ? "मर्चेंट लॉगिन करें" : "Sign in to Shop"}
+                </Link>
+              </p>
+              <button
+                type="button"
+                onClick={() => setRecoveryModalOpen(true)}
+                className="inline-flex items-center gap-1.5 text-xs text-[#E8A33D] hover:underline font-medium"
+              >
+                <HelpCircle size={13} />
+                <span>
+                  {lang === "hi" ? "आपातकालीन सुरक्षा रिकवरी" : "Emergency Access Recovery"}
+                </span>
+              </button>
             </div>
-            <button
-              onClick={() => setRecoveryModalOpen(true)}
-              className="text-amber-400 hover:underline flex items-center gap-1"
-            >
-              <span>Emergency Access Recovery</span>
-            </button>
           </div>
         </div>
-      </main>
+      </section>
 
-      {/* Emergency Recovery Modal */}
+      {/* Emergency Self-Recovery Modal */}
       {recoveryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-[#171F33] border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-700">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-amber-400" />
-                <h2 className="text-base font-bold text-white">Emergency Self-Recovery</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-3.5 border-b border-[#eee9df]">
+              <div className="flex items-center gap-2.5">
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-[#E8A33D]/20 text-[#E8A33D]">
+                  <KeyRound size={16} />
+                </div>
+                <h2 className="text-base font-bold text-[#123324] font-display">
+                  {lang === "hi" ? "आपातकालीन स्व-रिकवरी" : "Emergency Self-Recovery"}
+                </h2>
               </div>
               <button
                 onClick={() => {
                   setRecoveryModalOpen(false);
                   setRecoveryStatus(null);
                 }}
-                className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded"
+                className="text-[#6d756f] hover:text-[#123324] text-sm px-2 py-1 rounded-lg"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSelfRecovery} className="mt-4 space-y-3">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Dispatch an out-of-band one-time verification challenge via registered administrator email or phone.
+            <form onSubmit={handleSelfRecovery} className="mt-4 space-y-3.5">
+              <p className="text-xs text-[#5e665f] leading-relaxed">
+                {lang === "hi"
+                  ? "पंजीकृत एडमिनिस्ट्रेटर ईमेल या फोन पर एक बार का सुरक्षा टोकन (OTP) भेजें।"
+                  : "Dispatch an out-of-band one-time verification challenge via registered administrator email or phone."}
               </p>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Channel</label>
+                <label className="block text-xs font-semibold text-[#123324] mb-1.5">
+                  {lang === "hi" ? "माध्यम चुनें" : "Channel"}
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setRecoveryChannel("EMAIL")}
-                    className={`py-1.5 text-xs rounded border ${
+                    className={`py-2 text-xs font-semibold rounded-xl border transition ${
                       recoveryChannel === "EMAIL"
-                        ? "bg-[#1F5D42] border-[#95D4B2] text-white"
-                        : "bg-slate-800 border-slate-700 text-slate-400"
+                        ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
+                        : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
                     }`}
                   >
                     Email OTP
@@ -384,82 +459,70 @@ export default function SuperAdminLoginPage() {
                   <button
                     type="button"
                     onClick={() => setRecoveryChannel("SMS")}
-                    className={`py-1.5 text-xs rounded border ${
+                    className={`py-2 text-xs font-semibold rounded-xl border transition ${
                       recoveryChannel === "SMS"
-                        ? "bg-[#1F5D42] border-[#95D4B2] text-white"
-                        : "bg-slate-800 border-slate-700 text-slate-400"
+                        ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
+                        : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
                     }`}
                   >
-                    SMS / WhatsApp OTP
+                    SMS / WhatsApp
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Registered Contact (Email or Mobile)
+                <label className="block text-xs font-semibold text-[#123324] mb-1.5">
+                  {lang === "hi" ? "पंजीकृत ईमेल या मोबाइल नंबर" : "Registered Contact (Email or Mobile)"}
                 </label>
                 <input
                   type="text"
                   required
                   value={recoveryContact}
                   onChange={(e) => setRecoveryContact(e.target.value)}
-                  placeholder="admin@platform.com or +919876543210"
-                  className="w-full h-10 px-3 bg-[#0F172A] border border-slate-700 rounded text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-[#95D4B2]"
+                  placeholder="admin@platform.com or +91 98765 43210"
+                  className="w-full h-11 px-3.5 bg-white border border-[#ddd6ca] rounded-xl text-xs text-[#123324] placeholder:text-[#a5ada7] focus:outline-none focus:border-[#1F5D42] focus:ring-2 focus:ring-[#1F5D42]/10"
                 />
               </div>
 
               {recoveryStatus && (
                 <div
-                  className={`p-2.5 rounded text-xs ${
+                  className={`p-3 rounded-xl text-xs leading-relaxed ${
                     recoveryStatus.startsWith("Error")
-                      ? "bg-red-950/60 border border-red-500/50 text-red-300"
-                      : "bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 flex items-center gap-2"
+                      ? "bg-red-50 border border-red-200 text-red-700"
+                      : "bg-[#e7f2eb] border border-[#cbe1d5] text-[#1F5D42] flex items-center gap-2"
                   }`}
                 >
-                  {!recoveryStatus.startsWith("Error") && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                  {!recoveryStatus.startsWith("Error") && (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-[#1F5D42]" />
+                  )}
                   <span>{recoveryStatus}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setRecoveryModalOpen(false);
                     setRecoveryStatus(null);
                   }}
-                  className="px-3 py-1.5 rounded border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs"
+                  className="px-3.5 py-2 rounded-xl border border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df] text-xs font-semibold"
                 >
-                  Cancel
+                  {lang === "hi" ? "रद्द करें" : "Cancel"}
                 </button>
                 <button
                   type="submit"
                   disabled={recoveryLoading}
-                  className="px-4 py-1.5 bg-[#1F5D42] hover:bg-[#277553] text-white font-semibold rounded text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  className="px-4 py-2 bg-[#1F5D42] hover:bg-[#164732] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60 shadow-xs"
                 >
-                  {recoveryLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
-                  <span>Dispatch OTP</span>
+                  {recoveryLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{lang === "hi" ? "OTP भेजें" : "Dispatch OTP"}</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* Footer */}
-      <footer className="w-full px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-3 border-t border-slate-800 bg-[#060E20] text-slate-400 text-xs relative z-20">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-white tracking-tight">DukaanQR</span>
-          <span>|</span>
-          <span>© 2025 DukaanQR Enterprise Infrastructure. 256-bit AES Cryptographic Security Layer Active.</span>
-        </div>
-        <div className="flex items-center gap-4 text-[11px]">
-          <span className="text-slate-500 hover:text-slate-300 cursor-pointer">Hardware Token Support</span>
-          <span className="text-slate-500 hover:text-slate-300 cursor-pointer">Security Audit Log</span>
-          <span className="text-slate-500 hover:text-slate-300 cursor-pointer">Privacy & Sovereign Guard</span>
-        </div>
-      </footer>
-    </div>
+    </main>
   );
 }

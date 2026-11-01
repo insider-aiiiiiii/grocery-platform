@@ -62,16 +62,24 @@ def database_settings(env=None, base_dir=None):
     """Return a PostgreSQL configuration for deployments or SQLite locally."""
     env = os.environ if env is None else env
     base_dir = Path(base_dir or Path(__file__).resolve().parents[1])
-    database_url = env.get("DATABASE_URL")
-    if database_url:
-        return {"default": _postgres_from_url(database_url)}
-
     is_production = (
         bool(env.get("VERCEL"))
         or env.get("DJANGO_ENV", "").lower() == "production"
         or env.get("DJANGO_DEBUG", "true").lower() in {"false", "0", "no"}
     )
     use_sqlite = env.get("USE_SQLITE", "").lower() in _TRUE_VALUES
+
+    if use_sqlite and not is_production:
+        return {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": base_dir / "db.sqlite3",
+            }
+        }
+
+    database_url = env.get("DATABASE_URL")
+    if database_url:
+        return {"default": _postgres_from_url(database_url)}
 
     if env.get("POSTGRES_DB") and not (use_sqlite and not is_production):
         return {"default": _postgres_from_fields(env)}

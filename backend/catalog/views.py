@@ -1,8 +1,10 @@
+from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -192,6 +194,7 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
 
     serializer_class = ShopProductSerializer
     permission_classes = [IsAuthenticated, IsActiveMerchant]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
@@ -271,6 +274,108 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(shop=self._shop)
+
+    @action(detail=False, methods=["get"], url_path="master-catalog")
+    def master_catalog(self, request):
+        """
+        List active platform Master Products with status indicating whether
+        the item is already added to this Merchant's shop catalog (✓ Tick / ✗ Cross).
+        """
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        shop = self._shop
+
+        master_products = MasterProduct.objects.filter(is_active=True).select_related("category").order_by("name", "id")
+
+        # Map of master_product_id -> ShopProduct for this shop
+        shop_products_map = {
+            sp.master_product_id: sp
+            for sp in ShopProduct.objects.filter(shop=shop, master_product__isnull=False)
+        }
+
+        results = []
+        for mp in master_products:
+            sp = shop_products_map.get(mp.id)
+            image_url = None
+            if mp.image:
+                try:
+                    image_url = request.build_absolute_uri(mp.image.url)
+                except Exception:
+                    image_url = str(mp.image)
+            results.append({
+                "id": mp.id,
+                "name": mp.name,
+                "description": mp.description,
+                "brand": mp.brand,
+                "category": mp.category_id,
+                "category_name": mp.category.name if mp.category else None,
+                "image": image_url,
+                "is_in_shop": sp is not None,
+                "shop_product_id": sp.id if sp else None,
+                "shop_product_price": str(sp.price) if sp and sp.price is not None else None,
+                "is_available": sp.is_available if sp else False,
+            })
+
+        return Response(results)
+
+    @action(detail=False, methods=["post"], url_path="toggle-master")
+    def toggle_master_product(self, request):
+        """
+        Toggle a master product into/out of the merchant's shop catalog.
+        Payload: { "master_product_id": <int>, "selected": <bool>, "price": <str> }
+        """
+        if getattr(self, "_shop_error", None):
+            return self._shop_error
+        shop = self._shop
+
+        master_product_id = request.data.get("master_product_id")
+        if not master_product_id:
+            return Response({"detail": "master_product_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        master_product = get_object_or_404(MasterProduct, id=master_product_id)
+        existing = ShopProduct.objects.filter(shop=shop, master_product=master_product).first()
+
+        if "selected" in request.data:
+            selected = bool(request.data.get("selected"))
+        else:
+            selected = existing is None
+
+        if selected:
+            if not existing:
+                raw_price = request.data.get("price", "0.00") or "0.00"
+                try:
+                    price_val = Decimal(str(raw_price))
+                except Exception:
+                    price_val = Decimal("0.00")
+
+                existing = ShopProduct.objects.create(
+                    shop=shop,
+                    master_product=master_product,
+                    name=master_product.name,
+                    brand=master_product.brand,
+                    description=master_product.description,
+                    image=master_product.image,
+                    price=price_val,
+                    is_visible=True,
+                    is_available=True,
+                )
+            return Response({
+                "status": "added",
+                "added": True,
+                "master_product_id": master_product.id,
+                "shop_product_id": existing.id,
+                "is_in_shop": True,
+            })
+        else:
+            if existing:
+                existing.delete()
+            return Response({
+                "status": "removed",
+                "added": False,
+                "master_product_id": master_product.id,
+                "shop_product_id": None,
+                "is_in_shop": False,
+            })
 
 
 class MerchantShopCategoryViewSet(viewsets.ModelViewSet):
