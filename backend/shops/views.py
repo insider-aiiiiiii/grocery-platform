@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -70,6 +71,7 @@ class MerchantShopDetailView(APIView):
     """API endpoint allowing an authenticated Merchant to retrieve or update their own Shop profile."""
 
     permission_classes = [IsAuthenticated, IsActiveMerchant]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         return merchant_shop_response(request.user)

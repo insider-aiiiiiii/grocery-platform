@@ -4,11 +4,13 @@ export type Shop = {
   id: number;
   name: string;
   description: string;
+  logo?: string | null;
   address_line: string;
   area: string;
   city: string;
   state: string;
   pincode: string;
+  google_maps_url?: string;
   contact_number: string;
   status: string;
   is_temporarily_closed: boolean;
@@ -63,6 +65,8 @@ export type Product = {
   brand: string;
   price: string;
   sku: string;
+  image?: string | null;
+  images?: string[];
   is_visible: boolean;
   is_available: boolean;
   has_variants: boolean;
@@ -133,14 +137,27 @@ export const merchantApi = {
   },
   shop: async () => (await merchantClient.get<Shop>("/shops/me/")).data,
   createShop: async (payload: ShopPayload) => (await merchantClient.post<Shop>("/shops/", payload)).data,
-  updateShop: async (payload: Partial<ShopPayload>) => (await merchantClient.patch<Shop>("/shops/me/", payload)).data,
+  updateShop: async (payload: Partial<ShopPayload> | FormData) => {
+    if (typeof window !== "undefined" && payload instanceof FormData) {
+      return (await merchantClient.patch<Shop>("/shops/me/", payload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })).data;
+    }
+    return (await merchantClient.patch<Shop>("/shops/me/", payload)).data;
+  },
   orders: async () => (await merchantClient.get<MerchantOrder[]>("/orders/")).data,
   order: async (id: number) => (await merchantClient.get<MerchantOrder>(`/orders/${id}/`)).data,
   orderAction: async (id: number, action: string, payload: Record<string, unknown> = {}) =>
     (await merchantClient.post(`/orders/${id}/${action}/`, payload)).data,
   products: async () => (await merchantClient.get<Product[]>("/shops/me/products/")).data,
-  createProduct: async (payload: Partial<Product> & { name: string }) =>
-    (await merchantClient.post<Product>("/shops/me/products/", payload)).data,
+  createProduct: async (payload: (Partial<Product> & { name: string }) | FormData) => {
+    if (typeof window !== "undefined" && payload instanceof FormData) {
+      return (await merchantClient.post<Product>("/shops/me/products/", payload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      })).data;
+    }
+    return (await merchantClient.post<Product>("/shops/me/products/", payload)).data;
+  },
   updateProduct: async (id: number, payload: Partial<Product>) =>
     (await merchantClient.patch<Product>(`/shops/me/products/${id}/`, payload)).data,
   deleteProduct: async (id: number) => merchantClient.delete(`/shops/me/products/${id}/`),
@@ -151,6 +168,27 @@ export const merchantApi = {
   customers: async () => (await merchantClient.get<Customer[]>("/shops/me/customers/")).data,
   analytics: async (period = "today") =>
     (await merchantClient.get<Overview>("/shops/me/analytics/", { params: { period } })).data,
+  getMasterCatalog: async () =>
+    (await merchantClient.get<Array<{
+      id: number;
+      name: string;
+      description: string;
+      brand: string;
+      category: number | null;
+      category_name: string | null;
+      image: string | null;
+      is_in_shop: boolean;
+      shop_product_id: number | null;
+      shop_product_price: string | null;
+      is_available: boolean;
+    }>>("/catalog/products/master-catalog/")).data,
+  toggleMasterProduct: async (master_product_id: number, selected: boolean, price?: string) =>
+    (await merchantClient.post<{
+      status: string;
+      master_product_id: number;
+      shop_product_id?: number;
+      is_in_shop: boolean;
+    }>("/catalog/products/toggle-master/", { master_product_id, selected, price })).data,
 };
 
 export function getApiError(error: unknown) {

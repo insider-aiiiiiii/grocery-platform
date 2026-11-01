@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Navbar } from "@/components/admin/Navbar";
 import { Sidebar } from "@/components/admin/Sidebar";
 import { MetricCard } from "@/components/admin/MetricCard";
 import { OnboardMerchantModal } from "@/components/admin/OnboardMerchantModal";
@@ -27,12 +26,15 @@ import {
   CloudUpload,
   UserPlus,
   Users,
+  Menu,
+  Languages,
 } from "lucide-react";
 import { adminApi, PlatformAnalytics, MasterProduct } from "@/lib/api/admin";
 
 export default function SuperAdminDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("overview");
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [isPromoteOpen, setIsPromoteOpen] = useState(false);
@@ -54,6 +56,19 @@ export default function SuperAdminDashboard() {
 
   // Admin username detection
   const [adminUsername, setAdminUsername] = useState<string>("Super Admin");
+  const [lang, setLang] = useState<"en" | "hi">("en");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("portal_language") as "en" | "hi" | null;
+    if (saved === "hi" || saved === "en") setLang(saved);
+
+    const onStorageChange = () => {
+      const current = localStorage.getItem("portal_language") as "en" | "hi" | null;
+      if (current === "hi" || current === "en") setLang(current);
+    };
+    window.addEventListener("portal-lang-changed", onStorageChange);
+    return () => window.removeEventListener("portal-lang-changed", onStorageChange);
+  }, []);
 
   useEffect(() => {
     const explicitUsername = localStorage.getItem("admin_username");
@@ -117,6 +132,13 @@ export default function SuperAdminDashboard() {
     if (start && end) {
       refreshAnalytics("custom", selectedShopId, start, end);
     }
+  };
+
+  const toggleLanguage = () => {
+    const next = lang === "hi" ? "en" : "hi";
+    setLang(next);
+    localStorage.setItem("portal_language", next);
+    window.dispatchEvent(new Event("portal-lang-changed"));
   };
 
   const loadData = async () => {
@@ -185,9 +207,7 @@ export default function SuperAdminDashboard() {
     : "Avg Order ₹0";
 
   return (
-    <div className="bg-slate-50 min-h-screen text-slate-900 font-sans antialiased">
-      {/* Top Navbar */}
-      <Navbar />
+    <div className="bg-[#F6F0E6] min-h-screen text-[#17251e] font-sans antialiased">
 
       {/* Sidebar Navigation */}
       <Sidebar
@@ -196,26 +216,73 @@ export default function SuperAdminDashboard() {
         merchantCount={merchants.length}
         catalogCount={masterProducts.length}
         campaignCount={campaigns.length}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
       />
 
       {/* Main Content Viewport */}
-      <main className="ml-64 mt-14 p-6 min-h-[calc(100vh-3.5rem)]">
-        <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header Title Section */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 bg-white p-5 rounded-lg border shadow-sm">
+      <div className="lg:pl-[240px] flex flex-col min-h-screen">
+        {/* Top Global Navbar (Matching Merchant Portal Header) */}
+        <header className="sticky top-0 z-30 flex h-[70px] items-center justify-between border-b border-[#ddd6ca] bg-white/80 px-4 backdrop-blur md:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-lg p-2 text-[#5e665f] hover:bg-[#eee9df] lg:hidden"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div>
+              <h2 className="font-display font-bold text-lg md:text-xl text-[#123324] leading-tight">
+                Dukandaar Super Admin Console
+              </h2>
+              <p className="text-[11px] text-[#6d756f]">
+                {lang === "hi" ? "प्लेटफॉर्म नेटवर्क • सभी दुकानदार" : "Platform Network • All Tenants"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {/* Language Switcher */}
+            <button
+              onClick={toggleLanguage}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#ddd6ca] bg-white hover:bg-[#eee9df] text-xs font-semibold text-[#123324] transition shadow-2xs"
+              title="Switch Language / भाषा बदलें"
+            >
+              <Languages size={14} className="text-[#1F5D42]" />
+              <span>{lang === "hi" ? "English" : "हिंदी"}</span>
+            </button>
+
+            <div className="flex items-center gap-2 pl-2 border-l border-[#ddd6ca]">
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-[#1F5D42] text-xs font-bold text-white shadow-xs">
+                {adminUsername.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="hidden sm:block text-left">
+                <p className="text-xs font-bold text-[#123324] leading-none">{adminUsername}</p>
+                <p className="text-[10px] text-[#6d756f] mt-0.5">{lang === "hi" ? "सुपर एडमिन" : "Super Admin"}</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 p-3.5 sm:p-6 min-h-screen">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {/* Header Title Section */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#ddd6ca] bg-[#FFFDF8] p-4 sm:p-5 rounded-2xl border shadow-xs">
             <div>
               <div className="flex items-center gap-2.5">
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-                  Platform Governance Matrix
+                <h1 className="text-xl font-bold font-display text-[#123324] tracking-tight">
+                  {lang === "hi" ? "प्लेटफॉर्म गवर्नेंस मैट्रिक्स" : "Platform Governance Matrix"}
                 </h1>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#1F5D42]/10 text-[#1F5D42] tracking-wider uppercase">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
                   {activeTab}
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                <p className="text-xs text-slate-600">
-                  Logged in as <strong className="text-slate-900 font-semibold">{adminUsername}</strong> (Super Admin)
+                <p className="text-xs text-[#6d756f]">
+                  {lang === "hi" ? "लॉगिन किया गया: " : "Logged in as "}
+                  <strong className="text-[#123324] font-semibold">{adminUsername}</strong> ({lang === "hi" ? "सुपर एडमिन" : "Super Admin"})
                 </p>
               </div>
             </div>
@@ -223,24 +290,24 @@ export default function SuperAdminDashboard() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsSecurityOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white text-slate-700 text-xs font-semibold rounded hover:bg-slate-50 transition-all shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#ddd6ca] bg-white text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#FAF8F3] transition-all shadow-2xs"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                Security & Recovery
+                <span>{lang === "hi" ? "सुरक्षा एवं रिकवरी" : "Security & Recovery"}</span>
               </button>
               <button
                 onClick={() => setIsPromoteOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-semibold rounded hover:bg-emerald-100 transition-all shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#cbe1d5] bg-[#e7f2eb] text-[#1F5D42] text-xs font-semibold rounded-xl hover:bg-[#d8eadd] transition-all shadow-2xs"
               >
-                <CloudUpload className="w-3.5 h-3.5 text-emerald-700" />
-                Promote Merchant SKU
+                <CloudUpload className="w-3.5 h-3.5 text-[#1F5D42]" />
+                <span>{lang === "hi" ? "मर्चेंट SKU प्रमोट करें" : "Promote Merchant SKU"}</span>
               </button>
               <button
                 onClick={() => setIsOnboardOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] shadow-sm transition-all"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Onboard New Merchant</span>
+                <span>{lang === "hi" ? "+ नया दुकानदार जोड़ें" : "+ Onboard New Merchant"}</span>
               </button>
             </div>
           </div>
@@ -588,6 +655,7 @@ export default function SuperAdminDashboard() {
           )}
         </div>
       </main>
+    </div>
 
       {/* Product Promotion Moderation Modal */}
       <ProductPromotionModal

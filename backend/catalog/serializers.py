@@ -361,6 +361,13 @@ class ShopProductSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, "copy") else dict(data)
+        if "image" in data and isinstance(data["image"], str):
+            if not data["image"] or data["image"].startswith("http") or data["image"].startswith("/"):
+                data.pop("image")
+        return super().to_internal_value(data)
+
     def validate(self, attrs):
         shop = self.context.get("shop")
         master_product = attrs.get("master_product")

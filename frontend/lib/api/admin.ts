@@ -89,10 +89,13 @@ export interface ProvisionMerchantResponse {
 export interface MasterProduct {
   id: number;
   name: string;
-  category: number | string;
+  category?: number | string | null;
   category_name?: string;
-  brand: string;
-  description: string;
+  brand?: string;
+  description?: string;
+  image?: string;
+  images?: string[];
+  is_active?: boolean;
   is_verified?: boolean;
 }
 
@@ -180,6 +183,20 @@ export const adminApi = {
 
   createMasterProduct: async (payload: Omit<MasterProduct, "id">, token?: string) => {
     const res = await apiClient.post<MasterProduct>("/catalog/master-products/", payload, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  updateMasterProduct: async (id: number, payload: Partial<MasterProduct>, token?: string) => {
+    const res = await apiClient.patch<MasterProduct>(`/catalog/master-products/${id}/`, payload, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  deleteMasterProduct: async (id: number, token?: string) => {
+    const res = await apiClient.delete(`/catalog/master-products/${id}/`, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;

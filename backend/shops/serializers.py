@@ -22,6 +22,7 @@ class ShopSerializer(serializers.ModelSerializer):
             "city",
             "state",
             "pincode",
+            "google_maps_url",
             "contact_number",
             "status",
             "is_temporarily_closed",
@@ -73,6 +74,7 @@ class PublicShopSerializer(serializers.ModelSerializer):
             "city",
             "state",
             "pincode",
+            "google_maps_url",
             "contact_number",
             "is_temporarily_closed",
             "opening_time",
@@ -107,6 +109,7 @@ class ShopCreateSerializer(serializers.ModelSerializer):
             "city",
             "state",
             "pincode",
+            "google_maps_url",
             "contact_number",
             "status",
             "is_temporarily_closed",
@@ -176,6 +179,7 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
             "city",
             "state",
             "pincode",
+            "google_maps_url",
             "contact_number",
             "status",
             "is_temporarily_closed",
@@ -206,6 +210,13 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
             "state": {"required": False, "allow_blank": False},
             "pincode": {"required": False, "allow_blank": False},
         }
+
+    def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, "copy") else dict(data)
+        if "logo" in data and isinstance(data["logo"], str):
+            if not data["logo"] or data["logo"].startswith("http") or data["logo"].startswith("/"):
+                data.pop("logo")
+        return super().to_internal_value(data)
 
     def validate_delivery_charge(self, value):
         if value < 0:

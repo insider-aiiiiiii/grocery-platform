@@ -15,18 +15,19 @@ import {
   ShoppingBag,
   Store,
   UsersRound,
+  Languages,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { merchantApi } from "@/lib/api/merchant";
 
 const links = [
-  { href: "/merchant", label: "My QR", icon: QrCode },
-  { href: "/merchant/inventory", label: "Inventory", icon: Boxes },
-  { href: "/merchant/orders", label: "Orders", icon: ClipboardList },
-  { href: "/merchant/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/merchant/catalog", label: "Products", icon: ShoppingBag },
-  { href: "/merchant/customers", label: "Customers", icon: UsersRound },
-  { href: "/merchant/settings", label: "Shop settings", icon: Settings2 },
+  { href: "/merchant", labelEn: "My QR", labelHi: "मेरा QR", icon: QrCode },
+  { href: "/merchant/inventory", labelEn: "Inventory", labelHi: "स्टॉक व बैच", icon: Boxes },
+  { href: "/merchant/orders", labelEn: "Orders", labelHi: "दुकान ऑर्डर्स", icon: ClipboardList },
+  { href: "/merchant/analytics", labelEn: "Analytics", labelHi: "बिक्री रिपोर्ट", icon: BarChart3 },
+  { href: "/merchant/catalog", labelEn: "Products", labelHi: "कैटलॉग प्रोडक्ट्स", icon: ShoppingBag },
+  { href: "/merchant/customers", labelEn: "Customers", labelHi: "ग्राहक लिस्ट", icon: UsersRound },
+  { href: "/merchant/settings", labelEn: "Shop settings", labelHi: "दुकान सेटिंग्स", icon: Settings2 },
 ];
 
 const subscribeToHydration = () => () => {};
@@ -37,6 +38,27 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [lang, setLang] = useState<"en" | "hi">("en");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("portal_language") as "en" | "hi" | null;
+    if (saved === "hi" || saved === "en") setLang(saved);
+
+    const onStorageChange = () => {
+      const current = localStorage.getItem("portal_language") as "en" | "hi" | null;
+      if (current === "hi" || current === "en") setLang(current);
+    };
+    window.addEventListener("portal-lang-changed", onStorageChange);
+    return () => window.removeEventListener("portal-lang-changed", onStorageChange);
+  }, []);
+
+  const toggleLanguage = () => {
+    const next = lang === "hi" ? "en" : "hi";
+    setLang(next);
+    localStorage.setItem("portal_language", next);
+    window.dispatchEvent(new Event("portal-lang-changed"));
+  };
+
   const ready = useSyncExternalStore(subscribeToHydration, getHydratedSnapshot, getServerSnapshot);
   const shopQuery = useQuery({
     queryKey: ["merchant", "shop"],
@@ -121,10 +143,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       {/* Navigation */}
       <div className="px-4 pt-6">
         <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d9688]">
-          Navigation
+          {lang === "hi" ? "नेविगेशन" : "Navigation"}
         </p>
         <nav className="space-y-1" aria-label="Merchant navigation">
-          {links.map(({ href, label, icon: Icon }) => {
+          {links.map(({ href, labelEn, labelHi, icon: Icon }) => {
             const active =
               href === "/merchant"
                 ? pathname === "/merchant"
@@ -141,14 +163,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <Icon size={16} strokeWidth={active ? 2.4 : 1.8} className={active ? "text-[#E8A33D]" : ""} />
-                <span>{label}</span>
-                {label === "Orders" && (
+                <span>{lang === "hi" ? labelHi : labelEn}</span>
+                {labelEn === "Orders" && (
                   <span
                     className={`ml-auto rounded-full px-2 py-0.5 text-[10px] ${
                       active ? "bg-[#123324] text-[#E8A33D]" : "bg-white/10 text-[#dce6df]"
                     }`}
                   >
-                    Live
+                    {lang === "hi" ? "लाइव" : "Live"}
                   </span>
                 )}
               </Link>
@@ -232,14 +254,24 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* Language Switcher */}
+            <button
+              onClick={toggleLanguage}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#ddd6ca] bg-white hover:bg-[#eee9df] text-xs font-semibold text-[#123324] transition shadow-2xs"
+              title="Switch Language / भाषा बदलें"
+            >
+              <Languages size={14} className="text-[#1F5D42]" />
+              <span>{lang === "hi" ? "English" : "हिंदी"}</span>
+            </button>
+
             {shop?.public_slug && (
               <Link
                 href={`/shop/${shop.public_slug}`}
                 target="_blank"
                 className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#E8A33D] hover:bg-[#d6902b] text-[#123324] font-bold text-xs shadow-xs transition"
               >
-                <span>View My Store</span>
+                <span>{lang === "hi" ? "ग्राहक स्टोर खोलें" : "View My Store"}</span>
                 <ExternalLink size={12} />
               </Link>
             )}
