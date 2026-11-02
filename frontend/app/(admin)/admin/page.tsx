@@ -268,352 +268,151 @@ export default function SuperAdminDashboard() {
         <main className="flex-1 p-3.5 sm:p-6 min-h-screen">
           <div className="max-w-7xl mx-auto space-y-6">
             {/* Header Title Section */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#ddd6ca] bg-[#FFFDF8] p-4 sm:p-5 rounded-2xl border shadow-xs">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-xl font-bold font-display text-[#123324] tracking-tight">
-                  {lang === "hi" ? "प्लेटफॉर्म गवर्नेंस मैट्रिक्स" : "Platform Governance Matrix"}
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
-                  {activeTab}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                <p className="text-xs text-[#6d756f]">
-                  {lang === "hi" ? "लॉगिन किया गया: " : "Logged in as "}
-                  <strong className="text-[#123324] font-semibold">{adminUsername}</strong> ({lang === "hi" ? "सुपर एडमिन" : "Super Admin"})
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsSecurityOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#ddd6ca] bg-white text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#FAF8F3] transition-all shadow-2xs"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{lang === "hi" ? "सुरक्षा एवं रिकवरी" : "Security & Recovery"}</span>
-              </button>
-              <button
-                onClick={() => setIsPromoteOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[#cbe1d5] bg-[#e7f2eb] text-[#1F5D42] text-xs font-semibold rounded-xl hover:bg-[#d8eadd] transition-all shadow-2xs"
-              >
-                <CloudUpload className="w-3.5 h-3.5 text-[#1F5D42]" />
-                <span>{lang === "hi" ? "मर्चेंट SKU प्रमोट करें" : "Promote Merchant SKU"}</span>
-              </button>
-              <button
-                onClick={() => setIsOnboardOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>{lang === "hi" ? "+ नया दुकानदार जोड़ें" : "+ Onboard New Merchant"}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* TAB 1: NETWORK OVERVIEW (Executive summary, uncluttered) */}
-          {activeTab === "overview" && (
-            <div className="space-y-6">
-              {/* KPI Metric Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title={`${scopePrefix} GMV (${activePeriodLabel})`}
-                  value={gmv}
-                  contextText="Realized Sales"
-                  icon={IndianRupee}
-                  accentColor="green"
-                />
-                <MetricCard
-                  title="Total Active Shops"
-                  value={`${activeShops} / ${totalShops}`}
-                  contextText="Network Health"
-                  icon={Store}
-                  accentColor="emerald"
-                />
-                <MetricCard
-                  title={`Completed Orders (${activePeriodLabel})`}
-                  value={ordersTotal.toLocaleString("en-IN")}
-                  contextText={avgOrderText}
-                  icon={Receipt}
-                  accentColor="slate"
-                />
-                <MetricCard
-                  title="Stock-Out Alerts"
-                  value={`${outOfStock} SKUs`}
-                  contextText="Critical Replenishment"
-                  icon={AlertTriangle}
-                  accentColor="amber"
-                />
-              </div>
-
-              {/* 2-Column Summary Cards */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Registered Tenants Preview */}
-                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <Store className="w-4 h-4 text-[#1F5D42]" />
-                      <h3 className="text-sm font-bold text-slate-900">Tenant Directory Snapshot</h3>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("merchants")}
-                      className="text-xs font-semibold text-[#1F5D42] hover:underline"
-                    >
-                      View All {merchants.length} Tenants →
-                    </button>
-                  </div>
-                  <div className="mt-4 space-y-2.5">
-                    {merchants.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-slate-400">
-                        No merchants onboarded yet. Use the Onboard button above to add one.
-                      </div>
-                    ) : (
-                      merchants.slice(0, 4).map((m) => (
-                        <div
-                          key={m.id}
-                          className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"
-                        >
-                          <div>
-                            <div className="text-xs font-bold text-slate-900">{m.shopName || m.merchantName}</div>
-                            <div className="text-[11px] text-slate-500 font-mono">
-                              Mobile: {m.mobileNumber} | {m.city || "Urban Node"}
-                            </div>
-                          </div>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              m.status === "ACTIVE"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-amber-100 text-amber-800"
-                            }`}
-                          >
-                            {m.status}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#ddd6ca] bg-[#FFFDF8] p-4 sm:p-5 rounded-2xl border shadow-xs">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h1 className="text-xl font-bold font-display text-[#123324] tracking-tight">
+                    {lang === "hi" ? "प्लेटफॉर्म गवर्नेंस मैट्रिक्स" : "Platform Governance Matrix"}
+                  </h1>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
+                    {activeTab}
+                  </span>
                 </div>
-
-                {/* Master Catalog Preview */}
-                <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <Boxes className="w-4 h-4 text-[#1F5D42]" />
-                      <h3 className="text-sm font-bold text-slate-900">Master Catalog Snapshot</h3>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab("catalog")}
-                      className="text-xs font-semibold text-[#1F5D42] hover:underline"
-                    >
-                      View All {masterProducts.length} SKUs →
-                    </button>
-                  </div>
-                  <div className="mt-4 space-y-2.5">
-                    {masterProducts.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-slate-400">
-                        No master catalog products found.
-                      </div>
-                    ) : (
-                      masterProducts.slice(0, 4).map((p) => (
-                        <div
-                          key={p.id}
-                          className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100"
-                        >
-                          <div>
-                            <div className="text-xs font-bold text-slate-900">{p.name}</div>
-                            <div className="text-[11px] text-slate-500">
-                              Brand: {p.brand || "Generic"} | {p.category_name || "General"}
-                            </div>
-                          </div>
-                          <div className="text-right text-xs font-semibold text-emerald-700">
-                            {p.is_verified ? "Verified SKU" : "Standard"}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Navigation Panels */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div
-                  onClick={() => setActiveTab("merchants")}
-                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Store className="w-5 h-5 text-[#1F5D42]" />
-                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
-                      {merchants.length} Shops →
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-900">Tenant Directory</h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Manage tenant credentials, activate/deactivate shops, and view store configs.
-                  </p>
-                </div>
-
-                <div
-                  onClick={() => setActiveTab("catalog")}
-                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Boxes className="w-5 h-5 text-[#1F5D42]" />
-                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
-                      {masterProducts.length} Items →
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-900">Master Catalog</h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Universal barcode registry, categories, and merchant SKU promotions.
-                  </p>
-                </div>
-
-                <div
-                  onClick={() => setActiveTab("campaigns")}
-                  className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Megaphone className="w-5 h-5 text-[#1F5D42]" />
-                    <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
-                      {campaigns.length} Active →
-                    </span>
-                  </div>
-                  <h4 className="text-xs font-bold text-slate-900">Marketing Campaigns</h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Launch platform-wide banners, discounts, and customer incentives.
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                  <p className="text-xs text-[#6d756f]">
+                    {lang === "hi" ? "लॉगिन किया गया: " : "Logged in as "}
+                    <strong className="text-[#123324] font-semibold">{adminUsername}</strong> ({lang === "hi" ? "सुपर एडमिन" : "Super Admin"})
                   </p>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* TAB 2: TENANT DIRECTORY (Exclusive dedicated view) */}
-          {activeTab === "merchants" && (
-            <MerchantTable
-              merchants={merchants}
-              onRefresh={loadData}
-            />
-          )}
-
-          {/* TAB 3: MASTER CATALOG (Exclusive dedicated view) */}
-          {activeTab === "catalog" && (
-            <MasterCatalogTable
-              products={masterProducts}
-              onRefresh={loadData}
-              onOpenPromote={() => setIsPromoteOpen(true)}
-            />
-          )}
-
-          {/* TAB 4: MARKETING CAMPAIGNS (Exclusive dedicated view) */}
-          {activeTab === "campaigns" && (
-            <CampaignsManager
-              campaigns={campaigns}
-              onRefresh={loadData}
-            />
-          )}
-
-          {/* TAB 5: PLATFORM ANALYTICS (Metrics & Performance) */}
-          {activeTab === "analytics" && (
-            <div className="space-y-6">
-              {/* Analytics Interactive Filter Toolbar */}
-              <AnalyticsToolbar
-                selectedPeriod={selectedPeriod}
-                onPeriodChange={handlePeriodChange}
-                selectedShopId={selectedShopId}
-                onShopChange={handleShopChange}
-                customStartDate={customStartDate}
-                customEndDate={customEndDate}
-                onCustomDatesChange={handleCustomDatesChange}
-                merchants={merchants}
-                loading={analyticsLoading}
-                onRefresh={() => refreshAnalytics()}
-              />
-
-              {/* 5 KPI Metric Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <MetricCard
-                  title={`${scopePrefix} GMV (${activePeriodLabel})`}
-                  value={gmv}
-                  contextText="Realized Sales"
-                  icon={IndianRupee}
-                  accentColor="green"
-                />
-                <MetricCard
-                  title={currentFilteredShop ? "Tenant Status" : "Active Merchant Nodes"}
-                  value={currentFilteredShop ? currentFilteredShop.status : `${activeShops} / ${totalShops}`}
-                  contextText={currentFilteredShop ? (currentFilteredShop.city || "Single Tenant") : "Platform Coverage"}
-                  icon={Store}
-                  accentColor="emerald"
-                />
-                <MetricCard
-                  title={`Orders (${activePeriodLabel})`}
-                  value={ordersTotal.toLocaleString("en-IN")}
-                  contextText={avgOrderText}
-                  icon={Receipt}
-                  accentColor="slate"
-                />
-                <MetricCard
-                  title="Unique Buyers"
-                  value={orderingCustomers.toLocaleString("en-IN")}
-                  contextText="Active in period"
-                  icon={Users}
-                  accentColor="blue"
-                />
-                <MetricCard
-                  title="Stock-Out Alerts"
-                  value={`${outOfStock} SKUs`}
-                  contextText="Zero Available Stock"
-                  icon={AlertTriangle}
-                  accentColor="amber"
-                />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsOnboardOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>{lang === "hi" ? "+ नया दुकानदार जोड़ें" : "+ Onboard New Merchant"}</span>
+                </button>
               </div>
+            </div>
 
-              {/* Order Status Breakdown + Top Performers */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* 1. Order Lifecycle & Fulfillment Pipeline */}
-                <OrderStatusBreakdown
-                  distribution={analytics?.orders?.status_distribution}
-                  totalOrders={ordersTotal}
-                />
+            {/* TAB 1: NETWORK OVERVIEW (Executive summary, uncluttered) */}
+            {activeTab === "overview" && (
+              <div className="space-y-6">
+                {/* KPI Metric Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <MetricCard
+                    title={`${scopePrefix} GMV (${activePeriodLabel})`}
+                    value={gmv}
+                    contextText="Realized Sales"
+                    icon={IndianRupee}
+                    accentColor="green"
+                  />
+                  <MetricCard
+                    title="Total Active Shops"
+                    value={`${activeShops} / ${totalShops}`}
+                    contextText="Network Health"
+                    icon={Store}
+                    accentColor="emerald"
+                  />
+                  <MetricCard
+                    title={`Completed Orders (${activePeriodLabel})`}
+                    value={ordersTotal.toLocaleString("en-IN")}
+                    contextText={avgOrderText}
+                    icon={Receipt}
+                    accentColor="slate"
+                  />
+                  <MetricCard
+                    title="Stock-Out Alerts"
+                    value={`${outOfStock} SKUs`}
+                    contextText="Critical Replenishment"
+                    icon={AlertTriangle}
+                    accentColor="amber"
+                  />
+                </div>
 
-                {/* 2. Top Shops Leaderboard */}
-                <div className="bg-white border border-slate-200 rounded p-4 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                {/* 2-Column Summary Cards */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Registered Tenants Preview */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                       <div className="flex items-center gap-2">
-                        <Trophy className="w-4 h-4 text-amber-500" />
-                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                          Top Performing Shops
-                        </h3>
+                        <Store className="w-4 h-4 text-[#1F5D42]" />
+                        <h3 className="text-sm font-bold text-slate-900">Tenant Directory Snapshot</h3>
                       </div>
-                      <span className="text-[11px] text-slate-400">Ranked by Sales</span>
+                      <button
+                        onClick={() => setActiveTab("merchants")}
+                        className="text-xs font-semibold text-[#1F5D42] hover:underline"
+                      >
+                        View All {merchants.length} Tenants →
+                      </button>
                     </div>
-                    <div className="space-y-2.5">
-                      {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-400">
-                          No merchant order history recorded for this period.
+                    <div className="mt-4 space-y-2.5">
+                      {merchants.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          No merchants onboarded yet. Use the Onboard button above to add one.
                         </div>
                       ) : (
-                        analytics.top_shops.slice(0, 5).map((s, idx) => (
+                        merchants.slice(0, 4).map((m) => (
                           <div
-                            key={s.shop_id}
-                            className={`p-3 rounded border flex items-center justify-between ${
-                              selectedShopId === s.shop_id
-                                ? "border-emerald-500 bg-emerald-50/40"
-                                : "border-slate-100 bg-slate-50/50"
-                            }`}
+                            key={m.id}
+                            className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"
                           >
                             <div>
-                              <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
-                              <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
-                              <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-xs font-mono font-bold text-[#1F5D42]">
-                                ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                              <div className="text-xs font-bold text-slate-900">{m.shopName || m.merchantName}</div>
+                              <div className="text-[11px] text-slate-500 font-mono">
+                                Mobile: {m.mobileNumber} | {m.city || "Urban Node"}
                               </div>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${m.status === "ACTIVE"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-amber-100 text-amber-800"
+                                }`}
+                            >
+                              {m.status}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Master Catalog Preview */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <Boxes className="w-4 h-4 text-[#1F5D42]" />
+                        <h3 className="text-sm font-bold text-slate-900">Master Catalog Snapshot</h3>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab("catalog")}
+                        className="text-xs font-semibold text-[#1F5D42] hover:underline"
+                      >
+                        View All {masterProducts.length} SKUs →
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-2.5">
+                      {masterProducts.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-slate-400">
+                          No master catalog products found.
+                        </div>
+                      ) : (
+                        masterProducts.slice(0, 4).map((p) => (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100"
+                          >
+                            <div>
+                              <div className="text-xs font-bold text-slate-900">{p.name}</div>
+                              <div className="text-[11px] text-slate-500">
+                                Brand: {p.brand || "Generic"} | {p.category_name || "General"}
+                              </div>
+                            </div>
+                            <div className="text-right text-xs font-semibold text-emerald-700">
+                              {p.is_verified ? "Verified SKU" : "Standard"}
                             </div>
                           </div>
                         ))
@@ -622,40 +421,225 @@ export default function SuperAdminDashboard() {
                   </div>
                 </div>
 
-                {/* 3. Top SKUs Leaderboard */}
-                <TopProductsRankings products={topProducts} />
-              </div>
-            </div>
-          )}
+                {/* Quick Navigation Panels */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div
+                    onClick={() => setActiveTab("merchants")}
+                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Store className="w-5 h-5 text-[#1F5D42]" />
+                      <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                        {merchants.length} Shops →
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900">Tenant Directory</h4>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Manage tenant credentials, activate/deactivate shops, and view store configs.
+                    </p>
+                  </div>
 
-          {/* TAB 6: CONSOLE SETTINGS */}
-          {activeTab === "settings" && (
-            <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Platform Console Settings</h3>
-                <p className="text-xs text-slate-500 mt-1">Super Admin runtime session configuration and environment telemetry.</p>
-              </div>
+                  <div
+                    onClick={() => setActiveTab("catalog")}
+                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Boxes className="w-5 h-5 text-[#1F5D42]" />
+                      <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                        {masterProducts.length} Items →
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900">Master Catalog</h4>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Universal barcode registry, categories, and merchant SKU promotions.
+                    </p>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <div className="font-semibold text-slate-800">Authenticated Super Admin</div>
-                  <div className="text-slate-600">Identifier: <span className="font-mono text-slate-900 font-bold">{adminUsername}</span></div>
-                  <div className="text-slate-600">Role: <span className="font-semibold text-emerald-700">SUPER_ADMIN</span></div>
-                  <div className="text-slate-600">Permissions: <span className="font-mono text-slate-700">Global Read/Write/Elevated</span></div>
+                  <div
+                    onClick={() => setActiveTab("campaigns")}
+                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <Megaphone className="w-5 h-5 text-[#1F5D42]" />
+                      <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                        {campaigns.length} Active →
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-900">Marketing Campaigns</h4>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Launch platform-wide banners, discounts, and customer incentives.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: TENANT DIRECTORY (Exclusive dedicated view) */}
+            {activeTab === "merchants" && (
+              <MerchantTable
+                merchants={merchants}
+                onRefresh={loadData}
+              />
+            )}
+
+            {/* TAB 3: MASTER CATALOG (Exclusive dedicated view) */}
+            {activeTab === "catalog" && (
+              <MasterCatalogTable
+                products={masterProducts}
+                onRefresh={loadData}
+                onOpenPromote={() => setIsPromoteOpen(true)}
+              />
+            )}
+
+            {/* TAB 4: MARKETING CAMPAIGNS (Exclusive dedicated view) */}
+            {activeTab === "campaigns" && (
+              <CampaignsManager
+                campaigns={campaigns}
+                onRefresh={loadData}
+              />
+            )}
+
+            {/* TAB 5: PLATFORM ANALYTICS (Metrics & Performance) */}
+            {activeTab === "analytics" && (
+              <div className="space-y-6">
+                {/* Analytics Interactive Filter Toolbar */}
+                <AnalyticsToolbar
+                  selectedPeriod={selectedPeriod}
+                  onPeriodChange={handlePeriodChange}
+                  selectedShopId={selectedShopId}
+                  onShopChange={handleShopChange}
+                  customStartDate={customStartDate}
+                  customEndDate={customEndDate}
+                  onCustomDatesChange={handleCustomDatesChange}
+                  merchants={merchants}
+                  loading={analyticsLoading}
+                  onRefresh={() => refreshAnalytics()}
+                />
+
+                {/* 5 KPI Metric Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <MetricCard
+                    title={`${scopePrefix} GMV (${activePeriodLabel})`}
+                    value={gmv}
+                    contextText="Realized Sales"
+                    icon={IndianRupee}
+                    accentColor="green"
+                  />
+                  <MetricCard
+                    title={currentFilteredShop ? "Tenant Status" : "Active Merchant Nodes"}
+                    value={currentFilteredShop ? currentFilteredShop.status : `${activeShops} / ${totalShops}`}
+                    contextText={currentFilteredShop ? (currentFilteredShop.city || "Single Tenant") : "Platform Coverage"}
+                    icon={Store}
+                    accentColor="emerald"
+                  />
+                  <MetricCard
+                    title={`Orders (${activePeriodLabel})`}
+                    value={ordersTotal.toLocaleString("en-IN")}
+                    contextText={avgOrderText}
+                    icon={Receipt}
+                    accentColor="slate"
+                  />
+                  <MetricCard
+                    title="Unique Buyers"
+                    value={orderingCustomers.toLocaleString("en-IN")}
+                    contextText="Active in period"
+                    icon={Users}
+                    accentColor="blue"
+                  />
+                  <MetricCard
+                    title="Stock-Out Alerts"
+                    value={`${outOfStock} SKUs`}
+                    contextText="Zero Available Stock"
+                    icon={AlertTriangle}
+                    accentColor="amber"
+                  />
                 </div>
 
-                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <div className="font-semibold text-slate-800">API Service Node</div>
-                  <div className="text-slate-600">Backend Endpoint: <span className="font-mono text-slate-900">http://localhost:8000/api/v1/</span></div>
-                  <div className="text-slate-600">Auth Gateway: <span className="font-mono text-slate-900">/api/v1/auth/super-admin/</span></div>
-                  <div className="text-slate-600">Status: <span className="text-emerald-700 font-semibold">Connected (PostgreSQL Neon Active)</span></div>
+                {/* Order Status Breakdown + Top Performers */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* 1. Order Lifecycle & Fulfillment Pipeline */}
+                  <OrderStatusBreakdown
+                    distribution={analytics?.orders?.status_distribution}
+                    totalOrders={ordersTotal}
+                  />
+
+                  {/* 2. Top Shops Leaderboard */}
+                  <div className="bg-white border border-slate-200 rounded p-4 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Trophy className="w-4 h-4 text-amber-500" />
+                          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                            Top Performing Shops
+                          </h3>
+                        </div>
+                        <span className="text-[11px] text-slate-400">Ranked by Sales</span>
+                      </div>
+                      <div className="space-y-2.5">
+                        {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
+                          <div className="p-8 text-center text-xs text-slate-400">
+                            No merchant order history recorded for this period.
+                          </div>
+                        ) : (
+                          analytics.top_shops.slice(0, 5).map((s, idx) => (
+                            <div
+                              key={s.shop_id}
+                              className={`p-3 rounded border flex items-center justify-between ${selectedShopId === s.shop_id
+                                ? "border-emerald-500 bg-emerald-50/40"
+                                : "border-slate-100 bg-slate-50/50"
+                                }`}
+                            >
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
+                                <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
+                                <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-xs font-mono font-bold text-[#1F5D42]">
+                                  ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Top SKUs Leaderboard */}
+                  <TopProductsRankings products={topProducts} />
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
+            )}
+
+            {/* TAB 6: CONSOLE SETTINGS */}
+            {activeTab === "settings" && (
+              <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Platform Console Settings</h3>
+                  <p className="text-xs text-slate-500 mt-1">Super Admin runtime session configuration and environment telemetry.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                    <div className="font-semibold text-slate-800">Authenticated Super Admin</div>
+                    <div className="text-slate-600">Identifier: <span className="font-mono text-slate-900 font-bold">{adminUsername}</span></div>
+                    <div className="text-slate-600">Role: <span className="font-semibold text-emerald-700">SUPER_ADMIN</span></div>
+                    <div className="text-slate-600">Permissions: <span className="font-mono text-slate-700">Global Read/Write/Elevated</span></div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                    <div className="font-semibold text-slate-800">API Service Node</div>
+                    <div className="text-slate-600">Backend Endpoint: <span className="font-mono text-slate-900">http://localhost:8000/api/v1/</span></div>
+                    <div className="text-slate-600">Auth Gateway: <span className="font-mono text-slate-900">/api/v1/auth/super-admin/</span></div>
+                    <div className="text-slate-600">Status: <span className="text-emerald-700 font-semibold">Connected (PostgreSQL Neon Active)</span></div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
 
       {/* Product Promotion Moderation Modal */}
       <ProductPromotionModal
