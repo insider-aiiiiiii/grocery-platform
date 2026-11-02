@@ -72,8 +72,8 @@ export default function MerchantLoginPage() {
         result.must_change_password
           ? "/merchant/change-password"
           : result.user.shop_id
-          ? "/merchant"
-          : "/merchant/setup"
+            ? "/merchant"
+            : "/merchant/setup"
       );
     } catch (err) {
       setError(err instanceof Error && !("response" in err) ? err.message : getApiError(err));
@@ -308,8 +308,8 @@ export default function MerchantLoginPage() {
                       ? "लॉगिन हो रहा है…"
                       : "Signing in…"
                     : lang === "hi"
-                    ? "वर्कस्पेस में प्रवेश करें"
-                    : "Continue to workspace"}
+                      ? "वर्कस्पेस में प्रवेश करें"
+                      : "Continue to workspace"}
                 </span>
                 <ArrowRight size={16} />
               </button>
@@ -317,15 +317,6 @@ export default function MerchantLoginPage() {
 
             {/* Portal Switcher & Footer */}
             <div className="mt-7 pt-5 border-t border-[#eee9df] text-center space-y-2.5">
-              <p className="text-xs text-[#5e665f]">
-                {lang === "hi" ? "प्लेटफॉर्म सुपर एडमिन हैं?" : "Platform Super Admin?"}{" "}
-                <Link
-                  href="/admin/login"
-                  className="font-semibold text-[#1F5D42] hover:underline"
-                >
-                  {lang === "hi" ? "एडमिन कंसोल लॉगिन करें" : "Go to Admin Console"}
-                </Link>
-              </p>
               <p className="text-[10px] text-[#848c85]">
                 {lang === "hi"
                   ? "सुरक्षित सत्र प्रबंधन व डेटा एन्क्रिप्शन सक्रिय है।"

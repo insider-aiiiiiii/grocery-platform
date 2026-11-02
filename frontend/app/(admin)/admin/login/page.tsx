@@ -165,8 +165,7 @@ export default function SuperAdminLoginPage() {
           <h1 className="text-4xl font-bold leading-[1.15] tracking-[-.03em] xl:text-[50px] font-display">
             {lang === "hi" ? (
               <>
-                केंद्रीय नियंत्रण <br />
-                समस्त <span className="text-[#E8A33D]">दुकानदार नेटवर्क</span> के लिए।
+                केंद्रीय नियंत्रण समस्त <span className="text-[#E8A33D]">दुकानदार नेटवर्क</span> के लिए।
               </>
             ) : (
               <>
@@ -274,7 +273,7 @@ export default function SuperAdminLoginPage() {
               <p className="mt-1.5 text-xs text-[#5e665f] leading-relaxed">
                 {lang === "hi"
                   ? "सुपर एडमिन क्रेडेंशियल्स दर्ज करके प्लेटफॉर्म कंसोल खोलें।"
-                  : "Enter your Super Admin identifier and passphrase to access console."}
+                  : "Enter your Super Admin identifier and password to access console."}
               </p>
             </div>
 
@@ -313,14 +312,14 @@ export default function SuperAdminLoginPage() {
               <label className="block">
                 <div className="mb-1.5 flex items-center justify-between text-xs">
                   <span className="font-semibold text-[#123324]">
-                    {lang === "hi" ? "मास्टर पासफ़्रेज़" : "Passphrase"}
+                    {lang === "hi" ? "मास्टर पासवर्ड" : "Password"}
                   </span>
                   <button
                     type="button"
                     onClick={() => setRecoveryModalOpen(true)}
                     className="text-[#1F5D42] hover:text-[#123324] font-medium hover:underline text-[11px]"
                   >
-                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot passphrase?"}
+                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot password?"}
                   </button>
                 </div>
                 <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
@@ -330,7 +329,7 @@ export default function SuperAdminLoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={lang === "hi" ? "मास्टर पासवर्ड दर्ज करें" : "Enter master passphrase"}
+                    placeholder={lang === "hi" ? "मास्टर पासवर्ड दर्ज करें" : "Enter master password"}
                     className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
                   <button
@@ -448,22 +447,20 @@ export default function SuperAdminLoginPage() {
                   <button
                     type="button"
                     onClick={() => setRecoveryChannel("EMAIL")}
-                    className={`py-2 text-xs font-semibold rounded-xl border transition ${
-                      recoveryChannel === "EMAIL"
-                        ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
-                        : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
-                    }`}
+                    className={`py-2 text-xs font-semibold rounded-xl border transition ${recoveryChannel === "EMAIL"
+                      ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
+                      : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
+                      }`}
                   >
                     Email OTP
                   </button>
                   <button
                     type="button"
                     onClick={() => setRecoveryChannel("SMS")}
-                    className={`py-2 text-xs font-semibold rounded-xl border transition ${
-                      recoveryChannel === "SMS"
-                        ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
-                        : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
-                    }`}
+                    className={`py-2 text-xs font-semibold rounded-xl border transition ${recoveryChannel === "SMS"
+                      ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
+                      : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
+                      }`}
                   >
                     SMS / WhatsApp
                   </button>
@@ -486,11 +483,10 @@ export default function SuperAdminLoginPage() {
 
               {recoveryStatus && (
                 <div
-                  className={`p-3 rounded-xl text-xs leading-relaxed ${
-                    recoveryStatus.startsWith("Error")
-                      ? "bg-red-50 border border-red-200 text-red-700"
-                      : "bg-[#e7f2eb] border border-[#cbe1d5] text-[#1F5D42] flex items-center gap-2"
-                  }`}
+                  className={`p-3 rounded-xl text-xs leading-relaxed ${recoveryStatus.startsWith("Error")
+                    ? "bg-red-50 border border-red-200 text-red-700"
+                    : "bg-[#e7f2eb] border border-[#cbe1d5] text-[#1F5D42] flex items-center gap-2"
+                    }`}
                 >
                   {!recoveryStatus.startsWith("Error") && (
                     <CheckCircle2 className="w-4 h-4 shrink-0 text-[#1F5D42]" />

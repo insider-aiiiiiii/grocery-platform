@@ -1,16 +1,292 @@
 import Link from "next/link";
-import { ArrowUpRight, Leaf, Shield, Store } from "lucide-react";
+import {
+  ArrowUpRight,
+  Boxes,
+  CheckCircle2,
+  MessageCircle,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  Store,
+} from "lucide-react";
 
 export default function Home() {
-  return <main className="min-h-screen bg-[#f4f5ef] text-[#20352a]">
-    <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 sm:px-10"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#173b2c] text-[#d3ef6a]"><Leaf size={20}/></span><span className="text-sm font-semibold tracking-tight">dukana</span></div><span className="rounded-full border border-[#dfe5dc] bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-[#738176]">Grocery platform</span></header>
-    <section className="mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-10 px-6 py-12 sm:px-10 lg:grid-cols-[1fr_.85fr] lg:py-16">
-      <div><p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#dde6d8] bg-white px-3 py-1.5 text-[11px] font-medium text-[#63766a]"><span className="h-1.5 w-1.5 rounded-full bg-[#79a36d]"/>Tools for local grocery</p><h1 className="max-w-xl text-5xl font-semibold leading-[1.06] tracking-[-.055em] sm:text-6xl">Your shop,<br/><span className="text-[#5a815f]">running smoothly.</span></h1><p className="mt-6 max-w-lg text-sm leading-7 text-[#758278]">Manage your products, orders, and everyday store operations from one clear workspace.</p><div className="mt-10 grid gap-3 sm:grid-cols-2">
-        <Link href="/merchant/login" className="group flex min-h-[145px] flex-col justify-between rounded-2xl bg-[#173b2c] p-5 text-white transition hover:bg-[#214e37]"><div className="flex items-center justify-between"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#d3ef6a] text-[#193a2c]"><Store size={18}/></span><ArrowUpRight size={17} className="text-white/60 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5"/></div><div><p className="text-sm font-semibold">Merchant workspace</p><p className="mt-1 text-[11px] text-[#bdccc1]">Orders, products, and shop settings</p></div></Link>
-        <Link href="/admin/login" className="group flex min-h-[145px] flex-col justify-between rounded-2xl border border-[#e1e7df] bg-white p-5 transition hover:border-[#b8c9b6]"><div className="flex items-center justify-between"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#eef2ec] text-[#58735c]"><Shield size={18}/></span><ArrowUpRight size={17} className="text-[#8b978d] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5"/></div><div><p className="text-sm font-semibold">Platform administration</p><p className="mt-1 text-[11px] text-[#89958c]">Super Admin tools and oversight</p></div></Link>
-        <Link href="/shop/QR-B4ACAB79" className="group flex min-h-[145px] flex-col justify-between rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 transition hover:bg-emerald-100/60 sm:col-span-2"><div className="flex items-center justify-between"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#173b2c] text-[#d3ef6a]"><Leaf size={18}/></span><ArrowUpRight size={17} className="text-[#173b2c] transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5"/></div><div><p className="text-sm font-semibold text-[#173b2c]">Customer Storefront</p><p className="mt-1 text-[11px] text-[#3e5f49]">Browse live catalog, add to cart, and place orders via WhatsApp</p></div></Link>
-      </div></div>
-      <div className="relative mx-auto w-full max-w-[520px]"><div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-[#e1eacb] blur-3xl"/><div className="relative rounded-[28px] border border-[#e3e9e1] bg-white p-5 shadow-[0_35px_90px_-45px_rgba(34,68,43,.22)] sm:p-7"><div className="flex items-center justify-between border-b border-[#edf0eb] pb-5"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#8a968d]">Daily operations</p><p className="mt-1 text-lg font-semibold tracking-tight">Everything in one place</p></div><span className="rounded-full bg-[#e9f2e4] px-2.5 py-1 text-[10px] font-semibold text-[#4e7653]">Your shop</span></div><div className="mt-5 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-[#f4f7f1] p-4"><p className="text-[10px] text-[#7d8b80]">Order desk</p><p className="mt-4 text-sm font-semibold">Stay on top of orders</p><div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white"><div className="h-full w-2/3 rounded-full bg-[#89a879]"/></div></div><div className="rounded-2xl bg-[#f7f5ed] p-4"><p className="text-[10px] text-[#92896d]">Inventory</p><p className="mt-4 text-sm font-semibold">Know what’s in stock</p><div className="mt-3 flex gap-1"><span className="h-1.5 w-1/3 rounded-full bg-[#c9b977]"/><span className="h-1.5 w-1/3 rounded-full bg-[#e5dfc8]"/><span className="h-1.5 w-1/3 rounded-full bg-[#e5dfc8]"/></div></div></div><div className="mt-3 rounded-2xl border border-[#edf0eb] p-4"><div className="mb-4 flex items-center justify-between"><p className="text-xs font-semibold">Simple, focused workspace</p><span className="text-[10px] text-[#96a198]">Designed for everyday work</span></div>{["Shop profile and fulfillment", "Catalog and stock", "Customers and performance"].map((label, index) => <div key={label} className="flex items-center gap-3 border-t border-[#f0f2ee] py-3 first:border-0"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[#f1f4ef] text-[10px] font-semibold text-[#63796a]">0{index + 1}</span><span className="text-xs text-[#607065]">{label}</span><span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#8eac80]"/></div>)}</div></div></div>
-    </section>
-  </main>;
+  return (
+    <main className="min-h-screen bg-[#F6F0E6] text-[#17251e] font-body selection:bg-[#E8A33D]/30 selection:text-[#123324]">
+      {/* Background Ambient Glows */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+        <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-[#1F5D42]/10 blur-3xl" />
+        <div className="absolute top-1/4 -right-20 h-96 w-96 rounded-full bg-[#E8A33D]/15 blur-3xl" />
+        <div className="absolute -bottom-24 left-1/3 h-96 w-96 rounded-full bg-[#1F5D42]/5 blur-3xl" />
+      </div>
+
+      {/* Top Header */}
+      <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-6 sm:px-10">
+        {/* Brand Logo & Name */}
+        <div className="flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#123324] text-[#E8A33D] shadow-md border border-[#1F5D42]/40">
+            <Store size={22} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-display text-2xl font-bold tracking-tight text-[#123324] leading-tight">
+                Dukandaar
+              </span>
+              <span className="hidden sm:inline-flex items-center rounded-full bg-[#e7f2eb] border border-[#cbe1d5] px-2 py-0.5 text-[10px] font-bold text-[#1F5D42] tracking-wider uppercase">
+                Hyperlocal
+              </span>
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#6d756f]">
+              Grocery Platform
+            </p>
+          </div>
+        </div>
+
+        {/* Right Header Navigation & Pill */}
+        <div className="flex items-center gap-3">
+          <span className="hidden sm:inline-flex items-center gap-2 rounded-full border border-[#ddd6ca] bg-[#FFFDF8] px-3.5 py-1.5 text-xs font-semibold text-[#5e665f] shadow-2xs">
+            <span className="h-2 w-2 rounded-full bg-[#E8A33D] animate-pulse" />
+            <span>Platform Active</span>
+          </span>
+
+          <Link
+            href="/merchant/login"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#1F5D42] px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-[#164732] active:scale-[0.98]"
+          >
+            <span>Sign In</span>
+            <ArrowUpRight size={14} />
+          </Link>
+        </div>
+      </header>
+
+      {/* Hero & Portal Grid Section */}
+      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-92px)] max-w-7xl items-center gap-12 px-6 py-8 sm:px-10 lg:grid-cols-[1fr_.9fr] lg:py-14">
+        {/* Left Column: Headlines & Portal Links */}
+        <div>
+          {/* Badge */}
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#cbe1d5] bg-[#e7f2eb] px-3.5 py-1.5 text-xs font-semibold text-[#1F5D42] shadow-2xs">
+            <Sparkles size={13} className="text-[#E8A33D]" />
+            <span>Tools for local grocery · आपकी अपनी दुकान</span>
+          </div>
+
+          {/* Title */}
+          <h1 className="max-w-xl font-display text-5xl font-bold leading-[1.08] tracking-tight text-[#123324] sm:text-6xl">
+            Your shop, <br />
+            <span className="text-[#E8A33D]">running smoothly.</span>
+          </h1>
+
+          {/* Description */}
+          <p className="mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-[#5e665f]">
+            Manage products, stock inventory, and fulfill WhatsApp customer orders from one calm, unified workspace designed for neighborhood retail.
+          </p>
+
+          {/* Quick Portal Cards Grid */}
+          <div className="mt-9 grid gap-3 sm:grid-cols-2">
+            {/* 1. Merchant Workspace */}
+            <Link
+              href="/merchant/login"
+              className="group relative flex min-h-[155px] flex-col justify-between overflow-hidden rounded-2xl bg-[#123324] p-5 text-white border border-[#1F5D42]/40 shadow-sm transition hover:bg-[#16402d] hover:shadow-md"
+            >
+              <div className="flex items-center justify-between">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#E8A33D] text-[#123324] shadow-xs">
+                  <Store size={20} />
+                </span>
+                <span className="rounded-full bg-white/10 p-1.5 text-white/70 transition group-hover:bg-[#E8A33D] group-hover:text-[#123324] group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                  <ArrowUpRight size={16} />
+                </span>
+              </div>
+              <div>
+                <p className="font-display text-base font-bold text-white tracking-tight">
+                  Merchant Workspace
+                </p>
+                <p className="mt-1 text-xs text-[#b9cac0]">
+                  Orders, catalog, inventory & shop settings
+                </p>
+              </div>
+            </Link>
+
+            {/* 2. Platform Administration */}
+            <Link
+              href="/admin/login"
+              className="group relative flex min-h-[155px] flex-col justify-between overflow-hidden rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-5 text-[#17251e] shadow-2xs transition hover:border-[#1F5D42] hover:shadow-md"
+            >
+              <div className="flex items-center justify-between">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e7f2eb] text-[#1F5D42]">
+                  <ShieldCheck size={20} />
+                </span>
+                <span className="rounded-full bg-[#f4f1ea] p-1.5 text-[#6d756f] transition group-hover:bg-[#1F5D42] group-hover:text-white group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                  <ArrowUpRight size={16} />
+                </span>
+              </div>
+              <div>
+                <p className="font-display text-base font-bold text-[#123324] tracking-tight">
+                  Super Admin Console
+                </p>
+                <p className="mt-1 text-xs text-[#6d756f]">
+                  Master catalog curation & tenant oversight
+                </p>
+              </div>
+            </Link>
+
+            {/* 3. Customer Storefront (Full Width) */}
+            <Link
+              href="/shop/QR-B4ACAB79"
+              className="group relative flex min-h-[145px] flex-col justify-between overflow-hidden rounded-2xl border border-[#cbe1d5] bg-gradient-to-br from-[#FFFDF8] via-[#e7f2eb]/70 to-[#FFFDF8] p-5 text-[#17251e] shadow-2xs transition hover:border-[#1F5D42] hover:shadow-md sm:col-span-2"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#1F5D42] text-[#E8A33D] shadow-xs">
+                    <ShoppingBag size={20} />
+                  </span>
+                  <div>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E8A33D]/20 border border-[#E8A33D]/40 px-2 py-0.5 text-[10px] font-bold text-[#9b4d16] uppercase tracking-wider">
+                      <MessageCircle size={10} />
+                      <span>WhatsApp Click-to-Chat</span>
+                    </span>
+                  </div>
+                </div>
+                <span className="rounded-full bg-[#1F5D42]/10 p-1.5 text-[#1F5D42] transition group-hover:bg-[#1F5D42] group-hover:text-white group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                  <ArrowUpRight size={16} />
+                </span>
+              </div>
+              <div>
+                <p className="font-display text-base font-bold text-[#123324] tracking-tight">
+                  Customer Storefront Demo
+                </p>
+                <p className="mt-1 text-xs text-[#5e665f]">
+                  Browse live digital store shelves, build cart, and place orders directly via WhatsApp Click-to-Chat
+                </p>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        {/* Right Column: Live Operations Desk Preview Widget */}
+        <div className="relative mx-auto w-full max-w-[500px]">
+          {/* Decorative Card Container */}
+          <div className="relative rounded-3xl border border-[#ddd6ca] bg-[#FFFDF8] p-6 shadow-xl sm:p-7">
+            {/* Card Header */}
+            <div className="flex items-center justify-between border-b border-[#eee9df] pb-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a968d]">
+                  Daily Operations
+                </p>
+                <p className="font-display text-xl font-bold tracking-tight text-[#123324] mt-0.5">
+                  Everything in one place
+                </p>
+              </div>
+              <span className="rounded-full bg-[#e7f2eb] border border-[#cbe1d5] px-3 py-1 text-[11px] font-bold text-[#1F5D42]">
+                Dukandaar UI
+              </span>
+            </div>
+
+            {/* Quick Stats Grid */}
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              {/* Order Desk Preview */}
+              <div className="rounded-2xl border border-[#cbe1d5]/80 bg-[#e7f2eb]/60 p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#1F5D42]">
+                    Order Desk
+                  </p>
+                  <MessageCircle size={13} className="text-[#1F5D42]" />
+                </div>
+                <p className="mt-3 font-display text-sm font-bold text-[#123324]">
+                  Live WhatsApp Orders
+                </p>
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/80 border border-[#cbe1d5]">
+                  <div className="h-full w-3/4 rounded-full bg-[#1F5D42]" />
+                </div>
+                <p className="mt-1.5 text-[10px] font-medium text-[#5e665f]">
+                  94% fulfilled on time
+                </p>
+              </div>
+
+              {/* Inventory Tracker Preview */}
+              <div className="rounded-2xl border border-[#ddd6ca] bg-[#F6F0E6] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#9b4d16]">
+                    Inventory
+                  </p>
+                  <Boxes size={13} className="text-[#E8A33D]" />
+                </div>
+                <p className="mt-3 font-display text-sm font-bold text-[#123324]">
+                  Stock & Shelf Health
+                </p>
+                <div className="mt-3 flex gap-1">
+                  <span className="h-2 w-1/2 rounded-full bg-[#E8A33D]" />
+                  <span className="h-2 w-1/4 rounded-full bg-[#1F5D42]" />
+                  <span className="h-2 w-1/4 rounded-full bg-[#ddd6ca]" />
+                </div>
+                <p className="mt-1.5 text-[10px] font-medium text-[#5e665f]">
+                  Auto low-stock alerts
+                </p>
+              </div>
+            </div>
+
+            {/* Modular Features List */}
+            <div className="mt-4 rounded-2xl border border-[#eee9df] bg-[#fbf9f4] p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-bold text-[#123324] font-display">
+                  Focused Local Operations
+                </p>
+                <span className="text-[10px] font-medium text-[#6d756f]">
+                  Modular Monolith
+                </span>
+              </div>
+
+              {[
+                { label: "Shop Profile & Home Delivery Controls", tag: "Shops" },
+                { label: "Master Catalog Curation & Barcode Lookup", tag: "Catalog" },
+                { label: "QR Code Storefront & WhatsApp Cart", tag: "Orders" },
+              ].map((item, index) => (
+                <div
+                  key={item.label}
+                  className="flex items-center gap-3 border-t border-[#eee9df] py-3 first:border-0"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#e7f2eb] font-display text-[11px] font-bold text-[#1F5D42]">
+                    0{index + 1}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-[#17251e]">{item.label}</p>
+                  </div>
+                  <span className="h-2 w-2 rounded-full bg-[#E8A33D]" />
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom Trust Tag */}
+            <div className="mt-4 flex items-center justify-between pt-3 border-t border-[#eee9df] text-[11px] text-[#6d756f]">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-[#1F5D42]" />
+                <span>Multi-tenant data isolation</span>
+              </span>
+              <span className="font-semibold text-[#123324]">PostgreSQL + Django</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="relative z-10 border-t border-[#ddd6ca] bg-[#FFFDF8]/70 py-6 px-6 sm:px-10">
+        <div className="mx-auto flex max-w-7xl flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6d756f]">
+          <div className="flex items-center gap-2">
+            <span className="font-display font-bold text-sm text-[#123324]">Dukandaar</span>
+            <span>· Hyperlocal Grocery Ordering & Merchant Management</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/merchant/login" className="hover:text-[#1F5D42] transition">
+              Merchant Login
+            </Link>
+            <Link href="/admin/login" className="hover:text-[#1F5D42] transition">
+              Super Admin
+            </Link>
+            <Link href="/shop/QR-B4ACAB79" className="hover:text-[#1F5D42] transition font-semibold text-[#1F5D42]">
+              Customer Storefront
+            </Link>
+          </div>
+        </div>
+      </footer>
+    </main>
+  );
 }
+

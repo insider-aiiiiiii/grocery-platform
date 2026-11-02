@@ -143,19 +143,17 @@ export function Sidebar({
                     onTabChange(item.id);
                     if (onCloseMobile) onCloseMobile();
                   }}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
-                    isActive
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${isActive
                       ? "bg-[#2a684c] text-white shadow-xs border border-[#3e8464]"
                       : "text-[#b9c9c0] hover:bg-white/10 hover:text-white"
-                  }`}
+                    }`}
                 >
                   <Icon className={`w-4 h-4 ${isActive ? "text-[#E8A33D]" : "text-[#7d9688]"}`} />
                   <span>{lang === "hi" ? item.labelHi : item.labelEn}</span>
                   {item.badge !== undefined && (
                     <span
-                      className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                        isActive ? "bg-[#123324] text-[#E8A33D]" : "bg-white/10 text-[#dce6df]"
-                      }`}
+                      className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${isActive ? "bg-[#123324] text-[#E8A33D]" : "bg-white/10 text-[#dce6df]"
+                        }`}
                     >
                       {item.badge}
                     </span>
@@ -170,7 +168,7 @@ export function Sidebar({
       {/* Footer User Profile & Sign Out (Matching Merchant Portal) */}
       <div className="border-t border-white/10 pt-4 space-y-3">
         {/* Admin User Card */}
-        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10">
+        {/* <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10">
           <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#E8A33D] text-[#123324] font-bold text-xs shrink-0">
             <UserCheck size={16} />
           </div>
@@ -181,7 +179,7 @@ export function Sidebar({
               <span>{lang === "hi" ? "सुपर एडमिन" : "Super Admin"}</span>
             </p>
           </div>
-        </div>
+        </div> */}
 
         {/* Sign Out Button */}
         <button
