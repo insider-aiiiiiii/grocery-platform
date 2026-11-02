@@ -34,6 +34,7 @@ import {
   Trash2,
   Boxes,
   CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import { getApiError, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
 
@@ -1563,6 +1564,9 @@ function ShopSettings({
   const [photos, setPhotos] = useState<ShopPhotoSlot[]>([
     { id: "cover", url: shop?.logo ?? "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
   ]);
+  const [initialPhotos, setInitialPhotos] = useState<ShopPhotoSlot[]>([
+    { id: "cover", url: shop?.logo ?? "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
+  ]);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeSlotIdx, setActiveSlotIdx] = useState<number | null>(null);
 
@@ -1594,6 +1598,7 @@ function ShopSettings({
 
             if (restored.length > 0) {
               setPhotos(restored);
+              setInitialPhotos(restored);
               return;
             }
           }
@@ -1603,9 +1608,11 @@ function ShopSettings({
       }
     }
     if (shop?.logo && (!photos[0] || !photos[0].url)) {
-      setPhotos([
+      const initPhotos = [
         { id: "cover", url: shop.logo, labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
-      ]);
+      ];
+      setPhotos(initPhotos);
+      setInitialPhotos(initPhotos);
     }
   }, [shop?.logo, shop?.public_slug]);
 
@@ -1660,17 +1667,9 @@ function ShopSettings({
   const handleRemovePhoto = (idx: number) => {
     setPhotos((prev) => {
       const filtered = prev.filter((_, i) => i !== idx);
-      const nextPhotos =
-        filtered.length === 0
-          ? [{ id: "cover", url: "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" }]
-          : filtered;
-      if (typeof window !== "undefined" && shop?.public_slug) {
-        localStorage.setItem(
-          `dukaandar_shop_photos_${shop.public_slug}`,
-          JSON.stringify(nextPhotos.map((p) => p.url).filter(Boolean))
-        );
-      }
-      return nextPhotos;
+      return filtered.length === 0
+        ? [{ id: "cover", url: "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" }]
+        : filtered;
     });
   };
 
@@ -1700,10 +1699,74 @@ function ShopSettings({
     [shop]
   );
 
-  const { register, handleSubmit, setValue } = useForm<ShopSettingsInput, unknown, ShopSettingsValues>({
+  const { register, handleSubmit, setValue, reset, watch } = useForm<ShopSettingsInput, unknown, ShopSettingsValues>({
     resolver: zodResolver(shopSettingsSchema),
     values: settingsValues,
   });
+
+  const watched = watch();
+
+  // Determine if form inputs differ from initial values
+  const formHasChanges = useMemo(() => {
+    if (!settingsValues || !watched) return false;
+
+    // Check string fields
+    const stringKeys: (keyof ShopSettingsValues)[] = [
+      "name",
+      "description",
+      "address_line",
+      "area",
+      "city",
+      "state",
+      "pincode",
+      "google_maps_url",
+      "opening_time",
+      "closing_time",
+      "delivery_fee_type",
+    ];
+    for (const key of stringKeys) {
+      const current = (watched[key] ?? "").toString().trim();
+      const initial = (settingsValues[key] ?? "").toString().trim();
+      if (current !== initial) return true;
+    }
+
+    // Check boolean fields
+    const boolKeys: (keyof ShopSettingsValues)[] = [
+      "is_home_delivery_enabled",
+      "is_pickup_enabled",
+      "is_temporarily_closed",
+    ];
+    for (const key of boolKeys) {
+      if (Boolean(watched[key]) !== Boolean(settingsValues[key])) return true;
+    }
+
+    // Check number fields
+    const currentCharge = Number.isNaN(Number(watched.delivery_charge)) ? 0 : Number(watched.delivery_charge);
+    const initialCharge = Number(settingsValues.delivery_charge ?? 0);
+    if (currentCharge !== initialCharge) return true;
+
+    return false;
+  }, [watched, settingsValues]);
+
+  // Determine if photo slots differ from initial state
+  const photosHaveChanges = useMemo(() => {
+    if (photos.some((p) => p.file)) return true;
+    const currentUrls = photos.map((p) => p.url).filter(Boolean);
+    const initUrls = initialPhotos.map((p) => p.url).filter(Boolean);
+    if (currentUrls.length !== initUrls.length) return true;
+    return currentUrls.some((url, idx) => url !== initUrls[idx]);
+  }, [photos, initialPhotos]);
+
+  const hasChanges = formHasChanges || photosHaveChanges;
+
+  const handleDiscard = () => {
+    if (settingsValues) {
+      reset(settingsValues);
+    }
+    setPhotos(initialPhotos);
+    setMessage("");
+    setSaveError("");
+  };
 
   if (loading) return <LoadingRows />;
   if (error || !shop) return <Notice error={error ?? new Error("Shop not found")} onRetry={refetch} />;
@@ -1759,6 +1822,7 @@ function ShopSettings({
         localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
       }
       setMessage(lang === "hi" ? "दुकान का विवरण सफलतापूर्वक सहेजा गया।" : "Shop details saved successfully.");
+      setInitialPhotos(photos.map((p) => ({ ...p, file: undefined })));
       onSaved();
       refetch();
     } catch (e) {
@@ -1775,7 +1839,7 @@ function ShopSettings({
         title={lang === "hi" ? "दुकान सेटिंग्स" : "Shop settings"}
         description={lang === "hi" ? "दुकान की जानकारी, 4 तस्वीरें और डिलीवरी सेटिंग्स को अपडेट रखें।" : "Keep your storefront details, 4 shop photos, and delivery settings up to date."}
       />
-      <form onSubmit={handleSubmit(submit)} className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-5 sm:p-7 shadow-xs">
+      <form id="shop-settings-form" onSubmit={handleSubmit(submit)} className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-5 sm:p-7 shadow-xs relative">
         <div className="mb-6 flex flex-col gap-4 border-b border-[#eee9df] pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             {photos[0]?.url ? (
@@ -1960,28 +2024,40 @@ function ShopSettings({
               </span>
               <button
                 type="button"
-                onClick={() => { setValue("opening_time", "07:00"); setValue("closing_time", "23:00"); }}
+                onClick={() => {
+                  setValue("opening_time", "07:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                  setValue("closing_time", "23:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
                 7:00 AM – 11:00 PM
               </button>
               <button
                 type="button"
-                onClick={() => { setValue("opening_time", "08:00"); setValue("closing_time", "22:00"); }}
+                onClick={() => {
+                  setValue("opening_time", "08:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                  setValue("closing_time", "22:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
                 8:00 AM – 10:00 PM
               </button>
               <button
                 type="button"
-                onClick={() => { setValue("opening_time", "09:00"); setValue("closing_time", "21:00"); }}
+                onClick={() => {
+                  setValue("opening_time", "09:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                  setValue("closing_time", "21:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
                 9:00 AM – 9:00 PM
               </button>
               <button
                 type="button"
-                onClick={() => { setValue("opening_time", "00:00"); setValue("closing_time", "23:59"); }}
+                onClick={() => {
+                  setValue("opening_time", "00:00", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                  setValue("closing_time", "23:59", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
                 24 Hours Open (24x7)
@@ -2045,14 +2121,102 @@ function ShopSettings({
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end border-t border-[#eee9df] pt-4">
-          <button disabled={saving} className="h-10 rounded-xl bg-[#1F5D42] px-6 text-xs font-bold text-white hover:bg-[#123324] disabled:opacity-50">
-            {saving ? (lang === "hi" ? "सहेजा जा रहा है…" : "Saving…") : (lang === "hi" ? "बदलाव सहेजें" : "Save changes")}
-          </button>
+        {/* In-form Status / Feedback */}
+        <div className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-[#eee9df] pt-4">
+          <div className="flex items-center gap-2 text-xs text-[#6d756f]">
+            <CheckCircle2 size={15} className={hasChanges ? "text-[#E8A33D]" : "text-[#1F5D42]"} />
+            <span>
+              {hasChanges
+                ? lang === "hi"
+                  ? "अनसेव्ड बदलाव मौजूद हैं — नीचे दिए गए फ्लोटिंग बार से सहेजें।"
+                  : "You have unsaved changes — use the floating bar below to save."
+                : lang === "hi"
+                ? "सभी दुकान सेटिंग्स लाइव स्टोरफ्रंट पर अपडेटेड हैं।"
+                : "All storefront details are up to date."}
+            </span>
+          </div>
+          <p className="text-[11px] text-[#869088]">
+            {hasChanges
+              ? lang === "hi"
+                ? "बदलाव पूर्ववत करने पर बार स्वतः हट जाएगा।"
+                : "Undoing your changes will dismiss the save bar."
+              : lang === "hi"
+              ? "कोई भी बदलाव करने पर सहेजने का विकल्प स्वतः स्क्रीन के नीचे प्रकट होगा।"
+              : "Modifying any setting above will pop up the save bar."}
+          </p>
         </div>
-        {saveError && <p className="mt-3 text-xs text-red-600">{saveError}</p>}
-        {message && <p className="mt-3 text-xs text-emerald-600">{message}</p>}
+        {saveError && (
+          <div className="mt-3 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+            {saveError}
+          </div>
+        )}
+        {message && (
+          <div className="mt-3 rounded-xl bg-[#e7f2eb] border border-[#cbe1d5] p-3 text-xs text-[#1F5D42] flex items-center gap-2">
+            <CheckCircle2 size={15} className="text-[#1F5D42] shrink-0" />
+            <span>{message}</span>
+          </div>
+        )}
       </form>
+
+      {/* Floating Action Bar: Pops up whenever changes are made, goes back when undone */}
+      <div
+        className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-xl transition-all duration-300 ease-out ${
+          hasChanges
+            ? "translate-y-0 opacity-100 pointer-events-auto"
+            : "translate-y-20 opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#1F5D42]/40 bg-[#123324] px-4 py-3 sm:px-5 sm:py-3.5 text-white backdrop-blur-md shadow-2xl">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E8A33D] text-[#123324] font-bold shadow-xs">
+              <Sparkles size={17} />
+            </span>
+            <div className="min-w-0">
+              <p className="font-display text-xs sm:text-sm font-bold text-white truncate">
+                {lang === "hi" ? "दुकान में अनसेव्ड बदलाव हैं" : "Unsaved shop changes"}
+              </p>
+              <p className="text-[11px] text-[#b9cac0] truncate">
+                {lang === "hi"
+                  ? "लाइव स्टोरफ्रंट पर अपडेट करने के लिए सहेजें"
+                  : "Save to update your live storefront"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleDiscard}
+              disabled={saving}
+              className="rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-[#dce6df] hover:bg-white/20 hover:text-white transition active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {lang === "hi" ? "रद्द करें" : "Discard"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const form = document.getElementById("shop-settings-form") as HTMLFormElement | null;
+                if (form) form.requestSubmit();
+              }}
+              disabled={saving}
+              className="flex items-center gap-1.5 rounded-xl bg-[#1F5D42] hover:bg-[#164732] px-4 py-2 text-xs font-bold text-white shadow-xs transition active:scale-95 disabled:opacity-50 border border-[#2a684c] cursor-pointer"
+            >
+              {saving ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin" />
+                  <span>{lang === "hi" ? "सहेजा जा रहा है…" : "Saving…"}</span>
+                </>
+              ) : (
+                <>
+                  <Check size={14} className="text-[#E8A33D]" />
+                  <span>{lang === "hi" ? "बदलाव सहेजें" : "Save changes"}</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
