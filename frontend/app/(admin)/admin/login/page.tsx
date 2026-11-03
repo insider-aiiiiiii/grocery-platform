@@ -8,8 +8,6 @@ import {
   CheckCircle2,
   Eye,
   EyeOff,
-  HelpCircle,
-  KeyRound,
   Languages,
   Lock,
   Mail,
@@ -31,12 +29,7 @@ export default function SuperAdminLoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Recovery modal
-  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false);
-  const [recoveryContact, setRecoveryContact] = useState("");
-  const [recoveryChannel, setRecoveryChannel] = useState<"EMAIL" | "SMS">("EMAIL");
-  const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
-  const [recoveryLoading, setRecoveryLoading] = useState(false);
+
 
   // Language state synced with portal
   const [lang, setLang] = useState<"en" | "hi">("en");
@@ -102,30 +95,7 @@ export default function SuperAdminLoginPage() {
     }
   };
 
-  const handleSelfRecovery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRecoveryLoading(true);
-    setRecoveryStatus(null);
-    try {
-      await adminApi.requestSelfRecovery({
-        channel: recoveryChannel,
-        contact: recoveryContact.trim(),
-      });
-      setRecoveryStatus(
-        lang === "hi"
-          ? "रिकवरी टोकन भेज दिया गया है। अपने इनबॉक्स या SMS की जांच करें।"
-          : "Recovery token dispatched. Check your security inbox or SMS."
-      );
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.detail ||
-        err?.response?.data?.error ||
-        (lang === "hi" ? "रिकवरी अनुरोध विफल रहा।" : "Recovery request failed. Verify your registered identifier.");
-      setRecoveryStatus(`Error: ${detail}`);
-    } finally {
-      setRecoveryLoading(false);
-    }
-  };
+
 
   return (
     <main className="grid min-h-screen bg-[#F6F0E6] lg:grid-cols-[1.05fr_.95fr] font-sans text-[#17251e]">
@@ -204,7 +174,7 @@ export default function SuperAdminLoginPage() {
               <span>
                 {lang === "hi"
                   ? "रोल-आधारित ऑथराइजेशन और ऑटोमेटेड सेशन सिक्योरिटी"
-                  : "Role-based token validation & emergency self-recovery"}
+                  : "Role-based token validation & tenant security"}
               </span>
             </div>
           </div>
@@ -314,13 +284,6 @@ export default function SuperAdminLoginPage() {
                   <span className="font-semibold text-[#123324]">
                     {lang === "hi" ? "मास्टर पासवर्ड" : "Password"}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setRecoveryModalOpen(true)}
-                    className="text-[#1F5D42] hover:text-[#123324] font-medium hover:underline text-[11px]"
-                  >
-                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot password?"}
-                  </button>
                 </div>
                 <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
                   <Lock size={16} className="text-[#6d756f] shrink-0" />
@@ -393,132 +356,10 @@ export default function SuperAdminLoginPage() {
                   {lang === "hi" ? "मर्चेंट लॉगिन करें" : "Sign in to Shop"}
                 </Link>
               </p>
-              <button
-                type="button"
-                onClick={() => setRecoveryModalOpen(true)}
-                className="inline-flex items-center gap-1.5 text-xs text-[#E8A33D] hover:underline font-medium"
-              >
-                <HelpCircle size={13} />
-                <span>
-                  {lang === "hi" ? "आपातकालीन सुरक्षा रिकवरी" : "Emergency Access Recovery"}
-                </span>
-              </button>
             </div>
           </div>
         </div>
       </section>
-
-      {/* Emergency Self-Recovery Modal */}
-      {recoveryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3.5 border-b border-[#eee9df]">
-              <div className="flex items-center gap-2.5">
-                <div className="grid h-8 w-8 place-items-center rounded-xl bg-[#E8A33D]/20 text-[#E8A33D]">
-                  <KeyRound size={16} />
-                </div>
-                <h2 className="text-base font-bold text-[#123324] font-display">
-                  {lang === "hi" ? "आपातकालीन स्व-रिकवरी" : "Emergency Self-Recovery"}
-                </h2>
-              </div>
-              <button
-                onClick={() => {
-                  setRecoveryModalOpen(false);
-                  setRecoveryStatus(null);
-                }}
-                className="text-[#6d756f] hover:text-[#123324] text-sm px-2 py-1 rounded-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSelfRecovery} className="mt-4 space-y-3.5">
-              <p className="text-xs text-[#5e665f] leading-relaxed">
-                {lang === "hi"
-                  ? "पंजीकृत एडमिनिस्ट्रेटर ईमेल या फोन पर एक बार का सुरक्षा टोकन (OTP) भेजें।"
-                  : "Dispatch an out-of-band one-time verification challenge via registered administrator email or phone."}
-              </p>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#123324] mb-1.5">
-                  {lang === "hi" ? "माध्यम चुनें" : "Channel"}
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRecoveryChannel("EMAIL")}
-                    className={`py-2 text-xs font-semibold rounded-xl border transition ${recoveryChannel === "EMAIL"
-                      ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
-                      : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
-                      }`}
-                  >
-                    Email OTP
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRecoveryChannel("SMS")}
-                    className={`py-2 text-xs font-semibold rounded-xl border transition ${recoveryChannel === "SMS"
-                      ? "bg-[#1F5D42] border-[#1F5D42] text-white shadow-2xs"
-                      : "bg-white border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df]"
-                      }`}
-                  >
-                    SMS / WhatsApp
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#123324] mb-1.5">
-                  {lang === "hi" ? "पंजीकृत ईमेल या मोबाइल नंबर" : "Registered Contact (Email or Mobile)"}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={recoveryContact}
-                  onChange={(e) => setRecoveryContact(e.target.value)}
-                  placeholder="admin@platform.com or +91 98765 43210"
-                  className="w-full h-11 px-3.5 bg-white border border-[#ddd6ca] rounded-xl text-xs text-[#123324] placeholder:text-[#a5ada7] focus:outline-none focus:border-[#1F5D42] focus:ring-2 focus:ring-[#1F5D42]/10"
-                />
-              </div>
-
-              {recoveryStatus && (
-                <div
-                  className={`p-3 rounded-xl text-xs leading-relaxed ${recoveryStatus.startsWith("Error")
-                    ? "bg-red-50 border border-red-200 text-red-700"
-                    : "bg-[#e7f2eb] border border-[#cbe1d5] text-[#1F5D42] flex items-center gap-2"
-                    }`}
-                >
-                  {!recoveryStatus.startsWith("Error") && (
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-[#1F5D42]" />
-                  )}
-                  <span>{recoveryStatus}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRecoveryModalOpen(false);
-                    setRecoveryStatus(null);
-                  }}
-                  className="px-3.5 py-2 rounded-xl border border-[#ddd6ca] text-[#5e665f] hover:bg-[#eee9df] text-xs font-semibold"
-                >
-                  {lang === "hi" ? "रद्द करें" : "Cancel"}
-                </button>
-                <button
-                  type="submit"
-                  disabled={recoveryLoading}
-                  className="px-4 py-2 bg-[#1F5D42] hover:bg-[#164732] text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60 shadow-xs"
-                >
-                  {recoveryLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{lang === "hi" ? "OTP भेजें" : "Dispatch OTP"}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

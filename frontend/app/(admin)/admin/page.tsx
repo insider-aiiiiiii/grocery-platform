@@ -12,7 +12,6 @@ import { TopProductsRankings, TopProductItem } from "@/components/admin/TopProdu
 import { OrderStatusBreakdown } from "@/components/admin/OrderStatusBreakdown";
 import { AnalyticsToolbar } from "@/components/admin/AnalyticsToolbar";
 import { SecurityRecoveryModal } from "@/components/admin/SecurityRecoveryModal";
-import { ProductPromotionModal } from "@/components/admin/ProductPromotionModal";
 import {
   IndianRupee,
   Store,
@@ -37,7 +36,6 @@ export default function SuperAdminDashboard() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
-  const [isPromoteOpen, setIsPromoteOpen] = useState(false);
   const [analytics, setAnalytics] = useState<PlatformAnalytics | null>(null);
   const [masterProducts, setMasterProducts] = useState<MasterProduct[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
@@ -194,7 +192,7 @@ export default function SuperAdminDashboard() {
   const currentFilteredShop = merchants.find((m) => m.shopId === selectedShopId);
   const scopePrefix = currentFilteredShop ? currentFilteredShop.shopName : "Platform";
 
-  const gmv = analytics?.sales?.realized_sales
+  const realizedSales = analytics?.sales?.realized_sales
     ? `₹${parseFloat(analytics.sales.realized_sales).toLocaleString("en-IN")}`
     : "₹0";
   const activeShops = analytics?.shops?.active_shops ?? merchants.length;
@@ -304,9 +302,9 @@ export default function SuperAdminDashboard() {
                 {/* KPI Metric Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <MetricCard
-                    title={`${scopePrefix} GMV (${activePeriodLabel})`}
-                    value={gmv}
-                    contextText="Realized Sales"
+                    title={`${scopePrefix} Realized Sales (${activePeriodLabel})`}
+                    value={realizedSales}
+                    contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
@@ -318,16 +316,16 @@ export default function SuperAdminDashboard() {
                     accentColor="emerald"
                   />
                   <MetricCard
-                    title={`Completed Orders (${activePeriodLabel})`}
+                    title={`Total Orders (${activePeriodLabel})`}
                     value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={avgOrderText}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} completed · ${analytics?.orders?.rejected_orders ?? 0} rejected`}
                     icon={Receipt}
                     accentColor="slate"
                   />
                   <MetricCard
                     title="Stock-Out Alerts"
                     value={`${outOfStock} SKUs`}
-                    contextText="Critical Replenishment"
+                    contextText="Zero Available Stock"
                     icon={AlertTriangle}
                     accentColor="amber"
                   />
@@ -451,7 +449,7 @@ export default function SuperAdminDashboard() {
                     </div>
                     <h4 className="text-xs font-bold text-slate-900">Master Catalog</h4>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Universal barcode registry, categories, and merchant SKU promotions.
+                      Universal barcode registry and categories.
                     </p>
                   </div>
 
@@ -467,7 +465,7 @@ export default function SuperAdminDashboard() {
                     </div>
                     <h4 className="text-xs font-bold text-slate-900">Marketing Campaigns</h4>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Launch platform-wide banners, discounts, and customer incentives.
+                      Launch platform-wide banners, announcements, and storefront campaigns.
                     </p>
                   </div>
                 </div>
@@ -487,7 +485,6 @@ export default function SuperAdminDashboard() {
               <MasterCatalogTable
                 products={masterProducts}
                 onRefresh={loadData}
-                onOpenPromote={() => setIsPromoteOpen(true)}
               />
             )}
 
@@ -495,6 +492,7 @@ export default function SuperAdminDashboard() {
             {activeTab === "campaigns" && (
               <CampaignsManager
                 campaigns={campaigns}
+                merchants={merchants}
                 onRefresh={loadData}
               />
             )}
@@ -519,9 +517,9 @@ export default function SuperAdminDashboard() {
                 {/* 5 KPI Metric Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                   <MetricCard
-                    title={`${scopePrefix} GMV (${activePeriodLabel})`}
-                    value={gmv}
-                    contextText="Realized Sales"
+                    title={`${scopePrefix} Realized Sales (${activePeriodLabel})`}
+                    value={realizedSales}
+                    contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
@@ -533,9 +531,9 @@ export default function SuperAdminDashboard() {
                     accentColor="emerald"
                   />
                   <MetricCard
-                    title={`Orders (${activePeriodLabel})`}
+                    title={`Total Orders (${activePeriodLabel})`}
                     value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={avgOrderText}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} completed · ${analytics?.orders?.rejected_orders ?? 0} rejected`}
                     icon={Receipt}
                     accentColor="slate"
                   />
@@ -640,16 +638,6 @@ export default function SuperAdminDashboard() {
           </div>
         </main>
       </div>
-
-      {/* Product Promotion Moderation Modal */}
-      <ProductPromotionModal
-        isOpen={isPromoteOpen}
-        onClose={() => setIsPromoteOpen(false)}
-        onSuccess={() => {
-          loadData();
-          setIsPromoteOpen(false);
-        }}
-      />
 
       {/* Onboard Merchant Slide-Over Modal */}
       <OnboardMerchantModal

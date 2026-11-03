@@ -34,23 +34,23 @@ export function ProductDetailModal({
   const isOutOfStock = product.is_out_of_stock || !product.is_orderable;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#123324]/60 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="bg-[#FFFDF8] w-full max-w-lg rounded-t-3xl sm:rounded-2xl max-h-[90vh] overflow-y-auto shadow-2xl border border-[#e2ddd4]">
         {/* Header with Close */}
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm px-5 py-3.5 border-b border-slate-100 flex items-center justify-between z-10">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+        <div className="sticky top-0 bg-[#FFFDF8]/95 backdrop-blur-sm px-5 py-3.5 border-b border-[#e2ddd4] flex items-center justify-between z-10">
+          <span className="text-xs font-bold text-[#6d756f] uppercase tracking-wider">
             {product.brand || "Product Details"}
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+            className="p-1 rounded-full text-[#6d756f] hover:text-[#123324] hover:bg-[#eee8dc] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Media */}
-        <div className="w-full aspect-[4/3] bg-slate-50 flex items-center justify-center border-b border-slate-100 p-6 relative">
+        <div className="w-full aspect-[4/3] bg-gradient-to-br from-[#efe2c7]/40 to-[#d5b275]/20 flex items-center justify-center border-b border-[#e2ddd4] p-6 relative">
           {product.image ? (
             <img
               src={product.image}
@@ -58,12 +58,12 @@ export function ProductDetailModal({
               className="max-h-full max-w-full object-contain"
             />
           ) : (
-            <Package className="w-16 h-16 text-slate-300" />
+            <Package className="w-16 h-16 text-[#baa98a]" />
           )}
 
           {isOutOfStock && (
-            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px] flex items-center justify-center">
-              <span className="px-3 py-1.5 bg-white text-slate-900 text-xs font-bold rounded-lg uppercase tracking-wider">
+            <div className="absolute inset-0 bg-[#123324]/75 backdrop-blur-[1px] flex items-center justify-center">
+              <span className="px-3 py-1.5 bg-white text-[#123324] text-xs font-bold rounded-lg uppercase tracking-wider">
                 Currently Out of Stock
               </span>
             </div>
@@ -73,14 +73,14 @@ export function ProductDetailModal({
         {/* Content Body */}
         <div className="p-5 space-y-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
+            <h2 className="font-display font-bold text-base sm:text-lg text-[#123324] tracking-tight">
               {product.name}
             </h2>
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-xl font-bold text-slate-900">₹{price.toFixed(0)}</span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                Verified Quality
+              <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{price.toFixed(0)}</span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
+                <ShieldCheck className="w-3 h-3 text-[#1F5D42]" />
+                Fresh Shelf Quality
               </span>
             </div>
           </div>
@@ -88,7 +88,7 @@ export function ProductDetailModal({
           {/* Variants selector if multiple variants exist */}
           {product.variants && product.variants.length > 1 && (
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2">
+              <label className="block text-xs font-bold text-[#17251e] mb-2">
                 Select Pack / Variant
               </label>
               <div className="flex flex-wrap gap-2">
@@ -100,8 +100,8 @@ export function ProductDetailModal({
                       onClick={() => setSelectedVariant(v)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
                         isSelected
-                          ? "border-[#1F5D42] bg-emerald-50 text-[#1F5D42] ring-1 ring-[#1F5D42]"
-                          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                          ? "border-[#1F5D42] bg-[#e7f2eb] text-[#1F5D42] ring-1 ring-[#1F5D42]"
+                          : "border-[#dcd5c9] text-[#17251e] bg-white hover:bg-[#f6f0e6]"
                       }`}
                     >
                       {v.name} • ₹{parseFloat(v.price || "0").toFixed(0)}
@@ -114,19 +114,19 @@ export function ProductDetailModal({
 
           {/* Description */}
           {product.description && (
-            <div className="pt-2 border-t border-slate-100">
-              <h4 className="text-xs font-bold text-slate-700 mb-1">Description</h4>
-              <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
+            <div className="pt-2 border-t border-[#eee8dc]">
+              <h4 className="text-xs font-bold text-[#17251e] mb-1">Description</h4>
+              <p className="text-xs text-[#5e665f] leading-relaxed whitespace-pre-line">
                 {product.description}
               </p>
             </div>
           )}
 
           {/* Action Footer */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+          <div className="pt-4 border-t border-[#eee8dc] flex items-center justify-between gap-3">
             <div>
-              <span className="text-[11px] text-slate-500 block">Total Price</span>
-              <span className="text-lg font-bold text-slate-900">
+              <span className="text-[11px] text-[#6d756f] block">Total Price</span>
+              <span className="font-display font-bold text-lg text-[#123324]">
                 ₹{(price * Math.max(1, cartQuantity)).toFixed(0)}
               </span>
             </div>
@@ -134,15 +134,15 @@ export function ProductDetailModal({
             {isOutOfStock ? (
               <button
                 disabled
-                className="px-5 py-2.5 bg-slate-100 text-slate-400 font-bold text-xs rounded-xl cursor-not-allowed"
+                className="px-5 py-2.5 bg-gray-100 text-[#8b918d] font-bold text-xs rounded-xl cursor-not-allowed"
               >
                 Out of Stock
               </button>
             ) : cartQuantity > 0 ? (
-              <div className="flex items-center bg-[#1F5D42] text-white rounded-xl px-2 py-1 shadow-sm">
+              <div className="flex items-center bg-[#1F5D42] text-white rounded-xl px-2 py-1 shadow-md">
                 <button
                   onClick={() => onUpdateQuantity(product, -1)}
-                  className="p-1.5 hover:bg-[#164430] rounded-lg transition-colors"
+                  className="p-1.5 hover:bg-[#123324] rounded-lg transition-colors"
                 >
                   <Minus className="w-4 h-4" />
                 </button>
@@ -151,7 +151,7 @@ export function ProductDetailModal({
                 </span>
                 <button
                   onClick={() => onUpdateQuantity(product, 1)}
-                  className="p-1.5 hover:bg-[#164430] rounded-lg transition-colors"
+                  className="p-1.5 hover:bg-[#123324] rounded-lg transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -161,9 +161,9 @@ export function ProductDetailModal({
                 onClick={() => {
                   onAdd(product, selectedVariant);
                 }}
-                className="px-6 py-2.5 bg-[#1F5D42] hover:bg-[#164430] text-white font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+                className="px-6 py-2.5 bg-[#E8A33D] hover:bg-[#D6902B] text-[#123324] font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4 stroke-[2.5]" />
                 <span>Add to Basket</span>
               </button>
             )}

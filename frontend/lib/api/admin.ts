@@ -112,6 +112,19 @@ export interface MerchantShopItem {
   publicSlug: string;
 }
 
+export interface CampaignItem {
+  id: number;
+  title: string;
+  content: string;
+  status: "DRAFT" | "ACTIVE" | "ENDED";
+  shop_scope: "ALL_SHOPS" | "SELECTED_SHOPS";
+  selected_shops?: number[];
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export const adminApi = {
   login: async (payload: SuperAdminLoginRequest): Promise<SuperAdminLoginResponse> => {
     const res = await apiClient.post<SuperAdminLoginResponse>("/auth/super-admin/login/", payload);
@@ -181,16 +194,26 @@ export const adminApi = {
     return res.data;
   },
 
-  createMasterProduct: async (payload: Omit<MasterProduct, "id">, token?: string) => {
+  createMasterProduct: async (payload: FormData | Partial<MasterProduct>, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined" && payload instanceof FormData) {
+      headers["Content-Type"] = "multipart/form-data";
+    }
     const res = await apiClient.post<MasterProduct>("/catalog/master-products/", payload, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers,
     });
     return res.data;
   },
 
-  updateMasterProduct: async (id: number, payload: Partial<MasterProduct>, token?: string) => {
+  updateMasterProduct: async (id: number, payload: FormData | Partial<MasterProduct>, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined" && payload instanceof FormData) {
+      headers["Content-Type"] = "multipart/form-data";
+    }
     const res = await apiClient.patch<MasterProduct>(`/catalog/master-products/${id}/`, payload, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers,
     });
     return res.data;
   },
@@ -278,17 +301,8 @@ export const adminApi = {
   },
 
   // Campaign Management (CampaignViewSet)
-  listCampaigns: async (token?: string) => {
-    const res = await apiClient.get<Array<{
-      id: number;
-      name: string;
-      banner_url: string;
-      discount_percentage: string;
-      status: "DRAFT" | "ACTIVE" | "ENDED";
-      starts_at: string;
-      ends_at: string;
-      selected_shops?: number[];
-    }>>("/campaigns/", {
+  listCampaigns: async (token?: string): Promise<CampaignItem[]> => {
+    const res = await apiClient.get<CampaignItem[]>("/campaigns/", {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
@@ -296,16 +310,16 @@ export const adminApi = {
 
   createCampaign: async (
     payload: {
-      name: string;
-      banner_url?: string;
-      discount_percentage?: string;
-      starts_at: string;
-      ends_at?: string;
+      title: string;
+      content?: string;
+      shop_scope: "ALL_SHOPS" | "SELECTED_SHOPS";
       selected_shops?: number[];
+      starts_at?: string | null;
+      ends_at?: string | null;
     },
     token?: string
-  ) => {
-    const res = await apiClient.post("/campaigns/", payload, {
+  ): Promise<CampaignItem> => {
+    const res = await apiClient.post<CampaignItem>("/campaigns/", payload, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;

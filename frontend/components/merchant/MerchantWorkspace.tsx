@@ -35,6 +35,8 @@ import {
   Boxes,
   CheckCircle2,
   Sparkles,
+  MessageCircle,
+  Receipt,
 } from "lucide-react";
 import { getApiError, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
 
@@ -437,9 +439,17 @@ export default function MerchantWorkspace() {
     return (
       <>
         <Title
-          eyebrow="Performance"
-          title="Simple analytics"
-          description="Last 30 days · easy to read at a glance"
+          eyebrow={lang === "hi" ? "दुकान प्रदर्शन" : "Shop Performance"}
+          title={lang === "hi" ? "व्यापार विश्लेषण" : "Business Analytics"}
+          description={
+            period === "today"
+              ? (lang === "hi" ? "आज का लाइव ऑर्डर व बिक्री डेटा" : "Live order & sales telemetry for today")
+              : period === "yesterday"
+              ? (lang === "hi" ? "कल का ऑर्डर व बिक्री डेटा" : "Order & sales telemetry for yesterday")
+              : period === "this_week"
+              ? (lang === "hi" ? "इस सप्ताह का ऑर्डर व बिक्री डेटा" : "Order & sales telemetry for this week")
+              : (lang === "hi" ? "इस माह का ऑर्डर व बिक्री डेटा" : "Order & sales telemetry for this month")
+          }
           action={<PeriodSelect value={period} onChange={setPeriod} />}
         />
         {analytics.isLoading ? (
@@ -447,7 +457,7 @@ export default function MerchantWorkspace() {
         ) : analytics.isError ? (
           <Notice error={analytics.error} onRetry={() => analytics.refetch()} />
         ) : (
-          <VisualAnalyticsPanel data={analytics.data!} />
+          <VisualAnalyticsPanel data={analytics.data!} period={period} lang={lang} />
         )}
       </>
     );
@@ -1080,6 +1090,72 @@ function InventoryTickRow({
   );
 }
 
+function getMerchantWhatsAppUrl(order: MerchantOrder, mode: "status" | "bill" = "status"): string {
+  const cleanPhone = (order.customer_phone_snapshot || "").replace(/\D/g, "");
+  const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+  if (!phoneWithCountry) return "";
+
+  const customerName = order.customer_name_snapshot || "Customer";
+  const shortId = `#SK-${order.id}`;
+  const total = parseFloat(order.total_amount || "0").toFixed(0);
+
+  if (mode === "bill") {
+    const itemsLines = (order.items || []).map(
+      (item) => `• ${item.product_name_snapshot}${item.variant_name_snapshot ? ` (${item.variant_name_snapshot})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${parseFloat(item.line_total || "0").toFixed(0)}`
+    ).join("\n");
+    const addr = order.delivery_address;
+    const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
+
+    const billMsg = [
+      `🛍️ *Order ${shortId} Bill Summary*`,
+      ``,
+      `Namaste ${customerName}! Here is the bill for your order:`,
+      ``,
+      itemsLines,
+      ``,
+      order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0
+        ? `Delivery Charge: ₹${parseFloat(order.delivery_charge_snapshot).toFixed(0)}`
+        : null,
+      `*Total Amount: ₹${total}* (${order.payment_status === "PAID" ? "PAID Online" : "Payment Pending / Cash on Delivery"})`,
+      order.fulfillment_type === "HOME_DELIVERY" && addrText ? `📍 Delivering to: ${addrText}` : null,
+      ``,
+      `Thank you for ordering with us! 🙏`,
+    ].filter(Boolean).join("\n");
+
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(billMsg)}`;
+  }
+
+  // Status update message
+  let statusMsg = "";
+  switch (order.status) {
+    case "PENDING":
+      statusMsg = `Namaste ${customerName}! We have received your order ${shortId} for ₹${total}. Checking items on shelves and confirming shortly!`;
+      break;
+    case "ACCEPTED":
+      statusMsg = `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been accepted and is now being packed! 📦`;
+      break;
+    case "PREPARING":
+      statusMsg = `Namaste ${customerName}! Your order ${shortId} is currently being packed. It will be ready soon!`;
+      break;
+    case "READY":
+      const actionText = order.fulfillment_type === "PICKUP"
+        ? "Your order is packed and ready for store pickup. Please visit us to collect!"
+        : "Your order is packed and out for delivery to your address!";
+      statusMsg = `Namaste ${customerName}! Your order ${shortId} is ready! ${actionText} Total: ₹${total}.`;
+      break;
+    case "COMPLETED":
+      statusMsg = `Namaste ${customerName}! Your order ${shortId} has been completed/delivered. Thank you for shopping with us! 🙏`;
+      break;
+    case "REJECTED":
+      statusMsg = `Namaste ${customerName}, we are unable to accept order ${shortId} at this time. Sorry for the inconvenience!`;
+      break;
+    default:
+      statusMsg = `Namaste ${customerName}! Regarding your order ${shortId}: Total ₹${total}.`;
+  }
+
+  return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(statusMsg)}`;
+}
+
 // -------------------------------------------------------------
 // Visual Board Component 3: Orders with Per-Item Resolve
 // -------------------------------------------------------------
@@ -1124,6 +1200,14 @@ function VisualOrderCard({
             {dateTime(order.created_at)} · {order.customer_phone_snapshot} ·{" "}
             <span className="font-semibold text-[#1F5D42]">{order.fulfillment_type === "PICKUP" ? "Store Pickup" : "Home Delivery"}</span>
           </p>
+          {order.fulfillment_type === "HOME_DELIVERY" && order.delivery_address && (
+            <p className="text-[11px] text-[#5e665f] mt-1 bg-[#f7f3eb] px-2.5 py-1 rounded-lg border border-[#e8e2d5] inline-flex items-center gap-1.5">
+              <span>📍</span>
+              <span className="font-semibold text-[#123324]">
+                {[order.delivery_address.address_line, order.delivery_address.area, order.delivery_address.city, order.delivery_address.pincode].filter(Boolean).join(", ")}
+              </span>
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="font-display font-bold text-base text-[#1F5D42]">{money(order.total_amount)}</span>
@@ -1190,9 +1274,9 @@ function VisualOrderCard({
         </div>
       )}
 
-      {/* Action Transition Buttons */}
+      {/* Action Transition & WhatsApp Buttons */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#eee9df]">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {transitions[order.status]?.map(([action, label]) => (
             <button
               disabled={busy}
@@ -1209,8 +1293,35 @@ function VisualOrderCard({
               {label}
             </button>
           ))}
-          {!transitions[order.status] && <span className="text-xs text-[#89958c]">No further actions needed</span>}
+          {!transitions[order.status] && <span className="text-xs text-[#89958c]">Order {order.status.toLowerCase()}</span>}
         </div>
+
+        {/* 1-Click WhatsApp Actions for Merchant */}
+        {order.customer_phone_snapshot && (
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={getMerchantWhatsAppUrl(order, "status")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white text-xs font-bold shadow-xs transition active:scale-[0.98]"
+              title="Message customer on WhatsApp with pre-filled status update"
+            >
+              <MessageCircle className="w-3.5 h-3.5 fill-white" />
+              <span>WhatsApp Customer</span>
+            </a>
+
+            <a
+              href={getMerchantWhatsAppUrl(order, "bill")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-xs font-bold shadow-xs transition active:scale-[0.98]"
+              title="Share pre-filled itemized bill with customer on WhatsApp"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Share Bill</span>
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1219,87 +1330,272 @@ function VisualOrderCard({
 // -------------------------------------------------------------
 // Visual Board Component 4: Simple Analytics
 // -------------------------------------------------------------
-function VisualAnalyticsPanel({ data }: { data: Overview }) {
+function VisualAnalyticsPanel({
+  data,
+  period = "today",
+  lang = "en",
+}: {
+  data: Overview;
+  period?: string;
+  lang?: "en" | "hi";
+}) {
   const topProducts = data.top_products || [];
   const maxUnits = topProducts.reduce((max, item) => Math.max(max, Number(item.units_sold) || 0), 0) || 1;
 
   const totalOrders = data.orders?.total_orders ?? 0;
   const completedOrders = data.orders?.completed_orders ?? 0;
+  const rejectedOrders = data.orders?.rejected_orders ?? 0;
   const outOfStockCount = data.inventory?.out_of_stock_items_count ?? 0;
+  const distribution = data.orders?.status_distribution || {
+    PENDING: 0,
+    ACCEPTED: 0,
+    PREPARING: 0,
+    READY: 0,
+    COMPLETED: 0,
+    REJECTED: 0,
+  };
+
+  const periodLabels: Record<string, { en: string; hi: string }> = {
+    today: { en: "Today", hi: "आज" },
+    yesterday: { en: "Yesterday", hi: "कल" },
+    this_week: { en: "This Week", hi: "इस सप्ताह" },
+    this_month: { en: "This Month", hi: "इस माह" },
+  };
+  const activePeriodLabel = (periodLabels[period] || periodLabels.today)[lang === "hi" ? "hi" : "en"];
+
+  const lifecycleStages = [
+    {
+      key: "PENDING",
+      label: lang === "hi" ? "स्वीकृति प्रतीक्षित" : "Pending Acceptance",
+      count: distribution.PENDING ?? 0,
+      color: "bg-amber-500",
+      badge: "bg-amber-50 text-amber-800 border-amber-200",
+    },
+    {
+      key: "ACCEPTED",
+      label: lang === "hi" ? "स्वीकृत" : "Accepted in Queue",
+      count: distribution.ACCEPTED ?? 0,
+      color: "bg-sky-500",
+      badge: "bg-sky-50 text-sky-800 border-sky-200",
+    },
+    {
+      key: "PREPARING",
+      label: lang === "hi" ? "पैकिंग जारी" : "Preparing",
+      count: distribution.PREPARING ?? 0,
+      color: "bg-indigo-500",
+      badge: "bg-indigo-50 text-indigo-800 border-indigo-200",
+    },
+    {
+      key: "READY",
+      label: lang === "hi" ? "तैयार" : "Ready for Pickup",
+      count: distribution.READY ?? 0,
+      color: "bg-purple-500",
+      badge: "bg-purple-50 text-purple-800 border-purple-200",
+    },
+    {
+      key: "COMPLETED",
+      label: lang === "hi" ? "पूर्ण व डिलीवर्ड" : "Completed",
+      count: distribution.COMPLETED ?? 0,
+      color: "bg-[#1F5D42]",
+      badge: "bg-emerald-50 text-emerald-800 border-emerald-200",
+    },
+    {
+      key: "REJECTED",
+      label: lang === "hi" ? "अस्वीकृत / रद्द" : "Rejected",
+      count: distribution.REJECTED ?? 0,
+      color: "bg-rose-500",
+      badge: "bg-rose-50 text-rose-800 border-rose-200",
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* 2 Big Headline Metric Cards (Visual Board Style) */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-[#ddd6ca] bg-white p-6 shadow-xs">
-          <p className="text-xs font-bold text-[#6d756f] uppercase tracking-wider">Orders Today</p>
-          <p className="font-display font-bold text-4xl text-[#1F5D42] mt-2">
-            {totalOrders}
-          </p>
-          <p className="text-[11px] text-[#7d857e] mt-1">{completedOrders} fulfilled & collected</p>
+      {/* 4 Canonical Headline Metric Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Metric 1: Realized Sales */}
+        <Metric
+          icon={IndianRupee}
+          label={lang === "hi" ? `वसूल की गई बिक्री (${activePeriodLabel})` : `Realized Sales (${activePeriodLabel})`}
+          value={money(data.sales?.realized_sales ?? 0)}
+          note={
+            lang === "hi"
+              ? `औसत ऑर्डर मूल्य: ${money(data.sales?.average_order_value ?? 0)}`
+              : `Avg order value: ${money(data.sales?.average_order_value ?? 0)}`
+          }
+          tint="green"
+        />
+
+        {/* Metric 2: Total Orders */}
+        <Metric
+          icon={ShoppingBag}
+          label={lang === "hi" ? `कुल ऑर्डर्स (${activePeriodLabel})` : `Total Orders (${activePeriodLabel})`}
+          value={totalOrders}
+          note={
+            lang === "hi"
+              ? `${completedOrders} पूर्ण · ${rejectedOrders} रद्द/अस्वीकृत`
+              : `${completedOrders} fulfilled · ${rejectedOrders} rejected`
+          }
+          tint="yellow"
+        />
+
+        {/* Metric 3: Customer Telemetry */}
+        <Metric
+          icon={UsersRound}
+          label={lang === "hi" ? `सक्रिय खरीदार (${activePeriodLabel})` : `Ordering Customers (${activePeriodLabel})`}
+          value={data.customers?.ordering_customers ?? 0}
+          note={
+            lang === "hi"
+              ? `${data.customers?.returning_customers ?? 0} दोबारा खरीदार (≥2 ऑर्डर)`
+              : `${data.customers?.returning_customers ?? 0} returning (≥2 orders)`
+          }
+          tint="blue"
+        />
+
+        {/* Metric 4: Inventory Health (Strictly zero/negative available stock) */}
+        <Metric
+          icon={AlertTriangle}
+          label={lang === "hi" ? "स्टॉक-आउट अलर्ट" : "Stock-Out Alerts"}
+          value={`${outOfStockCount} SKUs`}
+          note={
+            outOfStockCount > 0
+              ? (lang === "hi" ? "शून्य उपलब्ध मात्रा · नया स्टॉक जोड़ें" : "Zero available stock · Restock item")
+              : (lang === "hi" ? "सभी स्टॉक स्तर धनात्मक हैं" : "All stock balances positive")
+          }
+          tint={outOfStockCount > 0 ? "rose" : "green"}
+        />
+      </div>
+
+      {/* Order Fulfillment Pipeline (6 Canonical States) */}
+      <div className="rounded-2xl border border-[#ddd6ca] bg-white p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#eee9df] gap-2">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-[#1F5D42]" />
+            <h4 className="font-display font-bold text-sm text-[#123324]">
+              {lang === "hi" ? "ऑर्डर जीवनचक्र पाइपलाइन" : "Order Lifecycle Pipeline"}
+            </h4>
+          </div>
+          <span className="text-[11px] text-[#6d756f]">
+            {lang === "hi"
+              ? `कुल दर्ज ऑर्डर्स: ${totalOrders}`
+              : `Total recorded orders: ${totalOrders}`}
+          </span>
         </div>
 
-        <div className="rounded-2xl border border-[#f5deb5] bg-[#fff9ed] p-6 shadow-xs">
-          <p className="text-xs font-bold text-[#8a5b1d] uppercase tracking-wider flex items-center gap-1.5">
-            <AlertTriangle size={14} />
-            <span>Low Stock Warning</span>
-          </p>
-          <p className="font-display font-bold text-2xl text-[#8a5b1d] mt-2">
-            {outOfStockCount > 0 ? `${outOfStockCount} items out of stock` : "0 items low on stock"}
-          </p>
-          <p className="text-[11px] text-[#7a531d] mt-1">
-            {outOfStockCount > 0 ? "Review stock batches and restock items" : "All product inventory levels are healthy"}
-          </p>
+        {/* Segmented Pipeline Bar */}
+        <div className="mt-4 h-3 w-full rounded-full bg-[#f4f1ea] overflow-hidden flex">
+          {totalOrders === 0 ? (
+            <div className="h-full w-full bg-[#e8e4db]" />
+          ) : (
+            lifecycleStages.map((stage) => {
+              if (stage.count === 0) return null;
+              const widthPct = (stage.count / totalOrders) * 100;
+              return (
+                <div
+                  key={stage.key}
+                  className={`h-full ${stage.color} transition-all`}
+                  style={{ width: `${widthPct}%` }}
+                  title={`${stage.label}: ${stage.count} (${Math.round(widthPct)}%)`}
+                />
+              );
+            })
+          )}
+        </div>
+
+        {/* Stage Status Cards Grid */}
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {lifecycleStages.map((stage) => {
+            const pct = totalOrders > 0 ? Math.round((stage.count / totalOrders) * 100) : 0;
+            return (
+              <div
+                key={stage.key}
+                className="p-3 rounded-xl border border-[#eee9df] bg-[#FFFDF8] flex flex-col justify-between"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${stage.color}`} />
+                  <span className="text-[10px] font-bold text-[#6d756f] uppercase truncate" title={stage.label}>
+                    {stage.label}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between">
+                  <span className="font-display font-bold text-lg text-[#123324]">{stage.count}</span>
+                  <span className="text-[10px] font-mono text-[#8a968d]">{pct}%</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Visual Board Top Selling Progress Bars from Live Backend */}
-      <div className="rounded-2xl border border-[#ddd6ca] bg-white p-6 shadow-xs">
-        <h4 className="font-display font-bold text-sm text-[#123324] mb-4">Top-selling items (Units sold)</h4>
+      {/* Top-Selling Products Leaderboard (Units Sold & Realized Revenue) */}
+      <div className="rounded-2xl border border-[#ddd6ca] bg-white p-5 shadow-xs">
+        <div className="flex items-center justify-between pb-3 border-b border-[#eee9df]">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#E8A33D]" />
+            <h4 className="font-display font-bold text-sm text-[#123324]">
+              {lang === "hi" ? "शीर्ष बिकने वाले उत्पाद" : "Top-Selling Products (Completed Orders)"}
+            </h4>
+          </div>
+          <span className="text-[11px] text-[#6d756f]">
+            {lang === "hi" ? "इकाई बिक्री व वसूल राजस्व" : "Ranked by units sold & revenue contribution"}
+          </span>
+        </div>
+
         {topProducts.length === 0 ? (
-          <div className="py-6 text-center text-xs text-[#869088]">
-            No sales recorded yet. Fulfilled customer orders will populate top selling items automatically.
+          <div className="py-8 text-center text-xs text-[#869088]">
+            {lang === "hi"
+              ? "इस अवधि के दौरान पूर्ण किए गए ऑर्डर्स का कोई बिक्री डेटा उपलब्ध नहीं है।"
+              : "No completed order sales recorded for this period yet."}
           </div>
         ) : (
-          <div className="space-y-4">
-            {topProducts.map((item) => {
+          <div className="mt-4 space-y-3">
+            {topProducts.map((item, idx) => {
               const units = Number(item.units_sold) || 0;
               const widthPct = Math.round((units / maxUnits) * 100);
               return (
-                <div key={item.product_name} className="grid grid-cols-[140px_1fr_40px] items-center gap-3 text-xs">
-                  <span className="truncate font-medium text-[#123324]" title={item.product_name}>
-                    {item.product_name}
-                  </span>
-                  <div className="h-2.5 rounded-full bg-[#eee9df] overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#1F5D42] to-[#5f967a]"
-                      style={{ width: `${Math.max(widthPct, 8)}%` }}
-                    />
+                <div
+                  key={`${item.product_name}-${item.sku ?? idx}`}
+                  className="p-3 rounded-xl border border-[#eee9df] bg-[#FFFDF8] flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-[#1F5D42]/40 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="w-5 text-center text-xs font-mono font-bold text-[#8a968d]">
+                      #{idx + 1}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-xs text-[#123324]">{item.product_name}</p>
+                      <p className="text-[10px] text-[#6d756f] mt-0.5">
+                        {item.variant_name && <span>{item.variant_name} · </span>}
+                        {item.sku ? <span className="font-mono">SKU: {item.sku}</span> : "Standard"}
+                      </p>
+                    </div>
                   </div>
-                  <b className="text-right font-mono text-[#123324]">{units}</b>
+
+                  <div className="flex items-center gap-4 justify-between sm:justify-end">
+                    <div className="w-24 sm:w-36">
+                      <div className="h-2 rounded-full bg-[#eee9df] overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-[#1F5D42] to-[#5f967a]"
+                          style={{ width: `${Math.max(widthPct, 10)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-[#6d756f] mt-0.5 block">
+                        {units} {lang === "hi" ? "इकाइयाँ बिकीं" : "units sold"}
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="font-display font-bold text-xs text-[#1F5D42]">
+                        {money(item.total_revenue)}
+                      </span>
+                      <span className="text-[10px] text-[#8a968d] block">
+                        {lang === "hi" ? "राजस्व" : "Revenue"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
-      </div>
-
-      {/* Realized Sales Details */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Metric
-          icon={IndianRupee}
-          label="Realized sales"
-          value={money(data.sales?.realized_sales ?? 0)}
-          note={`Avg order: ${money(data.sales?.average_order_value ?? 0)}`}
-          tint="green"
-        />
-        <Metric
-          icon={UsersRound}
-          label="Active customers"
-          value={data.customers?.ordering_customers ?? 0}
-          note={`${data.customers?.returning_customers ?? 0} returning customers`}
-          tint="blue"
-        />
       </div>
     </div>
   );
@@ -1777,7 +2073,7 @@ function ShopSettings({
     setSaveError("");
     try {
       const { logo, ...restValues } = values;
-      const primaryPhoto = photos.find((p) => p.file || p.url);
+      const primaryPhoto = photos.find((p) => p.file || (p.url && p.url.trim() !== ""));
       if (primaryPhoto?.file) {
         const formData = new FormData();
         Object.entries(restValues).forEach(([k, v]) => {
@@ -1792,8 +2088,10 @@ function ShopSettings({
         formData.append("logo", primaryPhoto.file);
         await merchantApi.updateShop(formData);
       } else {
+        const isPhotoDeleted = !primaryPhoto;
         await merchantApi.updateShop({
           ...restValues,
+          delete_logo: isPhotoDeleted ? true : undefined,
           opening_time: values.opening_time || null,
           closing_time: values.closing_time || null,
           delivery_charge: String(values.delivery_charge),
@@ -1813,13 +2111,17 @@ function ShopSettings({
               });
               processedUrls.push(base64);
             } catch {
-              if (p.url) processedUrls.push(p.url);
+              if (p.url && p.url.trim() !== "") processedUrls.push(p.url);
             }
-          } else if (p.url) {
+          } else if (p.url && p.url.trim() !== "") {
             processedUrls.push(p.url);
           }
         }
-        localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
+        if (processedUrls.length > 0) {
+          localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
+        } else {
+          localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+        }
       }
       setMessage(lang === "hi" ? "दुकान का विवरण सफलतापूर्वक सहेजा गया।" : "Shop details saved successfully.");
       setInitialPhotos(photos.map((p) => ({ ...p, file: undefined })));

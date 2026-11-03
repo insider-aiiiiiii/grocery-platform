@@ -209,14 +209,29 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
             "city": {"required": False, "allow_blank": False},
             "state": {"required": False, "allow_blank": False},
             "pincode": {"required": False, "allow_blank": False},
+            "logo": {"required": False, "allow_null": True},
         }
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, "copy") else dict(data)
-        if "logo" in data and isinstance(data["logo"], str):
-            if not data["logo"] or data["logo"].startswith("http") or data["logo"].startswith("/"):
+        if "delete_logo" in data and str(data["delete_logo"]).lower() in ("true", "1"):
+            data["logo"] = None
+        elif "logo" in data:
+            if data["logo"] in (None, "", "null", "undefined"):
+                data["logo"] = None
+            elif isinstance(data["logo"], str) and (data["logo"].startswith("http") or data["logo"].startswith("/")):
                 data.pop("logo")
         return super().to_internal_value(data)
+
+    def update(self, instance, validated_data):
+        if "logo" in validated_data and validated_data["logo"] is None:
+            if instance.logo:
+                try:
+                    instance.logo.delete(save=False)
+                except Exception:
+                    pass
+            instance.logo = None
+        return super().update(instance, validated_data)
 
     def validate_delivery_charge(self, value):
         if value < 0:

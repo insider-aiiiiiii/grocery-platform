@@ -40,9 +40,42 @@ MERCHANT_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
 
 CUSTOMER_ACTION_TEMPLATES: Dict[str, Dict[str, str]] = {
     "NEW_ORDER": {
-        "hinglish": "Namaste {shop_name}, maine order #{order_number} place kiya hai total ₹{total_amount} ka. Please check karke confirm karein.",
-        "en": "Hi {shop_name}, I have placed order #{order_number} for ₹{total_amount}. Please confirm availability.",
-        "hi": "नमस्ते {shop_name}, मैंने ₹{total_amount} का ऑर्डर #{order_number} दिया है। कृपया सामान चेक करके बताएं।",
+        "hinglish": (
+            "🛍️ *Order #{order_number}*\n"
+            "Dukaan: *{shop_name}*\n\n"
+            "👤 Customer: {customer_name} ({customer_phone})\n"
+            "🚚 Fulfillment: {fulfillment_display}{address_line}\n\n"
+            "📦 *Items:*\n{items_summary}\n\n"
+            "💰 *Bill Details:*\n"
+            "• Items Total: ₹{items_subtotal}\n"
+            "• Delivery Charge: ₹{delivery_charge}\n"
+            "• *Total Amount: ₹{total_amount}*\n\n"
+            "Namaste {shop_name}, maine order #{order_number} place kiya hai total ₹{total_amount} ka. Please check karke confirm karein."
+        ),
+        "en": (
+            "🛍️ *Order #{order_number}*\n"
+            "Store: *{shop_name}*\n\n"
+            "👤 Customer: {customer_name} ({customer_phone})\n"
+            "🚚 Fulfillment: {fulfillment_display}{address_line}\n\n"
+            "📦 *Items:*\n{items_summary}\n\n"
+            "💰 *Bill Summary:*\n"
+            "• Items Subtotal: ₹{items_subtotal}\n"
+            "• Delivery Charge: ₹{delivery_charge}\n"
+            "• *Total Amount: ₹{total_amount}*\n\n"
+            "Hi {shop_name}, I have placed order #{order_number} for ₹{total_amount}. Please confirm availability."
+        ),
+        "hi": (
+            "🛍️ *नया ऑर्डर #{order_number}*\n"
+            "दुकान: *{shop_name}*\n\n"
+            "👤 ग्राहक: {customer_name} ({customer_phone})\n"
+            "🚚 डिलीवरी: {fulfillment_display}{address_line}\n\n"
+            "📦 *सामान:*\n{items_summary}\n\n"
+            "💰 *बिल विवरण:*\n"
+            "• सामान मूल्य: ₹{items_subtotal}\n"
+            "• डिलीवरी शुल्क: ₹{delivery_charge}\n"
+            "• *कुल राशि: ₹{total_amount}*\n\n"
+            "नमस्ते {shop_name}, मैंने ₹{total_amount} का ऑर्डर #{order_number} दिया है। कृपया सामान चेक करके बताएं।"
+        ),
     },
 }
 
@@ -189,11 +222,14 @@ def get_merchant_order_action_links(
     public_slug = getattr(shop, "public_slug", "") if shop else ""
     shop_order_url = f"/api/v1/shops/public/{public_slug}/" if public_slug else ""
 
+    customer_name = getattr(order, "customer_name_snapshot", "") or "Customer"
+
     context = {
         "order_number": short_order_num,
         "shop_name": shop_name,
         "total_amount": total_amount,
         "shop_order_url": shop_order_url,
+        "customer_name": customer_name,
     }
 
     if language:
@@ -269,14 +305,46 @@ def get_customer_order_notification_links(
     order_id = str(getattr(order, "id", ""))
     short_order_num = order_id[:8] if order_id else "UNKNOWN"
     shop_name = getattr(shop, "name", "Store")
-    total_amount = str(getattr(order, "total_amount", "0.00"))
-    customer_name = getattr(order, "customer_name_snapshot", "")
+    customer_phone = getattr(order, "customer_phone_snapshot", "")
+    fulfillment = getattr(order, "fulfillment_type", "HOME_DELIVERY")
+    subtotal = str(getattr(order, "items_subtotal", total_amount))
+    delivery_charge = str(getattr(order, "delivery_charge_snapshot", "0.00"))
+
+    items_lines = []
+    items_qs = getattr(order, "items", None)
+    if items_qs is not None and hasattr(items_qs, "all"):
+        for item in items_qs.all():
+            p_name = getattr(item, "product_name_snapshot", "")
+            v_name = getattr(item, "variant_name_snapshot", "")
+            name_display = f"{p_name} ({v_name})" if v_name else p_name
+            raw_qty = getattr(item, "quantity", "1")
+            qty_str = str(raw_qty).rstrip("0").rstrip(".") if "." in str(raw_qty) else str(raw_qty)
+            line_tot = str(getattr(item, "line_total", ""))
+            items_lines.append(f"• {name_display} × {qty_str} = ₹{line_tot}")
+
+    items_summary = "\n".join(items_lines) if items_lines else "• Order items"
+
+    addr = getattr(order, "delivery_address", None)
+    addr_line = ""
+    if fulfillment == "HOME_DELIVERY" and addr:
+        parts = [getattr(addr, "address_line", ""), getattr(addr, "area", ""), getattr(addr, "city", ""), getattr(addr, "pincode", "")]
+        text = ", ".join([p for p in parts if p])
+        if text:
+            addr_line = f"\n📍 Address: {text}"
+
+    fulfillment_display = "Home Delivery" if fulfillment == "HOME_DELIVERY" else "Store Pickup"
 
     context = {
         "order_number": short_order_num,
         "shop_name": shop_name,
         "total_amount": total_amount,
         "customer_name": customer_name,
+        "customer_phone": customer_phone,
+        "items_summary": items_summary,
+        "items_subtotal": subtotal,
+        "delivery_charge": delivery_charge,
+        "fulfillment_display": fulfillment_display,
+        "address_line": addr_line,
     }
 
     if language and language.lower().strip() != "all":

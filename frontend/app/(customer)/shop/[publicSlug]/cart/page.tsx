@@ -35,7 +35,7 @@ export default function CustomerCartCheckoutPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Fulfillment Selection (Delivery vs Pickup toggle matching visual board)
-  const [fulfillmentType, setFulfillmentType] = useState<"HOME_DELIVERY" | "STORE_PICKUP">("HOME_DELIVERY");
+  const [fulfillmentType, setFulfillmentType] = useState<"HOME_DELIVERY" | "PICKUP">("HOME_DELIVERY");
 
   // 3 Fields Only
   const [customerName, setCustomerName] = useState("");
@@ -55,7 +55,7 @@ export default function CustomerCartCheckoutPage() {
         setShop(shopData);
 
         if (!shopData.is_home_delivery_enabled && shopData.is_pickup_enabled) {
-          setFulfillmentType("STORE_PICKUP");
+          setFulfillmentType("PICKUP");
         }
 
         const savedCartId = localStorage.getItem(cartStorageKey);
@@ -176,6 +176,11 @@ export default function CustomerCartCheckoutPage() {
 
       // 3. Clear cart from localStorage
       localStorage.removeItem(cartStorageKey);
+
+      // Save order metadata to sessionStorage so order confirmation has links immediately
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(`order_confirmation_${orderRes.id}`, JSON.stringify(orderRes));
+      }
 
       // 4. Redirect to Order Confirmation page with WhatsApp link
       router.push(`/shop/${publicSlug}/orders/${orderRes.id}`);
@@ -339,10 +344,10 @@ export default function CustomerCartCheckoutPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setFulfillmentType("STORE_PICKUP")}
+                onClick={() => setFulfillmentType("PICKUP")}
                 disabled={!shop?.is_pickup_enabled}
                 className={`flex-1 py-2 text-center rounded-lg text-xs font-semibold transition-all ${
-                  fulfillmentType === "STORE_PICKUP"
+                  fulfillmentType === "PICKUP"
                     ? "bg-white text-[#1F5D42] font-bold shadow-sm"
                     : "text-[#5e665f] hover:text-[#17251e]"
                 } ${!shop?.is_pickup_enabled ? "opacity-50 cursor-not-allowed" : ""}`}
