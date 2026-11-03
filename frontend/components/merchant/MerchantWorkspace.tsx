@@ -11,7 +11,6 @@ import {
   Activity,
   ArrowRight,
   Check,
-  ChevronDown,
   Clock3,
   Copy,
   Download,
@@ -2533,7 +2532,6 @@ function PeriodSelect({ value, onChange }: { value: string; onChange: (value: st
         <option value="this_week">This week</option>
         <option value="this_month">This month</option>
       </select>
-      <ChevronDown size={13} />
     </label>
   );
 }
