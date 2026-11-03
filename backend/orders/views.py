@@ -73,6 +73,7 @@ def format_public_order_response(order: Order, shop: Shop, include_token: bool =
 
     data = {
         "id": order.pk,
+        "created_at": order.created_at,
         "status": order.status,
         "payment_status": order.payment_status,
         "fulfillment_type": order.fulfillment_type,

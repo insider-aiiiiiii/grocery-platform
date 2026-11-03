@@ -275,6 +275,8 @@ def cancel_pending_order_as_customer(customer_id, session_id, order_id):
             return order, True
         if order.status != Order.Status.PENDING:
             raise OrderTransitionConflict("Only PENDING Orders can be cancelled by a Customer.")
+        if now >= order.created_at + timedelta(minutes=1):
+            raise OrderTransitionConflict("Orders can only be cancelled within 1 minute of placement.")
 
         _release_pending_stock(order)
         order.status = Order.Status.REJECTED
@@ -299,6 +301,8 @@ def cancel_pending_order_for_shop(shop_id, order_id):
             return order, True
         if order.status != Order.Status.PENDING:
             raise OrderTransitionConflict("Only PENDING Orders can be cancelled.")
+        if now >= order.created_at + timedelta(minutes=1):
+            raise OrderTransitionConflict("Orders can only be cancelled within 1 minute of placement.")
 
         _release_pending_stock(order)
         order.status = Order.Status.REJECTED

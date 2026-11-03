@@ -195,6 +195,7 @@ export interface CheckoutPayload {
 
 export interface CheckoutResponse {
   id: number;
+  created_at: string;
   /** Secret order link token; only present in the response to the checkout request. */
   access_token?: string;
   status: "PENDING" | "ACCEPTED" | "PREPARING" | "READY" | "COMPLETED" | "REJECTED";

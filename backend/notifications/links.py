@@ -220,7 +220,7 @@ def get_merchant_order_action_links(
     shop_name = getattr(shop, "name", "Store") if shop else "Store"
     total_amount = str(getattr(order, "total_amount", "0.00"))
     public_slug = getattr(shop, "public_slug", "") if shop else ""
-    shop_order_url = f"/api/v1/shops/public/{public_slug}/" if public_slug else ""
+    shop_order_url = f"/shop/{public_slug}" if public_slug else ""
 
     customer_name = getattr(order, "customer_name_snapshot", "") or "Customer"
 
@@ -308,6 +308,8 @@ def get_customer_order_notification_links(
     customer_name = getattr(order, "customer_name_snapshot", "Customer") or "Customer"
     customer_phone = getattr(order, "customer_phone_snapshot", "")
     fulfillment = getattr(order, "fulfillment_type", "HOME_DELIVERY")
+    public_slug = getattr(shop, "public_slug", "")
+    shop_order_url = f"/shop/{public_slug}" if public_slug else ""
 
 
     total_amount = str(getattr(order, "total_amount", "0.00"))
@@ -351,6 +353,7 @@ def get_customer_order_notification_links(
         "delivery_charge": delivery_charge,
         "fulfillment_display": fulfillment_display,
         "address_line": addr_line,
+        "shop_order_url": shop_order_url,
     }
 
     if language and language.lower().strip() != "all":
