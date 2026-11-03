@@ -1,5 +1,6 @@
 import re
 import urllib.parse
+from django.conf import settings
 from typing import Any, Dict, Optional, Union
 
 DEFAULT_LANGUAGE = "hinglish"
@@ -220,7 +221,8 @@ def get_merchant_order_action_links(
     shop_name = getattr(shop, "name", "Store") if shop else "Store"
     total_amount = str(getattr(order, "total_amount", "0.00"))
     public_slug = getattr(shop, "public_slug", "") if shop else ""
-    shop_order_url = f"/shop/{public_slug}" if public_slug else ""
+    frontend_base_url = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    shop_order_url = f"{frontend_base_url}/shop/{public_slug}" if public_slug and frontend_base_url else ""
 
     customer_name = getattr(order, "customer_name_snapshot", "") or "Customer"
 
@@ -239,12 +241,16 @@ def get_merchant_order_action_links(
                 f"Unsupported language '{language}'. Supported languages: {SUPPORTED_LANGUAGES}"
             )
         message_text = get_template_text(event_key, lang_key, context)
+        if shop_order_url and "{shop_order_url}" not in message_text:
+            message_text = f"{message_text}\nShop link: {shop_order_url}"
         return build_whatsapp_link(customer_phone, message_text, default_country_code=default_country_code)
 
     # Return all supported languages
     result: Dict[str, str] = {}
     for lang in SUPPORTED_LANGUAGES:
         message_text = get_template_text(event_key, lang, context)
+        if shop_order_url and "{shop_order_url}" not in message_text:
+            message_text = f"{message_text}\nShop link: {shop_order_url}"
         result[lang] = build_whatsapp_link(customer_phone, message_text, default_country_code=default_country_code)
 
     return result

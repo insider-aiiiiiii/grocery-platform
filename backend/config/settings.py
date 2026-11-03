@@ -290,6 +290,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # WhatsApp Integration Settings
 # Primary customer/merchant communication utilizes direct WhatsApp Click-to-Chat (wa.me) draft links.
 DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', '91')
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
 
 # CORS Configuration
 from corsheaders.defaults import default_headers
