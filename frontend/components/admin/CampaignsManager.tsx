@@ -1,51 +1,124 @@
 "use client";
 
-import React, { useState } from "react";
-import { Megaphone, Plus, Calendar, Tag, CheckCircle2, Play, Square, AlertCircle } from "lucide-react";
-import { adminApi } from "@/lib/api/admin";
+import React, { useState, useMemo } from "react";
+import {
+  Megaphone,
+  Plus,
+  Calendar,
+  Store,
+  CheckCircle2,
+  Play,
+  Square,
+  Trash2,
+  AlertCircle,
+  Search,
+  CheckSquare,
+  Square as UncheckedSquare,
+  Clock,
+  Layers,
+} from "lucide-react";
+import { adminApi, CampaignItem } from "@/lib/api/admin";
+import { MerchantShopItem } from "@/components/admin/MerchantTable";
 
-export interface CampaignItem {
-  id: number;
-  name: string;
-  banner_url?: string;
-  discount_percentage?: string;
-  status: "DRAFT" | "ACTIVE" | "ENDED";
-  starts_at: string;
-  ends_at?: string;
-}
+// Re-export for any consumers that imported CampaignItem from here
+export type { CampaignItem };
 
 interface CampaignsManagerProps {
   campaigns?: CampaignItem[];
+  merchants?: MerchantShopItem[];
   onRefresh?: () => void;
 }
 
-export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManagerProps) {
+export function CampaignsManager({
+  campaigns = [],
+  merchants = [],
+  onRefresh,
+}: CampaignsManagerProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [discount, setDiscount] = useState("15.00");
-  const [bannerUrl, setBannerUrl] = useState("");
-  const [startsAt, setStartsAt] = useState(new Date().toISOString().slice(0, 16));
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [shopScope, setShopScope] = useState<"ALL_SHOPS" | "SELECTED_SHOPS">("ALL_SHOPS");
+  const [selectedShops, setSelectedShops] = useState<number[]>([]);
+  const [shopSearch, setShopSearch] = useState("");
+  const [startsAt, setStartsAt] = useState(
+    new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  );
+  const [endsAt, setEndsAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const displayCampaigns = campaigns;
+  // Filter available merchants for target shop selection
+  const filteredMerchants = useMemo(() => {
+    if (!shopSearch.trim()) return merchants;
+    const q = shopSearch.toLowerCase();
+    return merchants.filter(
+      (m) =>
+        m.shopName.toLowerCase().includes(q) ||
+        m.publicSlug.toLowerCase().includes(q) ||
+        m.city.toLowerCase().includes(q)
+    );
+  }, [merchants, shopSearch]);
+
+  const toggleShop = (shopId: number) => {
+    setSelectedShops((prev) =>
+      prev.includes(shopId) ? prev.filter((id) => id !== shopId) : [...prev, shopId]
+    );
+  };
+
+  const selectAllFiltered = () => {
+    const ids = filteredMerchants.map((m) => m.shopId);
+    setSelectedShops((prev) => Array.from(new Set([...prev, ...ids])));
+  };
+
+  const deselectAllFiltered = () => {
+    const ids = new Set(filteredMerchants.map((m) => m.shopId));
+    setSelectedShops((prev) => prev.filter((id) => !ids.has(id)));
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
     setActionError(null);
+
+    if (!title.trim()) {
+      setActionError("Campaign title is required.");
+      return;
+    }
+
+    if (shopScope === "SELECTED_SHOPS" && selectedShops.length === 0) {
+      setActionError("Please select at least one shop for a targeted campaign.");
+      return;
+    }
+
+    if (startsAt && endsAt && new Date(startsAt) > new Date(endsAt)) {
+      setActionError("End time must be after the start time.");
+      return;
+    }
+
+    setSubmitting(true);
     try {
       await adminApi.createCampaign({
-        name,
-        discount_percentage: discount,
-        banner_url: bannerUrl || undefined,
-        starts_at: new Date(startsAt).toISOString(),
+        title: title.trim(),
+        content: content.trim() || undefined,
+        shop_scope: shopScope,
+        selected_shops: shopScope === "SELECTED_SHOPS" ? selectedShops : [],
+        starts_at: startsAt ? new Date(startsAt).toISOString() : null,
+        ends_at: endsAt ? new Date(endsAt).toISOString() : null,
       });
+
       setIsCreateOpen(false);
-      setName("");
+      setTitle("");
+      setContent("");
+      setShopScope("ALL_SHOPS");
+      setSelectedShops([]);
+      setEndsAt("");
       if (onRefresh) onRefresh();
-    } catch {
-      setActionError("Failed to create campaign. Verify Super Admin authorization.");
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.selected_shops?.[0] ||
+        err?.response?.data?.ends_at?.[0] ||
+        err?.response?.data?.title?.[0] ||
+        "Failed to create campaign. Verify Super Admin authorization.";
+      setActionError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -53,24 +126,38 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
 
   const handleActivate = async (id: number) => {
     try {
+      setActionError(null);
       await adminApi.activateCampaign(id);
       if (onRefresh) onRefresh();
-    } catch {
-      setActionError("Could not activate campaign.");
+    } catch (err: any) {
+      setActionError(err?.response?.data?.error || "Could not activate campaign.");
     }
   };
 
   const handleEnd = async (id: number) => {
     try {
+      setActionError(null);
       await adminApi.endCampaign(id);
       if (onRefresh) onRefresh();
-    } catch {
-      setActionError("Could not end campaign.");
+    } catch (err: any) {
+      setActionError(err?.response?.data?.error || "Could not end campaign.");
+    }
+  };
+
+  const handleDelete = async (id: number, title: string) => {
+    if (!window.confirm(`Are you sure you want to delete campaign "${title}"?`)) return;
+    try {
+      setActionError(null);
+      await adminApi.deleteCampaign(id);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      setActionError(err?.response?.data?.error || "Could not delete campaign.");
     }
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded shadow-sm overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+      {/* Header */}
       <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -80,13 +167,16 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Cross-tenant promotional banners, discounts, and regional broadcast sales.
+            Storefront announcements and banner campaigns across merchant shops.
           </p>
         </div>
 
         <button
-          onClick={() => setIsCreateOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] transition-colors"
+          onClick={() => {
+            setActionError(null);
+            setIsCreateOpen(true);
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded-lg hover:bg-[#164430] transition-colors shadow-2xs"
         >
           <Plus className="w-3.5 h-3.5" />
           Create Campaign
@@ -94,88 +184,145 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
       </div>
 
       {actionError && (
-        <div className="mx-4 mt-3 p-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          {actionError}
+        <div className="mx-4 mt-3 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-amber-600 hover:text-amber-800 font-bold"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {/* Campaign List Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
+          <thead className="bg-[#FAF7F2] border-b border-[#E8E2D9] text-slate-600 uppercase tracking-wider font-semibold text-[10px]">
             <tr>
-              <th className="py-2.5 px-4">Campaign Name</th>
-              <th className="py-2.5 px-4">Discount</th>
+              <th className="py-2.5 px-4">Campaign & Announcement</th>
+              <th className="py-2.5 px-4">Target Scope</th>
               <th className="py-2.5 px-4">Status</th>
               <th className="py-2.5 px-4">Schedule</th>
               <th className="py-2.5 px-4 text-right">Lifecycle Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {displayCampaigns.length === 0 ? (
+            {campaigns.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
-                  No promotional campaigns created yet.
+                <td colSpan={5} className="py-12 text-center text-slate-400 text-xs">
+                  <div className="max-w-xs mx-auto space-y-2">
+                    <Megaphone className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="font-semibold text-slate-600">No campaigns created yet</p>
+                    <p className="text-[11px] text-slate-400">
+                      Create platform-wide or shop-specific announcement banners to showcase on storefronts.
+                    </p>
+                  </div>
                 </td>
               </tr>
             ) : (
-              displayCampaigns.map((c) => (
-              <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
-                <td className="py-3 px-4 font-semibold text-slate-900">
-                  {c.name}
-                </td>
-                <td className="py-3 px-4">
-                  <span className="inline-flex items-center gap-1 font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px] font-bold">
-                    <Tag className="w-3 h-3" />
-                    {c.discount_percentage ? `${c.discount_percentage}% OFF` : "Banner Only"}
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      c.status === "ACTIVE"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : c.status === "DRAFT"
-                        ? "bg-slate-100 text-slate-700"
-                        : "bg-rose-100 text-rose-800"
-                    }`}
-                  >
-                    {c.status}
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-slate-500 text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{new Date(c.starts_at).toLocaleDateString("en-IN")}</span>
-                    {c.ends_at && <span>→ {new Date(c.ends_at).toLocaleDateString("en-IN")}</span>}
-                  </div>
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <div className="inline-flex items-center gap-1.5">
-                    {c.status === "DRAFT" && (
-                      <button
-                        onClick={() => handleActivate(c.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
-                      >
-                        <Play className="w-3 h-3" />
-                        Activate
-                      </button>
+              campaigns.map((c) => (
+                <tr key={c.id} className="hover:bg-slate-50/70 transition-colors">
+                  {/* Campaign Title & Content */}
+                  <td className="py-3 px-4 max-w-xs">
+                    <div className="font-semibold text-slate-900 text-xs">{c.title}</div>
+                    {c.content ? (
+                      <div className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
+                        {c.content}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-slate-400 italic mt-0.5">
+                        No announcement text
+                      </div>
                     )}
-                    {c.status === "ACTIVE" && (
-                      <button
-                        onClick={() => handleEnd(c.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800"
-                      >
-                        <Square className="w-3 h-3" />
-                        End Early
-                      </button>
+                  </td>
+
+                  {/* Target Scope */}
+                  <td className="py-3 px-4">
+                    {c.shop_scope === "ALL_SHOPS" ? (
+                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px]">
+                        <Layers className="w-3 h-3 text-emerald-600" />
+                        All Shops (Platform)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px]">
+                        <Store className="w-3 h-3 text-indigo-600" />
+                        {c.selected_shops?.length ?? 0} Selected Shops
+                      </span>
                     )}
-                  </div>
-                </td>
-              </tr>
-            ))
-          )}
+                  </td>
+
+                  {/* Status Badge */}
+                  <td className="py-3 px-4">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        c.status === "ACTIVE"
+                          ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          : c.status === "DRAFT"
+                          ? "bg-slate-100 text-slate-700 border border-slate-200"
+                          : "bg-rose-100 text-rose-800 border border-rose-200"
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+
+                  {/* Schedule */}
+                  <td className="py-3 px-4 text-slate-500 text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <div>
+                        {c.starts_at ? (
+                          <span>{new Date(c.starts_at).toLocaleDateString("en-IN")}</span>
+                        ) : (
+                          <span className="text-slate-400">Immediate</span>
+                        )}
+                        {c.ends_at && (
+                          <span className="text-slate-600">
+                            {" "}
+                            → {new Date(c.ends_at).toLocaleDateString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+
+                  {/* Lifecycle Actions */}
+                  <td className="py-3 px-4 text-right">
+                    <div className="inline-flex items-center gap-1.5">
+                      {c.status === "DRAFT" && (
+                        <button
+                          onClick={() => handleActivate(c.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700 transition-colors shadow-2xs"
+                        >
+                          <Play className="w-3 h-3" />
+                          Activate
+                        </button>
+                      )}
+                      {c.status === "ACTIVE" && (
+                        <button
+                          onClick={() => handleEnd(c.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 transition-colors shadow-2xs"
+                        >
+                          <Square className="w-3 h-3" />
+                          End
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(c.id, c.title)}
+                        className="inline-flex items-center p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                        title="Delete Campaign"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -183,76 +330,218 @@ export function CampaignsManager({ campaigns = [], onRefresh }: CampaignsManager
       {/* Modal: Create Platform Campaign */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full border border-slate-200 p-5 space-y-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 p-5 space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-bold text-slate-900">Launch Platform Campaign</h3>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Create Storefront Campaign</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Configure an announcement banner and target specific merchant storefronts.
+                </p>
+              </div>
               <button
                 onClick={() => setIsCreateOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
+                className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 rounded hover:bg-slate-100"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-3 text-xs">
+            <form onSubmit={handleCreate} className="space-y-3.5 text-xs overflow-y-auto pr-1">
+              {/* Campaign Title */}
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Campaign Title</label>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  Campaign Title <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
                   required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Republic Day Grocery Bonanza"
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Weekend Kirana Festival"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
                 />
               </div>
 
+              {/* Announcement Banner Content */}
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Discount (%)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
-                  placeholder="15.00"
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs font-mono"
+                <label className="block text-slate-700 font-semibold mb-1">
+                  Announcement Text (Displayed on Storefront Header)
+                </label>
+                <textarea
+                  rows={2}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder="e.g. Free delivery on all orders above ₹299 this weekend!"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
                 />
               </div>
 
+              {/* Scope Selection */}
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">Banner Image URL (Optional)</label>
-                <input
-                  type="url"
-                  value={bannerUrl}
-                  onChange={(e) => setBannerUrl(e.target.value)}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
-                />
+                <label className="block text-slate-700 font-semibold mb-1.5">
+                  Target Storefront Scope <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label
+                    className={`flex items-start gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      shopScope === "ALL_SHOPS"
+                        ? "border-[#1F5D42] bg-[#f0f7f3]"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="shop_scope"
+                      value="ALL_SHOPS"
+                      checked={shopScope === "ALL_SHOPS"}
+                      onChange={() => setShopScope("ALL_SHOPS")}
+                      className="mt-0.5 text-[#1F5D42] focus:ring-[#1F5D42]"
+                    />
+                    <div>
+                      <div className="font-semibold text-slate-900 text-xs">All Shops</div>
+                      <div className="text-[10px] text-slate-500">
+                        Broadcast to every merchant storefront across the platform
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      shopScope === "SELECTED_SHOPS"
+                        ? "border-[#1F5D42] bg-[#f0f7f3]"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="shop_scope"
+                      value="SELECTED_SHOPS"
+                      checked={shopScope === "SELECTED_SHOPS"}
+                      onChange={() => setShopScope("SELECTED_SHOPS")}
+                      className="mt-0.5 text-[#1F5D42] focus:ring-[#1F5D42]"
+                    />
+                    <div>
+                      <div className="font-semibold text-slate-900 text-xs">Selected Shops</div>
+                      <div className="text-[10px] text-slate-500">
+                        Target specific shops ({selectedShops.length} selected)
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Starts At</label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={startsAt}
-                  onChange={(e) => setStartsAt(e.target.value)}
-                  className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
-                />
+              {/* Shop Picker (When SELECTED_SHOPS is chosen) */}
+              {shopScope === "SELECTED_SHOPS" && (
+                <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-700 text-[11px]">
+                      Choose Target Merchants ({selectedShops.length} of {merchants.length} selected)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllFiltered}
+                        className="text-[10px] text-[#1F5D42] font-semibold hover:underline"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={deselectAllFiltered}
+                        className="text-[10px] text-slate-500 hover:underline"
+                      >
+                        Deselect
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Search Filter */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={shopSearch}
+                      onChange={(e) => setShopSearch(e.target.value)}
+                      placeholder="Search shops by name, city, or slug..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-[#1F5D42]"
+                    />
+                  </div>
+
+                  {/* List of Shops */}
+                  <div className="max-h-36 overflow-y-auto space-y-1 bg-white border border-slate-200 rounded p-1.5">
+                    {filteredMerchants.length === 0 ? (
+                      <div className="text-center py-4 text-[11px] text-slate-400">
+                        No shops found matching "{shopSearch}"
+                      </div>
+                    ) : (
+                      filteredMerchants.map((m) => {
+                        const isSelected = selectedShops.includes(m.shopId);
+                        return (
+                          <div
+                            key={m.shopId}
+                            onClick={() => toggleShop(m.shopId)}
+                            className={`flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors ${
+                              isSelected ? "bg-emerald-50 text-[#1F5D42]" : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-[#1F5D42] shrink-0" />
+                              ) : (
+                                <UncheckedSquare className="w-4 h-4 text-slate-300 shrink-0" />
+                              )}
+                              <span className="font-semibold text-xs truncate">{m.shopName}</span>
+                              <span className="text-[10px] text-slate-400 truncate">
+                                ({m.publicSlug})
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 shrink-0">{m.city}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Schedule Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">Starts At</label>
+                  <input
+                    type="datetime-local"
+                    value={startsAt}
+                    onChange={(e) => setStartsAt(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    Ends At (Optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={endsAt}
+                    onChange={(e) => setEndsAt(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
               </div>
 
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
+              {/* Action Buttons */}
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
-                  className="px-3 py-1.5 border border-slate-200 text-slate-600 rounded text-xs hover:bg-slate-50"
+                  className="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-3 py-1.5 bg-[#1F5D42] text-white rounded text-xs font-semibold hover:bg-[#164430] disabled:opacity-50"
+                  className="px-4 py-1.5 bg-[#1F5D42] text-white rounded-lg text-xs font-semibold hover:bg-[#164430] disabled:opacity-50 transition-colors shadow-2xs"
                 >
                   {submitting ? "Creating..." : "Save Draft Campaign"}
                 </button>

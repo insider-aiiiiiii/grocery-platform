@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Download,
   Upload,
+  UploadCloud,
   Pencil,
   Trash2,
   Search,
@@ -26,14 +27,12 @@ interface MasterCatalogTableProps {
   products: MasterProduct[];
   onRefresh?: () => void;
   token?: string;
-  onOpenPromote?: () => void;
 }
 
 export function MasterCatalogTable({
   products,
   onRefresh,
   token,
-  onOpenPromote,
 }: MasterCatalogTableProps) {
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -46,7 +45,9 @@ export function MasterCatalogTable({
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [newImageUrl, setNewImageUrl] = useState("");
+  const imageUploadInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export function MasterCatalogTable({
     setBrand("");
     setDescription("");
     setImageUrls([]);
+    setImageFiles([]);
     setNewImageUrl("");
     setError(null);
   };
@@ -91,6 +93,28 @@ export function MasterCatalogTable({
       });
     }
     setImageUrls(initialImages.slice(0, 6));
+    setImageFiles([]);
+  };
+
+  const handleImageFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const remaining = 6 - imageUrls.length;
+    const toAdd = files.slice(0, remaining);
+
+    toAdd.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setImageUrls((prev) => [...prev, reader.result as string]);
+          setImageFiles((prev) => [...prev, file]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    if (imageUploadInputRef.current) {
+      imageUploadInputRef.current.value = "";
+    }
   };
 
   const handleAddImageUrl = () => {
@@ -105,7 +129,8 @@ export function MasterCatalogTable({
   };
 
   const handleRemoveImageUrl = (index: number) => {
-    setImageUrls(imageUrls.filter((_, idx) => idx !== index));
+    setImageUrls((prev) => prev.filter((_, idx) => idx !== index));
+    setImageFiles((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -117,21 +142,34 @@ export function MasterCatalogTable({
     setLoading(true);
     setError(null);
     try {
-      const payload: any = {
-        name: name.trim(),
-        brand: brand.trim(),
-        description: description.trim(),
-      };
-      if (category.trim()) {
-        const catNum = parseInt(category.trim(), 10);
-        if (!isNaN(catNum)) {
-          payload.category = catNum;
+      if (imageFiles.length > 0) {
+        const formData = new FormData();
+        formData.append("name", name.trim());
+        if (brand.trim()) formData.append("brand", brand.trim());
+        if (description.trim()) formData.append("description", description.trim());
+        if (category.trim()) {
+          const catNum = parseInt(category.trim(), 10);
+          if (!isNaN(catNum)) formData.append("category", String(catNum));
         }
+        formData.append("image", imageFiles[0]);
+        await adminApi.createMasterProduct(formData, token);
+      } else {
+        const payload: any = {
+          name: name.trim(),
+          brand: brand.trim(),
+          description: description.trim(),
+        };
+        if (category.trim()) {
+          const catNum = parseInt(category.trim(), 10);
+          if (!isNaN(catNum)) {
+            payload.category = catNum;
+          }
+        }
+        if (imageUrls.length > 0) {
+          payload.image = imageUrls[0];
+        }
+        await adminApi.createMasterProduct(payload, token);
       }
-      if (imageUrls.length > 0) {
-        payload.image = imageUrls[0];
-      }
-      await adminApi.createMasterProduct(payload, token);
       setShowAddModal(false);
       resetForm();
       onRefresh?.();
@@ -152,21 +190,34 @@ export function MasterCatalogTable({
     setLoading(true);
     setError(null);
     try {
-      const payload: any = {
-        name: name.trim(),
-        brand: brand.trim(),
-        description: description.trim(),
-      };
-      if (category.trim()) {
-        const catNum = parseInt(category.trim(), 10);
-        if (!isNaN(catNum)) {
-          payload.category = catNum;
+      if (imageFiles.length > 0) {
+        const formData = new FormData();
+        formData.append("name", name.trim());
+        if (brand.trim()) formData.append("brand", brand.trim());
+        if (description.trim()) formData.append("description", description.trim());
+        if (category.trim()) {
+          const catNum = parseInt(category.trim(), 10);
+          if (!isNaN(catNum)) formData.append("category", String(catNum));
         }
+        formData.append("image", imageFiles[0]);
+        await adminApi.updateMasterProduct(editingProduct.id, formData, token);
+      } else {
+        const payload: any = {
+          name: name.trim(),
+          brand: brand.trim(),
+          description: description.trim(),
+        };
+        if (category.trim()) {
+          const catNum = parseInt(category.trim(), 10);
+          if (!isNaN(catNum)) {
+            payload.category = catNum;
+          }
+        }
+        if (imageUrls.length > 0) {
+          payload.image = imageUrls[0];
+        }
+        await adminApi.updateMasterProduct(editingProduct.id, payload, token);
       }
-      if (imageUrls.length > 0) {
-        payload.image = imageUrls[0];
-      }
-      await adminApi.updateMasterProduct(editingProduct.id, payload, token);
       setEditingProduct(null);
       resetForm();
       onRefresh?.();
@@ -363,16 +414,6 @@ export function MasterCatalogTable({
             <Upload className="w-3.5 h-3.5 text-[#1F5D42]" />
             <span>Import Catalog</span>
           </button>
-
-          {onOpenPromote && (
-            <button
-              onClick={onOpenPromote}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#e7f2eb] border border-[#cbe1d5] text-[#1F5D42] text-xs font-semibold rounded-xl hover:bg-[#d8eadd] transition-colors"
-            >
-              <ArrowUpRight className="w-3.5 h-3.5 text-[#1F5D42]" />
-              <span>Promote Merchant SKU</span>
-            </button>
-          )}
 
           {/* Add Product Button */}
           <button
@@ -650,21 +691,46 @@ export function MasterCatalogTable({
                 )}
 
                 {imageUrls.length < 6 && (
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
                     <input
-                      type="url"
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      placeholder="Paste image URL (https://...)"
-                      className="flex-1 px-3 py-1.5 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
+                      ref={imageUploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageFilesSelected}
+                      className="hidden"
                     />
-                    <button
-                      type="button"
-                      onClick={handleAddImageUrl}
-                      className="px-3 py-1.5 bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[#1F5D42] font-semibold rounded-xl"
+
+                    <div
+                      onClick={() => imageUploadInputRef.current?.click()}
+                      className="flex flex-col items-center justify-center p-3.5 border-2 border-dashed border-[#cbe1d5] bg-[#f0f7f3] hover:bg-[#e7f2eb] rounded-xl cursor-pointer transition text-center group"
                     >
-                      Add Photo
-                    </button>
+                      <UploadCloud className="w-5 h-5 text-[#1F5D42] mb-1 group-hover:scale-110 transition-transform" />
+                      <span className="text-xs font-bold text-[#1F5D42]">
+                        Upload Pictures from Device
+                      </span>
+                      <span className="text-[10px] text-[#6d756f]">
+                        Select image files directly (PNG, JPG, WebP)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="text-[10px] text-slate-400 font-medium">Or via link:</span>
+                      <input
+                        type="url"
+                        value={newImageUrl}
+                        onChange={(e) => setNewImageUrl(e.target.value)}
+                        placeholder="https://..."
+                        className="flex-1 px-2.5 py-1 border border-[#ddd6ca] rounded-lg outline-none focus:border-[#1F5D42] text-[11px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddImageUrl}
+                        className="px-2.5 py-1 bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[#1F5D42] text-xs font-semibold rounded-lg"
+                      >
+                        Add Link
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

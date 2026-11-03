@@ -1,6 +1,9 @@
 import axios from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000/api/v1";
 
 export const customerClient = axios.create({
   baseURL: API_BASE_URL,
@@ -45,6 +48,9 @@ export interface PublicCategory {
   name: string;
   slug: string;
   description?: string;
+  parent?: number | null;
+  parent_name?: string | null;
+  is_subcategory?: boolean;
   products_count?: number;
 }
 
@@ -130,7 +136,7 @@ export interface CheckoutPayload {
   cart_id: number;
   customer_name: string;
   whatsapp_number: string;
-  fulfillment_type: "HOME_DELIVERY" | "STORE_PICKUP";
+  fulfillment_type: "HOME_DELIVERY" | "PICKUP";
   delivery_address?: {
     address_line: string;
     area: string;
@@ -144,9 +150,20 @@ export interface CheckoutPayload {
 
 export interface CheckoutResponse {
   id: number;
-  status: "PENDING" | "ACCEPTED" | "READY" | "OUT_FOR_DELIVERY" | "COMPLETED" | "CANCELLED";
+  status: "PENDING" | "ACCEPTED" | "PREPARING" | "READY" | "COMPLETED" | "REJECTED";
   payment_status: string;
-  fulfillment_type: "HOME_DELIVERY" | "STORE_PICKUP";
+  fulfillment_type: "HOME_DELIVERY" | "PICKUP";
+  customer_name?: string;
+  customer_phone?: string;
+  delivery_address?: {
+    address_line: string;
+    area: string;
+    city: string;
+    state: string;
+    pincode: string;
+    landmark?: string;
+    delivery_notes?: string;
+  } | null;
   shop_name: string;
   shop_contact_number: string;
   items_subtotal: string;
@@ -162,6 +179,9 @@ export interface CheckoutResponse {
     line_total: string;
   }>;
   whatsapp_notification_links?: {
+    hinglish?: string;
+    en?: string;
+    hi?: string;
     customer_confirmation_url?: string;
     merchant_alert_url?: string;
   } | null;
@@ -273,6 +293,13 @@ export const customerApi = {
           "Idempotency-Key": idempotencyKey,
         },
       }
+    );
+    return res.data;
+  },
+
+  getOrder: async (publicSlug: string, orderId: number): Promise<CheckoutResponse> => {
+    const res = await customerClient.get<CheckoutResponse>(
+      `/shops/public/${publicSlug}/orders/${orderId}/`
     );
     return res.data;
   },

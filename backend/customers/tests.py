@@ -679,11 +679,11 @@ class PublicCustomerAPITests(TestCase):
         self.assertTrue(res_post.data["recognized"])
         self.assertEqual(res_post.data["customer"]["id"], cust.id)
 
-    def test_recognize_endpoint_unknown_customer_returns_404(self):
-        """Recognize endpoint for an unknown customer returns 404 with CUSTOMER_NOT_FOUND."""
+    def test_recognize_endpoint_unknown_customer_returns_not_recognized(self):
+        """Recognize endpoint for an unknown customer returns 200 with recognized=False and CUSTOMER_NOT_FOUND."""
         rec_url = f"/api/v1/shops/public/{self.shop.public_slug}/customer/recognize/"
         res = self.client.get(rec_url, {"whatsapp_number": "9999999999"})
-        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertFalse(res.data["recognized"])
         self.assertEqual(res.data["code"], "CUSTOMER_NOT_FOUND")
 
@@ -695,10 +695,10 @@ class PublicCustomerAPITests(TestCase):
             whatsapp_number="9123456789",
         )
 
-        # Recognize in Shop 2 returns 404
+        # Recognize in Shop 2 returns recognized=False
         rec_shop2_url = f"/api/v1/shops/public/{self.shop2.public_slug}/customer/recognize/"
         res_s2 = self.client.get(rec_shop2_url, {"whatsapp_number": "9123456789"})
-        self.assertEqual(res_s2.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res_s2.status_code, status.HTTP_200_OK)
         self.assertFalse(res_s2.data["recognized"])
 
         # Creating in Shop 2 creates a completely separate Customer

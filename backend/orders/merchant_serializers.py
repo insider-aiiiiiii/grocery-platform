@@ -50,6 +50,8 @@ class MerchantOrderDeliveryAddressSerializer(serializers.ModelSerializer):
 
 class MerchantOrderListSerializer(serializers.ModelSerializer):
     items = MerchantOrderItemSerializer(many=True, read_only=True)
+    delivery_address = MerchantOrderDeliveryAddressSerializer(read_only=True, allow_null=True)
+    whatsapp_action_link = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -64,20 +66,36 @@ class MerchantOrderListSerializer(serializers.ModelSerializer):
             "items_subtotal",
             "delivery_charge_snapshot",
             "total_amount",
+            "delivery_address",
+            "whatsapp_action_link",
             "expires_at",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
 
+    def get_whatsapp_action_link(self, order):
+        from notifications.links import get_merchant_order_action_link
+        event_map = {
+            Order.Status.PENDING: "ORDER_ACCEPTED",
+            Order.Status.ACCEPTED: "ORDER_ACCEPTED",
+            Order.Status.PREPARING: "ORDER_PREPARING",
+            Order.Status.READY: "ORDER_READY",
+            Order.Status.COMPLETED: "ORDER_COMPLETED",
+            Order.Status.REJECTED: "ORDER_REJECTED",
+            Order.Status.CANCELLED: "ORDER_REJECTED",
+        }
+        event = event_map.get(order.status, "ORDER_ACCEPTED")
+        try:
+            return get_merchant_order_action_link(order, event, language="hinglish")
+        except Exception:
+            return None
+
 
 class MerchantOrderDetailSerializer(MerchantOrderListSerializer):
-    delivery_address = MerchantOrderDeliveryAddressSerializer(read_only=True, allow_null=True)
-
     class Meta(MerchantOrderListSerializer.Meta):
         fields = MerchantOrderListSerializer.Meta.fields + [
             "delivery_fee_type_snapshot",
-            "delivery_address",
             "accepted_at",
             "rejected_at",
             "completed_at",

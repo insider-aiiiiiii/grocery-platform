@@ -43,15 +43,13 @@ export function ShopHeader({
 
   // Gallery Photos Resolution: check localStorage for any uploaded photos for this shop
   const [galleryPhotos, setGalleryPhotos] = useState<string[]>(() => {
-    const defaultPhoto = "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=1000&q=80";
-    return [shop.logo || defaultPhoto];
+    return shop.logo && shop.logo.trim() !== "" ? [shop.logo] : [];
   });
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    const defaultPhoto = "https://images.unsplash.com/photo-1578916171728-46686eac8d58?auto=format&fit=crop&w=1000&q=80";
     const found: string[] = [];
-    if (shop.logo) found.push(shop.logo);
+    if (shop.logo && shop.logo.trim() !== "") found.push(shop.logo);
 
     try {
       const stored = localStorage.getItem(`dukaandar_shop_photos_${shop.public_slug}`);
@@ -68,7 +66,6 @@ export function ShopHeader({
       // Ignore
     }
 
-    if (found.length === 0) found.push(defaultPhoto);
     setGalleryPhotos(found);
   }, [shop.logo, shop.public_slug]);
 
@@ -167,65 +164,89 @@ export function ShopHeader({
 
       {/* 2. Storefront Photo Gallery Card (Mobile-First with Swipe & Multi-photo support) */}
       <div className="max-w-xl mx-auto px-3.5 pt-3">
-        <div
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          className="relative h-44 sm:h-52 w-full overflow-hidden rounded-2xl border border-[#e8e2d5] shadow-sm bg-[#123324] select-none"
-        >
-          <img
-            src={currentPhoto}
-            alt={`${shop.name} photo ${photoIndex + 1}`}
-            className="h-full w-full object-cover transition-opacity duration-200"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30 pointer-events-none" />
+        {galleryPhotos.length > 0 ? (
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            className="relative h-44 sm:h-52 w-full overflow-hidden rounded-2xl border border-[#e8e2d5] shadow-sm bg-[#123324] select-none"
+          >
+            <img
+              src={currentPhoto}
+              alt={`${shop.name} photo ${photoIndex + 1}`}
+              className="h-full w-full object-cover transition-opacity duration-200"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30 pointer-events-none" />
 
-          {/* Badges on Storefront Photo */}
-          <div className="absolute top-2.5 left-2.5 flex items-center gap-2 z-10 pointer-events-none">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-bold border border-white/20">
-              <span>🏪</span>
-              <span>{isHindi ? "दुकान का स्टोरफ्रंट" : "Storefront"}</span>
-            </span>
-          </div>
+            {/* Badges on Storefront Photo */}
+            <div className="absolute top-2.5 left-2.5 flex items-center gap-2 z-10 pointer-events-none">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-bold border border-white/20">
+                <span>🏪</span>
+                <span>{isHindi ? "दुकान का स्टोरफ्रंट" : "Storefront"}</span>
+              </span>
+            </div>
 
-          {/* Carousel Navigation Arrows & Indicators if > 1 photo */}
-          {galleryPhotos.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={handlePrevPhoto}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
-                aria-label="Previous storefront photo"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleNextPhoto}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
-                aria-label="Next storefront photo"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            {/* Carousel Navigation Arrows & Indicators if > 1 photo */}
+            {galleryPhotos.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handlePrevPhoto}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
+                  aria-label="Previous storefront photo"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextPhoto}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
+                  aria-label="Next storefront photo"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
 
-              <div className="absolute top-2.5 right-2.5 inline-flex items-center px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-mono font-bold border border-white/20 z-10">
-                {photoIndex + 1} / {galleryPhotos.length}
+                <div className="absolute top-2.5 right-2.5 inline-flex items-center px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-mono font-bold border border-white/20 z-10">
+                  {photoIndex + 1} / {galleryPhotos.length}
+                </div>
+              </>
+            )}
+
+            {/* Bottom Bar on Photo: Verified Local Store and Location */}
+            <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-white text-xs z-10 pointer-events-none">
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1F5D42]/90 backdrop-blur-md text-white font-bold text-[11px] shadow-sm border border-emerald-400/30">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                <span>{isHindi ? "सत्यापित स्थानीय दुकान" : "Verified Store"}</span>
               </div>
-            </>
-          )}
 
-          {/* Bottom Bar on Photo: Verified Local Store and Location (Mock Rating completely removed) */}
-          <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-white text-xs z-10 pointer-events-none">
-            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1F5D42]/90 backdrop-blur-md text-white font-bold text-[11px] shadow-sm border border-emerald-400/30">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-              <span>{isHindi ? "सत्यापित स्थानीय दुकान" : "Verified Store"}</span>
-            </div>
-
-            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-white text-[11px] font-medium border border-white/20">
-              <MapPin className="w-3 h-3 text-emerald-400" />
-              <span>{shop.area || shop.city || (isHindi ? "नजदीकी दुकान" : "Near you")}</span>
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-white text-[11px] font-medium border border-white/20">
+                <MapPin className="w-3 h-3 text-emerald-400" />
+                <span>{shop.area || shop.city || (isHindi ? "नजदीकी दुकान" : "Near you")}</span>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="relative h-28 sm:h-32 w-full overflow-hidden rounded-2xl border border-[#e8e2d5] shadow-xs bg-gradient-to-br from-[#123324] via-[#1F5D42] to-[#123324] p-4 flex flex-col justify-between text-white select-none">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white text-[10px] font-bold border border-white/20">
+                <Store className="w-3.5 h-3.5 text-[#E8A33D]" />
+                <span>{isHindi ? "किराना स्टोर" : "Kirana Store"}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>{isHindi ? "सत्यापित दुकान" : "Verified"}</span>
+              </span>
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-base sm:text-lg text-white leading-tight">
+                {shop.name}
+              </h3>
+              <p className="text-xs text-white/80 flex items-center gap-1 mt-0.5">
+                <MapPin className="w-3 h-3 text-[#E8A33D]" />
+                <span>{shop.area || shop.city}</span>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Multi-Photo Thumbnail Bar if multiple photos exist */}
         {galleryPhotos.length > 1 && (

@@ -2,10 +2,8 @@ import Link from "next/link";
 import {
   ArrowUpRight,
   Boxes,
-  CheckCircle2,
   MessageCircle,
   ShieldCheck,
-  ShoppingBag,
   Sparkles,
   Store,
 } from "lucide-react";
@@ -31,9 +29,6 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span className="font-display text-2xl font-bold tracking-tight text-[#123324] leading-tight">
                 Dukandaar
-              </span>
-              <span className="hidden sm:inline-flex items-center rounded-full bg-[#e7f2eb] border border-[#cbe1d5] px-2 py-0.5 text-[10px] font-bold text-[#1F5D42] tracking-wider uppercase">
-                Hyperlocal
               </span>
             </div>
             <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#6d756f]">
@@ -128,36 +123,7 @@ export default function Home() {
               </div>
             </Link>
 
-            {/* 3. Customer Storefront (Full Width) */}
-            <Link
-              href="/shop/QR-B4ACAB79"
-              className="group relative flex min-h-[145px] flex-col justify-between overflow-hidden rounded-2xl border border-[#cbe1d5] bg-gradient-to-br from-[#FFFDF8] via-[#e7f2eb]/70 to-[#FFFDF8] p-5 text-[#17251e] shadow-2xs transition hover:border-[#1F5D42] hover:shadow-md sm:col-span-2"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#1F5D42] text-[#E8A33D] shadow-xs">
-                    <ShoppingBag size={20} />
-                  </span>
-                  <div>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E8A33D]/20 border border-[#E8A33D]/40 px-2 py-0.5 text-[10px] font-bold text-[#9b4d16] uppercase tracking-wider">
-                      <MessageCircle size={10} />
-                      <span>WhatsApp Click-to-Chat</span>
-                    </span>
-                  </div>
-                </div>
-                <span className="rounded-full bg-[#1F5D42]/10 p-1.5 text-[#1F5D42] transition group-hover:bg-[#1F5D42] group-hover:text-white group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
-                  <ArrowUpRight size={16} />
-                </span>
-              </div>
-              <div>
-                <p className="font-display text-base font-bold text-[#123324] tracking-tight">
-                  Customer Storefront Demo
-                </p>
-                <p className="mt-1 text-xs text-[#5e665f]">
-                  Browse live digital store shelves, build cart, and place orders directly via WhatsApp Click-to-Chat
-                </p>
-              </div>
-            </Link>
+
           </div>
         </div>
 
@@ -229,9 +195,6 @@ export default function Home() {
                 <p className="text-xs font-bold text-[#123324] font-display">
                   Focused Local Operations
                 </p>
-                <span className="text-[10px] font-medium text-[#6d756f]">
-                  Modular Monolith
-                </span>
               </div>
 
               {[
@@ -253,15 +216,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-
-            {/* Bottom Trust Tag */}
-            <div className="mt-4 flex items-center justify-between pt-3 border-t border-[#eee9df] text-[11px] text-[#6d756f]">
-              <span className="flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-[#1F5D42]" />
-                <span>Multi-tenant data isolation</span>
-              </span>
-              <span className="font-semibold text-[#123324]">PostgreSQL + Django</span>
-            </div>
           </div>
         </div>
       </section>
@@ -271,7 +225,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-7xl flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#6d756f]">
           <div className="flex items-center gap-2">
             <span className="font-display font-bold text-sm text-[#123324]">Dukandaar</span>
-            <span>· Hyperlocal Grocery Ordering & Merchant Management</span>
+            <span>· Grocery Ordering & Merchant Management</span>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/merchant/login" className="hover:text-[#1F5D42] transition">
@@ -279,9 +233,6 @@ export default function Home() {
             </Link>
             <Link href="/admin/login" className="hover:text-[#1F5D42] transition">
               Super Admin
-            </Link>
-            <Link href="/shop/QR-B4ACAB79" className="hover:text-[#1F5D42] transition font-semibold text-[#1F5D42]">
-              Customer Storefront
             </Link>
           </div>
         </div>

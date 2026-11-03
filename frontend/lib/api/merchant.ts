@@ -96,16 +96,41 @@ export type Customer = {
 
 export type Overview = {
   period: string;
+  start_time?: string;
+  end_time?: string;
   orders: {
     total_orders: number;
     completed_orders: number;
     rejected_orders: number;
-    status_distribution: Record<string, number>;
+    status_distribution: {
+      PENDING: number;
+      ACCEPTED: number;
+      PREPARING: number;
+      READY: number;
+      COMPLETED: number;
+      REJECTED: number;
+    };
   };
-  sales: { realized_sales: string; average_order_value: string };
-  customers: { ordering_customers: number; returning_customers: number };
-  inventory: { out_of_stock_items_count: number };
-  top_products: Array<{ product_name: string; units_sold: string; total_revenue: string }>;
+  sales: {
+    realized_sales: string;
+    average_order_value: string;
+  };
+  customers: {
+    ordering_customers: number;
+    returning_customers: number;
+  };
+  inventory: {
+    out_of_stock_items_count: number;
+  };
+  top_products: Array<{
+    product_id?: number | null;
+    variant_id?: number | null;
+    product_name: string;
+    variant_name?: string;
+    sku?: string;
+    units_sold: string;
+    total_revenue: string;
+  }>;
 };
 
 export type ShopPayload = Partial<Omit<Shop, "id" | "status" | "public_slug" | "public_url" | "contact_number">> & {
@@ -115,6 +140,7 @@ export type ShopPayload = Partial<Omit<Shop, "id" | "status" | "public_slug" | "
   city: string;
   state: string;
   pincode: string;
+  delete_logo?: boolean;
 };
 
 export const merchantApi = {
@@ -166,8 +192,14 @@ export const merchantApi = {
   updateStock: async (id: number, action: "set-stock" | "add-stock" | "subtract-stock", quantity: string) =>
     (await merchantClient.post(`/shops/me/inventory/${id}/${action}/`, { quantity })).data,
   customers: async () => (await merchantClient.get<Customer[]>("/shops/me/customers/")).data,
-  analytics: async (period = "today") =>
-    (await merchantClient.get<Overview>("/shops/me/analytics/", { params: { period } })).data,
+  analytics: async (period = "today", startDate?: string, endDate?: string) => {
+    const params: Record<string, string> = { period };
+    if (period === "custom" && startDate && endDate) {
+      params.start_date = startDate;
+      params.end_date = endDate;
+    }
+    return (await merchantClient.get<Overview>("/analytics/", { params })).data;
+  },
   getMasterCatalog: async () =>
     (await merchantClient.get<Array<{
       id: number;

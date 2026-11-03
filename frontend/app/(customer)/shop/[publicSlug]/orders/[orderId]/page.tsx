@@ -28,6 +28,7 @@ export default function OrderConfirmationPage() {
     : (params?.orderId as string);
 
   const [shop, setShop] = useState<PublicShopInfo | null>(null);
+  const [orderData, setOrderData] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
@@ -35,6 +36,32 @@ export default function OrderConfirmationPage() {
 
   // 5-minute countdown timer state (300 seconds)
   const [secondsLeft, setSecondsLeft] = useState(300);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && orderId) {
+      const raw = sessionStorage.getItem(`order_confirmation_${orderId}`);
+      if (raw) {
+        try {
+          setOrderData(JSON.parse(raw));
+          return;
+        } catch {
+          // ignore
+        }
+      }
+      // If not in sessionStorage or refreshed, fetch from public API
+      if (publicSlug) {
+        customerApi
+          .getOrder(publicSlug, parseInt(orderId, 10))
+          .then((data) => {
+            setOrderData(data);
+            try {
+              sessionStorage.setItem(`order_confirmation_${orderId}`, JSON.stringify(data));
+            } catch {}
+          })
+          .catch(console.error);
+      }
+    }
+  }, [orderId, publicSlug]);
 
   useEffect(() => {
     if (!publicSlug) return;
@@ -75,8 +102,48 @@ export default function OrderConfirmationPage() {
   const seconds = secondsLeft % 60;
   const timeFormatted = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
 
-  const cleanShopPhone = shop?.contact_number?.replace(/\D/g, "") || "";
-  const whatsappUrl = `https://wa.me/${cleanShopPhone}?text=Namaste!%20I%20have%20placed%20Order%20%23SK-${orderId}%20on%20your%20dukaan.%20Please%20confirm!`;
+  const cleanShopPhone = (orderData?.shop_contact_number || shop?.contact_number)?.replace(/\D/g, "") || "";
+  const phoneWithCountry = cleanShopPhone.length === 10 ? `91${cleanShopPhone}` : cleanShopPhone;
+
+  // Use server-generated canonical Click-to-Chat notification link if available
+  const serverWaLink = orderData?.whatsapp_notification_links?.hinglish || orderData?.whatsapp_notification_links?.en;
+
+  const shopDisplayName = orderData?.shop_name || shop?.name || "Dukandaar";
+  const customerName = orderData?.customer_name || "Customer";
+  const customerPhone = orderData?.customer_phone || "";
+  const fulfillmentType = orderData?.fulfillment_type || "HOME_DELIVERY";
+  const fulfillmentStr = fulfillmentType === "PICKUP" ? "Store Pickup (दुकान से पिकअप)" : "Home Delivery (घर पर डिलीवरी)";
+  const addr = orderData?.delivery_address;
+  const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
+
+  const itemsLines = (orderData?.items || []).map(
+    (item: any) => `• ${item.product_name}${item.variant_name ? ` (${item.variant_name})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${parseFloat(item.line_total || "0").toFixed(0)}`
+  );
+  const itemsText = itemsLines.length > 0 ? itemsLines.join("\n") : "• Items from store";
+
+  const messageLines = [
+    `🛍️ *Order #SK-${orderId}*`,
+    `Dukaan: *${shopDisplayName}*`,
+    ``,
+    `👤 Customer: ${customerName}${customerPhone ? ` (${customerPhone})` : ""}`,
+    `🚚 Fulfillment: ${fulfillmentStr}${addrText ? `\n📍 Address: ${addrText}` : ""}`,
+    ``,
+    `📦 *Items Ordered:*`,
+    itemsText,
+    ``,
+    `💰 *Bill Details:*`,
+    orderData?.items_subtotal ? `• Items Total: ₹${parseFloat(orderData.items_subtotal).toFixed(0)}` : null,
+    orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• Delivery Fee: ₹${parseFloat(orderData.delivery_charge).toFixed(0)}` : null,
+    `• *Total Payable: ₹${orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}*`,
+    ``,
+    `Namaste ${shopDisplayName}! Maine Dukaan se order place kiya hai. Please check karke confirm karein!`,
+  ].filter((line) => line !== null);
+
+  const fullMessage = messageLines.join("\n");
+
+  const whatsappUrl = cleanShopPhone
+    ? `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(fullMessage)}`
+    : (serverWaLink || "");
 
   const currentTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -163,16 +230,16 @@ export default function OrderConfirmationPage() {
               </span>
             </div>
 
-            {/* Outgoing Message Bubble */}
-            <div className="max-w-[90%] ml-auto bg-[#dcf8c6] rounded-2xl rounded-tr-xs p-3 text-xs text-[#17251e] shadow-sm border border-[#cbe4b7] space-y-1">
-              <p className="font-semibold text-[#123324] text-[11px]">
-                {shop?.name || "Sharma Kirana"}
-              </p>
-              <p className="text-[11px] leading-relaxed">
-                Namaste! Your order <b>#SK-{orderId}</b> is confirmed and received by the shopkeeper.
-              </p>
-              <p className="text-[11px] text-[#5e665f]">
-                You can chat directly for delivery timing or substitutions.
+            {/* Outgoing Message Bubble with Pre-filled Content */}
+            <div className="max-w-[94%] ml-auto bg-[#dcf8c6] rounded-2xl rounded-tr-xs p-3.5 text-xs text-[#17251e] shadow-sm border border-[#cbe4b7] space-y-1.5">
+              <div className="flex items-center justify-between pb-1 border-b border-[#c2deb0]">
+                <span className="font-bold text-[#123324] text-[11px]">To: {shopDisplayName}</span>
+                <span className="text-[9px] font-bold text-[#1F5D42] bg-white/70 px-2 py-0.5 rounded-full">
+                  All Details Pre-filled ✓
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed font-body whitespace-pre-line text-[#17251e]">
+                {fullMessage}
               </p>
               <div className="text-right text-[9px] text-[#6f7b72] flex items-center justify-end gap-1 pt-1">
                 <span>{currentTime}</span>
@@ -181,16 +248,16 @@ export default function OrderConfirmationPage() {
             </div>
 
             {/* WhatsApp CTA Action */}
-            {cleanShopPhone && (
+            {whatsappUrl && (
               <a
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full mt-2 py-2.5 px-4 bg-[#128C7E] hover:bg-[#075E54] text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
+                className="w-full mt-3 py-3.5 px-4 bg-[#25D366] hover:bg-[#128C7E] text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
               >
-                <MessageCircle className="w-4 h-4 fill-white" />
-                <span>Open WhatsApp Chat with Dukandaar</span>
-                <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                <MessageCircle className="w-5 h-5 fill-white" />
+                <span>Send Order on WhatsApp</span>
+                <ExternalLink className="w-4 h-4 opacity-90" />
               </a>
             )}
           </div>

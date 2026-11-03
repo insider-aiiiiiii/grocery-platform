@@ -106,6 +106,7 @@ class MasterProductViewSet(viewsets.ModelViewSet):
     queryset = MasterProduct.objects.all().select_related("category").order_by("name", "id")
     serializer_class = MasterProductSerializer
     permission_classes = [IsAuthenticated, IsSuperAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         queryset = super().get_queryset()

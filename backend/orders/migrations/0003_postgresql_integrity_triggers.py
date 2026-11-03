@@ -236,9 +236,11 @@ def install_postgresql_triggers(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
         for statement in statements:
             # psycopg 3 requires simple-query mode for a function plus trigger
-            # definition in one migration statement; these static SQL blocks
-            # contain no parameters and run only on PostgreSQL.
-            cursor.cursor.execute(statement, prepare=False)
+            # definition in one migration statement; psycopg 2 doesn't accept prepare.
+            try:
+                cursor.cursor.execute(statement, prepare=False)
+            except TypeError:
+                cursor.cursor.execute(statement)
 
 
 def remove_postgresql_triggers(apps, schema_editor):

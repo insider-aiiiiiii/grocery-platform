@@ -159,8 +159,9 @@ class PublicCustomerRecognizeView(APIView):
                     "recognized": False,
                     "detail": "Customer not found in this shop.",
                     "code": "CUSTOMER_NOT_FOUND",
+                    "customer": None,
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_200_OK,
             )
 
         return Response(

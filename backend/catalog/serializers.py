@@ -509,7 +509,7 @@ class PublicProductVariantSerializer(serializers.ModelSerializer):
 class PublicShopCategorySummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = ShopCategory
-        fields = ["id", "name", "slug"]
+        fields = ["id", "name", "slug", "parent"]
 
 
 class PublicShopProductSerializer(serializers.ModelSerializer):

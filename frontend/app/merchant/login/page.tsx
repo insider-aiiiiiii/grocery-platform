@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -251,17 +250,9 @@ export default function MerchantLoginPage() {
 
               {/* Password */}
               <label className="block">
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#123324]">
-                    {lang === "hi" ? "पासवर्ड" : "Password"}
-                  </span>
-                  <Link
-                    href="/merchant/recover"
-                    className="text-[#1F5D42] hover:text-[#123324] font-medium hover:underline text-[11px]"
-                  >
-                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot password?"}
-                  </Link>
-                </div>
+                <span className="mb-1.5 block text-xs font-semibold text-[#123324]">
+                  {lang === "hi" ? "पासवर्ड" : "Password"}
+                </span>
                 <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
                   <LockKeyhole size={16} className="text-[#6d756f] shrink-0" />
                   <input
