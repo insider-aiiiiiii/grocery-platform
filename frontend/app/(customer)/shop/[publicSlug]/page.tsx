@@ -284,7 +284,8 @@ export default function CustomerShopPage() {
     const nextItems = [...cart.items];
     if (existingIndex >= 0) {
       const current = nextItems[existingIndex];
-      const updatedQty = current.quantity + 1;
+      const currentQty = Math.round(Number(current.quantity) || 1);
+      const updatedQty = currentQty + 1;
       nextItems[existingIndex] = {
         ...current,
         quantity: updatedQty,
@@ -350,7 +351,8 @@ export default function CustomerShopPage() {
     }
 
     const previousCart = cart;
-    const nextQty = cartItem.quantity + delta;
+    const currentQty = Math.round(Number(cartItem.quantity) || 1);
+    const nextQty = Math.max(0, currentQty + delta);
 
     let nextItems: typeof cart.items = [];
     if (nextQty <= 0) {
@@ -462,28 +464,71 @@ export default function CustomerShopPage() {
       {/* Main Container */}
       <div className="max-w-4xl mx-auto space-y-3 px-3 sm:px-4">
         {/* 2. Promotional Campaign Banner (If active) */}
-        {campaigns.length > 0 && (
-          <div className="pt-2">
-            <div className="bg-gradient-to-r from-[#E8A33D]/20 via-[#FFFDF8] to-[#1F5D42]/10 border border-[#E8A33D]/40 rounded-2xl p-3 flex items-start gap-3 shadow-2xs">
-              <div className="p-2 rounded-xl bg-[#E8A33D] text-[#123324] shrink-0 shadow-2xs">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9b4d16] block">
-                  {isHindi ? "दुकान स्पेशल ऑफर" : "Store Announcement"}
-                </span>
-                <h4 className="font-display font-bold text-xs sm:text-sm text-[#17251e] leading-tight mt-0.5 truncate">
-                  {campaigns[0].title}
-                </h4>
-                {campaigns[0].content && (
-                  <p className="text-[11px] text-[#6d756f] mt-0.5 line-clamp-1">
-                    {campaigns[0].content}
-                  </p>
-                )}
-              </div>
+        {campaigns.length > 0 && (() => {
+          const camp = campaigns[0];
+          let bannerImg: string | null = null;
+          let bannerText = camp.content || "";
+          try {
+            if (bannerText.startsWith("{")) {
+              const parsed = JSON.parse(bannerText);
+              bannerImg = parsed.image || null;
+              bannerText = parsed.text || "";
+            } else if (bannerText.startsWith("data:image/") || bannerText.startsWith("http")) {
+              bannerImg = bannerText;
+              bannerText = "";
+            }
+          } catch {
+            // raw string
+          }
+
+          return (
+            <div className="pt-2">
+              {bannerImg ? (
+                <div className="relative w-full max-h-48 sm:max-h-56 rounded-2xl overflow-hidden shadow-xs border border-[#ddd6ca] bg-slate-100">
+                  <img
+                    src={bannerImg}
+                    alt={camp.title}
+                    className="w-full h-full max-h-48 sm:max-h-56 object-cover"
+                  />
+                  {(camp.title || bannerText) && (
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 text-white">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#E8A33D] block">
+                        {isHindi ? "दुकान स्पेशल ऑफर" : "Store Announcement"}
+                      </span>
+                      <h4 className="font-display font-bold text-xs sm:text-sm leading-tight mt-0.5 truncate">
+                        {camp.title}
+                      </h4>
+                      {bannerText && (
+                        <p className="text-[11px] text-white/90 line-clamp-1 mt-0.5">
+                          {bannerText}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-gradient-to-r from-[#E8A33D]/20 via-[#FFFDF8] to-[#1F5D42]/10 border border-[#E8A33D]/40 rounded-2xl p-3 flex items-start gap-3 shadow-2xs">
+                  <div className="p-2 rounded-xl bg-[#E8A33D] text-[#123324] shrink-0 shadow-2xs">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#9b4d16] block">
+                      {isHindi ? "दुकान स्पेशल ऑफर" : "Store Announcement"}
+                    </span>
+                    <h4 className="font-display font-bold text-xs sm:text-sm text-[#17251e] leading-tight mt-0.5 truncate">
+                      {camp.title}
+                    </h4>
+                    {bannerText && (
+                      <p className="text-[11px] text-[#6d756f] mt-0.5 line-clamp-1">
+                        {bannerText}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 3. Live Sync Status & Active Selection Bar */}
         <div className="flex items-center justify-between pt-1 pb-1 px-1">

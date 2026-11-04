@@ -235,6 +235,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', '91')
 
 # CORS Configuration
+from corsheaders.defaults import default_headers
+
 _cors_origins_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 if _cors_origins_env:
     CORS_ALLOWED_ORIGINS = [
@@ -249,5 +251,10 @@ else:
     ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'idempotency-key',
+    'x-shop-slug',
+]
 
 

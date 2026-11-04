@@ -296,6 +296,8 @@ class SuperAdminShopDirectorySerializer(serializers.ModelSerializer):
     owner__mobile_number = serializers.CharField(source="merchant.user.mobile_number", read_only=True)
     owner_username = serializers.CharField(source="merchant.user.username", read_only=True)
     owner_mobile_number = serializers.CharField(source="merchant.user.mobile_number", read_only=True)
+    merchant_id = serializers.IntegerField(source="merchant.id", read_only=True)
+    shop_id = serializers.IntegerField(source="id", read_only=True)
     catalog_items_count = serializers.SerializerMethodField()
     monthly_volume = serializers.SerializerMethodField()
 
@@ -303,6 +305,8 @@ class SuperAdminShopDirectorySerializer(serializers.ModelSerializer):
         model = Shop
         fields = [
             "id",
+            "shop_id",
+            "merchant_id",
             "name",
             "public_slug",
             "status",

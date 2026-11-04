@@ -48,6 +48,13 @@ class MasterProduct(models.Model):
         blank=True,
         null=True,
     )
+    image_url = models.URLField(max_length=1024, blank=True, default="")
+    mrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -55,7 +62,7 @@ class MasterProduct(models.Model):
     class Meta:
         verbose_name = "Master Product"
         verbose_name_plural = "Master Products"
-        ordering = ["name", "id"]
+        ordering = ["category__name", "name", "id"]
         indexes = [
             models.Index(fields=["is_active", "name"], name="catalog_mp_act_name_idx"),
         ]

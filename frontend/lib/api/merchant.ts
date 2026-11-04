@@ -64,13 +64,16 @@ export type Product = {
   description: string;
   brand: string;
   price: string;
+  mrp?: string | null;
   sku: string;
   image?: string | null;
+  effective_image?: string | null;
   images?: string[];
   is_visible: boolean;
   is_available: boolean;
   has_variants: boolean;
   categories: number[];
+  category_name?: string;
 };
 
 export type InventoryItem = {
@@ -209,6 +212,9 @@ export const merchantApi = {
       category: number | null;
       category_name: string | null;
       image: string | null;
+      image_url?: string | null;
+      effective_image?: string | null;
+      mrp?: string | null;
       is_in_shop: boolean;
       shop_product_id: number | null;
       shop_product_price: string | null;

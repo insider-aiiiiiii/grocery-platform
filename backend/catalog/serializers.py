@@ -257,6 +257,8 @@ class MasterProductSerializer(serializers.ModelSerializer):
     """
 
     category_name = serializers.CharField(source="category.name", read_only=True, default=None)
+    effective_image = serializers.SerializerMethodField()
+    clear_image = serializers.BooleanField(required=False, write_only=True, default=False)
 
     class Meta:
         model = MasterProduct
@@ -268,6 +270,10 @@ class MasterProductSerializer(serializers.ModelSerializer):
             "category_name",
             "brand",
             "image",
+            "image_url",
+            "effective_image",
+            "clear_image",
+            "mrp",
             "is_active",
             "created_at",
             "updated_at",
@@ -275,14 +281,32 @@ class MasterProductSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "category_name",
+            "effective_image",
             "created_at",
             "updated_at",
         ]
+
+    def get_effective_image(self, obj) -> str | None:
+        if obj.image:
+            request = self.context.get("request")
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        if obj.image_url:
+            return obj.image_url
+        return None
 
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Name cannot be empty or whitespace only.")
         return value.strip()
+
+    def update(self, instance, validated_data):
+        clear_image = validated_data.pop("clear_image", False)
+        if clear_image:
+            instance.image = None
+            instance.image_url = ""
+        return super().update(instance, validated_data)
 
 
 class PromoteShopProductSerializer(serializers.Serializer):

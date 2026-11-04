@@ -16,6 +16,7 @@ import {
   Store,
   UsersRound,
   Languages,
+  Receipt,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { merchantApi } from "@/lib/api/merchant";
@@ -23,10 +24,10 @@ import { merchantApi } from "@/lib/api/merchant";
 const links = [
   { href: "/merchant", labelEn: "My QR", labelHi: "मेरा QR", icon: QrCode },
   { href: "/merchant/inventory", labelEn: "Inventory", labelHi: "स्टॉक व बैच", icon: Boxes },
-  { href: "/merchant/orders", labelEn: "Orders", labelHi: "दुकान ऑर्डर्स", icon: ClipboardList },
+  { href: "/merchant/orders", labelEn: "Live Orders", labelHi: "लाइव ऑर्डर्स", icon: ClipboardList },
   { href: "/merchant/analytics", labelEn: "Analytics", labelHi: "बिक्री रिपोर्ट", icon: BarChart3 },
   { href: "/merchant/catalog", labelEn: "Products", labelHi: "कैटलॉग प्रोडक्ट्स", icon: ShoppingBag },
-  { href: "/merchant/customers", labelEn: "Customers", labelHi: "ग्राहक लिस्ट", icon: UsersRound },
+  { href: "/merchant/customers", labelEn: "Orders History", labelHi: "ऑर्डर इतिहास", icon: Receipt },
   { href: "/merchant/settings", labelEn: "Shop settings", labelHi: "दुकान सेटिंग्स", icon: Settings2 },
 ];
 

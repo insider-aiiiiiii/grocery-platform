@@ -13,7 +13,7 @@ interface OnboardMerchantModalProps {
 
 export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: OnboardMerchantModalProps) {
   const [username, setUsername] = useState("");
-  const [mobileNumber, setMobileNumber] = useState("+91");
+  const [mobileDigits, setMobileDigits] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,10 +32,17 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
     setLoading(true);
     setError(null);
 
+    const clean10 = mobileDigits.replace(/\D/g, "").slice(-10);
+    if (clean10.length !== 10) {
+      setError("Please enter a valid 10-digit mobile number / कृपया 10 अंकों का मोबाइल नंबर दर्ज करें");
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload: ProvisionMerchantPayload = {
         username: username.trim(),
-        mobile_number: mobileNumber.trim(),
+        mobile_number: `+91${clean10}`,
         email: email.trim() || undefined,
         initial_password: password,
       };
@@ -48,9 +55,23 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
         setSuccess(false);
       }, 1500);
     } catch (err: any) {
-      const msg = err.response?.data
-        ? JSON.stringify(err.response.data)
-        : err.message || "Failed to onboard merchant";
+      const data = err.response?.data;
+      let msg = "Failed to onboard merchant / व्यापारी ऑनबोर्ड करने में विफल";
+      if (typeof data === "string") {
+        msg = data;
+      } else if (data?.mobile_number) {
+        msg = Array.isArray(data.mobile_number) ? data.mobile_number[0] : String(data.mobile_number);
+      } else if (data?.username) {
+        msg = Array.isArray(data.username) ? data.username[0] : String(data.username);
+      } else if (data?.email) {
+        msg = Array.isArray(data.email) ? data.email[0] : String(data.email);
+      } else if (data?.initial_password) {
+        msg = Array.isArray(data.initial_password) ? data.initial_password[0] : String(data.initial_password);
+      } else if (data?.detail) {
+        msg = String(data.detail);
+      } else if (err.message) {
+        msg = err.message;
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -103,19 +124,25 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
               />
             </div>
 
-            {/* Mobile Number */}
+            {/* Mobile Number with fixed +91 */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Mobile Number (+91) *
+                Mobile Number (10 Digits) *
               </label>
-              <input
-                type="text"
-                required
-                value={mobileNumber}
-                onChange={(e) => setMobileNumber(e.target.value)}
-                placeholder="+919876543210"
-                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] outline-none font-mono"
-              />
+              <div className="flex items-center rounded border border-slate-200 bg-slate-50 overflow-hidden focus-within:bg-white focus-within:border-[#1F5D42] focus-within:ring-1 focus-within:ring-[#1F5D42]">
+                <span className="px-2.5 py-1.5 bg-slate-100 text-slate-700 font-mono font-bold text-xs border-r border-slate-200 select-none">
+                  +91
+                </span>
+                <input
+                  type="tel"
+                  required
+                  maxLength={10}
+                  value={mobileDigits}
+                  onChange={(e) => setMobileDigits(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  placeholder="9876543210"
+                  className="w-full px-3 py-1.5 text-xs bg-transparent outline-none font-mono"
+                />
+              </div>
             </div>
 
             {/* Email */}

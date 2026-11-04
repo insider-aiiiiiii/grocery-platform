@@ -59,7 +59,9 @@ export interface PublicProductVariant {
   name: string;
   description: string;
   image: string | null;
+  effective_image?: string | null;
   price: string;
+  mrp?: string | null;
   sku: string;
   attributes: Record<string, any>;
   available_quantity: number | null;
@@ -74,7 +76,9 @@ export interface PublicProduct {
   description: string;
   brand: string;
   image: string | null;
+  effective_image?: string | null;
   price: string | null;
+  mrp?: string | null;
   sku: string;
   attributes: Record<string, any>;
   has_variants: boolean;
@@ -187,6 +191,63 @@ export interface CheckoutResponse {
   } | null;
 }
 
+function normalizeCart(raw: any): PublicCart {
+  if (!raw) return raw;
+  const rawItems = Array.isArray(raw.items) ? raw.items : [];
+  const items: PublicCartItem[] = rawItems.map((it: any) => {
+    const qty = Math.max(1, Math.round(parseFloat(String(it.quantity || "1"))));
+    const unitPrice = it.unit_price ? parseFloat(String(it.unit_price)).toFixed(2) : "0.00";
+    const totalPrice = it.line_total
+      ? parseFloat(String(it.line_total)).toFixed(2)
+      : it.total_price
+      ? parseFloat(String(it.total_price)).toFixed(2)
+      : (parseFloat(unitPrice) * qty).toFixed(2);
+
+    return {
+      id: it.id,
+      product: {
+        id: it.product?.id ?? 0,
+        name: it.product?.name ?? "Item",
+        brand: it.product?.brand ?? "",
+        image: it.product?.image ?? null,
+      },
+      variant: it.variant
+        ? {
+            id: it.variant.id,
+            name: it.variant.name,
+            image: it.variant.image ?? null,
+          }
+        : null,
+      quantity: qty,
+      unit_price: unitPrice,
+      total_price: totalPrice,
+    };
+  });
+
+  const count =
+    raw.item_count != null
+      ? Number(raw.item_count)
+      : raw.items_count != null
+      ? Number(raw.items_count)
+      : items.reduce((acc, i) => acc + i.quantity, 0);
+
+  const total =
+    raw.subtotal != null
+      ? String(raw.subtotal)
+      : raw.total_amount != null
+      ? String(raw.total_amount)
+      : items.reduce((acc, i) => acc + parseFloat(i.total_price || "0"), 0).toFixed(2);
+
+  return {
+    ...raw,
+    items,
+    item_count: count,
+    items_count: count,
+    subtotal: total,
+    total_amount: total,
+  };
+}
+
 export const customerApi = {
   getShop: async (publicSlug: string): Promise<PublicShopInfo> => {
     const res = await customerClient.get<PublicShopInfo>(`/shops/public/${publicSlug}/`);
@@ -228,14 +289,14 @@ export const customerApi = {
   // Cart Operations
   createCart: async (publicSlug: string): Promise<PublicCart> => {
     const res = await customerClient.post<PublicCart>(`/shops/public/${publicSlug}/cart/`, {});
-    return res.data;
+    return normalizeCart(res.data);
   },
 
   getCart: async (publicSlug: string, cartId: number): Promise<PublicCart> => {
     const res = await customerClient.get<PublicCart>(`/shops/public/${publicSlug}/cart/`, {
       params: { cart_id: cartId },
     });
-    return res.data;
+    return normalizeCart(res.data);
   },
 
   addItemToCart: async (
@@ -305,8 +366,9 @@ export const customerApi = {
   },
 
   // Order Cancellation
-  cancelOrder: async (orderId: number): Promise<{ id: number; status: string }> => {
-    const res = await customerClient.post(`/customer/orders/${orderId}/cancellation/`, {});
+  cancelOrder: async (publicSlug: string, orderId: number): Promise<{ id: number; status: string }> => {
+    const res = await customerClient.post(`/shops/public/${publicSlug}/orders/${orderId}/cancel/`, {});
     return res.data;
   },
 };
+

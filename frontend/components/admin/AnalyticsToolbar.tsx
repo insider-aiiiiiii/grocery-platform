@@ -92,7 +92,7 @@ export function AnalyticsToolbar({
                 className="bg-transparent text-xs font-semibold text-slate-900 outline-none cursor-pointer pr-1"
               >
                 <option value="">All Merchant Nodes (Platform-wide)</option>
-                {merchants.map((m) => (
+                {merchants.filter((m) => m.shopId > 0).map((m) => (
                   <option key={m.shopId} value={m.shopId}>
                     {m.shopName} (ID #{m.shopId} {m.city ? `· ${m.city}` : ""})
                   </option>

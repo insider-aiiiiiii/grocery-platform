@@ -15,6 +15,11 @@ import {
   XCircle,
   RefreshCw,
   ExternalLink,
+  ShoppingBag,
+  MapPin,
+  Phone,
+  User,
+  ShieldCheck,
 } from "lucide-react";
 import { customerApi, PublicShopInfo } from "@/lib/api/customer";
 
@@ -42,18 +47,24 @@ export default function OrderConfirmationPage() {
       const raw = sessionStorage.getItem(`order_confirmation_${orderId}`);
       if (raw) {
         try {
-          setOrderData(JSON.parse(raw));
-          return;
+          const parsed = JSON.parse(raw);
+          setOrderData(parsed);
+          if (parsed.status === "REJECTED") {
+            setCancelled(true);
+          }
         } catch {
           // ignore
         }
       }
-      // If not in sessionStorage or refreshed, fetch from public API
+      // Fetch fresh order details from public API
       if (publicSlug) {
         customerApi
           .getOrder(publicSlug, parseInt(orderId, 10))
           .then((data) => {
             setOrderData(data);
+            if (data.status === "REJECTED") {
+              setCancelled(true);
+            }
             try {
               sessionStorage.setItem(`order_confirmation_${orderId}`, JSON.stringify(data));
             } catch {}
@@ -67,6 +78,12 @@ export default function OrderConfirmationPage() {
     if (!publicSlug) return;
     customerApi.getShop(publicSlug).then(setShop).catch(console.error);
   }, [publicSlug]);
+
+  useEffect(() => {
+    if (orderData?.status === "REJECTED") {
+      setCancelled(true);
+    }
+  }, [orderData?.status]);
 
   useEffect(() => {
     if (secondsLeft <= 0 || cancelled) return;
@@ -83,12 +100,17 @@ export default function OrderConfirmationPage() {
   };
 
   const handleCancelOrder = async () => {
-    if (!orderId) return;
+    if (!orderId || !publicSlug) return;
     setCancelling(true);
     setCancelError(null);
     try {
-      await customerApi.cancelOrder(parseInt(orderId, 10));
+      const res = await customerApi.cancelOrder(publicSlug, parseInt(orderId, 10));
       setCancelled(true);
+      const updated = { ...(orderData || {}), ...res, status: "REJECTED" };
+      setOrderData(updated);
+      try {
+        sessionStorage.setItem(`order_confirmation_${orderId}`, JSON.stringify(updated));
+      } catch {}
     } catch (err: any) {
       setCancelError(
         err.response?.data?.detail || "Order could not be cancelled. It may have already been accepted by the shopkeeper."
@@ -105,7 +127,7 @@ export default function OrderConfirmationPage() {
   const cleanShopPhone = (orderData?.shop_contact_number || shop?.contact_number)?.replace(/\D/g, "") || "";
   const phoneWithCountry = cleanShopPhone.length === 10 ? `91${cleanShopPhone}` : cleanShopPhone;
 
-  // Use server-generated canonical Click-to-Chat notification link if available
+  // Server-generated canonical Click-to-Chat notification link if available
   const serverWaLink = orderData?.whatsapp_notification_links?.hinglish || orderData?.whatsapp_notification_links?.en;
 
   const shopDisplayName = orderData?.shop_name || shop?.name || "Dukandaar";
@@ -136,7 +158,7 @@ export default function OrderConfirmationPage() {
     orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• Delivery Fee: ₹${parseFloat(orderData.delivery_charge).toFixed(0)}` : null,
     `• *Total Payable: ₹${orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}*`,
     ``,
-    `Namaste ${shopDisplayName}! Maine Dukaan se order place kiya hai. Please check karke confirm karein!`,
+    `Namaste ${shopDisplayName}! Maine dukaan se order place kiya hai. Please check karke confirm karein! 🙏`,
   ].filter((line) => line !== null);
 
   const fullMessage = messageLines.join("\n");
@@ -149,8 +171,8 @@ export default function OrderConfirmationPage() {
 
   return (
     <div className="min-h-screen bg-[#F6F0E6] text-[#17251e] font-sans pb-16">
-      {/* Top Bar */}
-      <header className="bg-white/80 backdrop-blur border-b border-[#ddd6ca] px-4 py-3 sticky top-0 z-30">
+      {/* Top Navigation Bar */}
+      <header className="bg-white/90 backdrop-blur border-b border-[#ddd6ca] px-4 py-3 sticky top-0 z-30">
         <div className="max-w-xl mx-auto flex items-center justify-between">
           <Link
             href={`/shop/${publicSlug}`}
@@ -159,25 +181,44 @@ export default function OrderConfirmationPage() {
             <ArrowLeft className="w-4 h-4 text-[#1F5D42]" />
             <span className="text-xs font-bold font-display tracking-tight text-[#1F5D42]">{shop?.name || "Shop"}</span>
           </Link>
-          <span className="text-[10px] font-bold text-[#1F5D42] bg-[#e7f2eb] px-2.5 py-0.5 rounded-full border border-[#cde0d5]">
-            ● Live Dukaan Order
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#1F5D42] bg-[#e7f2eb] px-2.5 py-0.5 rounded-full border border-[#cde0d5]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#1F5D42] animate-ping" />
+            Live Storefront Order
           </span>
         </div>
       </header>
 
       <main className="max-w-xl mx-auto px-4 py-6 space-y-4">
-        {/* 1. Hero Celebration Card (Visual Board Style) */}
+        {/* 1. Order Status Header Card */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-3xl p-6 text-center space-y-3 shadow-md relative overflow-hidden">
-          <div className="text-4xl animate-bounce select-none">🎉</div>
+          <div className="text-4xl animate-bounce select-none">
+            {cancelled ? "🛑" : "🎉"}
+          </div>
 
           <div>
-            <h1 className="font-display font-bold text-3xl text-[#123324] leading-tight">
-              Order confirmed!
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase mb-2 bg-[#e7f2eb] text-[#1F5D42] border border-[#cde0d5]">
+              {cancelled ? (
+                <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Order Cancelled / रद्द किया गया</span>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#1F5D42]" />
+                  <span>Order Placed Successfully · ऑर्डर दर्ज हुआ</span>
+                </>
+              )}
+            </div>
+
+            <h1 className="font-display font-bold text-2xl sm:text-3xl text-[#123324] leading-tight">
+              {cancelled ? "Order has been cancelled" : "Your order is confirmed!"}
             </h1>
             <p className="text-xs text-[#5e665f] mt-1 max-w-sm mx-auto leading-relaxed">
-              <strong className="text-[#123324] font-semibold">{shop?.name || "Shop"}</strong> has received order{" "}
-              <b className="text-[#1F5D42]">#SK-{orderId}</b>.<br />
-              You’ll get updates directly on WhatsApp.
+              {cancelled ? (
+                "This order was cancelled by customer request. Reserved items have been returned to the store shelf."
+              ) : (
+                <>
+                  <strong className="text-[#123324] font-semibold">{shop?.name || "Shop"}</strong> has received your order{" "}
+                  <b className="text-[#1F5D42]">#SK-{orderId}</b>.
+                </>
+              )}
             </p>
           </div>
 
@@ -186,7 +227,7 @@ export default function OrderConfirmationPage() {
             <span>#SK-{orderId}</span>
             <button
               onClick={handleCopyOrderId}
-              className="text-[#6d756f] hover:text-[#123324] transition-colors"
+              className="text-[#6d756f] hover:text-[#123324] transition-colors cursor-pointer"
               title="Copy Order ID"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-[#1F5D42]" /> : <Copy className="w-3.5 h-3.5" />}
@@ -194,95 +235,188 @@ export default function OrderConfirmationPage() {
           </div>
         </div>
 
-        {/* 2. Embedded WhatsApp Preview Card (Authentic Visual Board Frame) */}
-        <div className="rounded-2xl overflow-hidden border border-[#cfc8bc] shadow-md bg-[#efeae2]">
-          {/* WhatsApp Chrome Header */}
-          <div className="bg-[#075E54] text-white px-4 py-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-[#d7c49d] text-[#123324] font-bold text-xs flex items-center justify-center shadow-sm">
-                🛍️
+        {/* 2. Prominent WhatsApp Action Card */}
+        {!cancelled && (
+          <div className="bg-[#FFFDF8] border-2 border-[#25D366]/40 rounded-3xl p-5 shadow-lg space-y-4 relative overflow-hidden">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-[#25D366]/15 flex items-center justify-center shrink-0 text-[#128C7E]">
+                <MessageCircle className="w-6 h-6 fill-[#25D366] text-[#25D366]" />
               </div>
-              <div>
-                <h3 className="text-xs font-bold leading-tight">{shop?.name || "QR Local"}</h3>
-                <p className="text-[9px] text-white/80">business account • verified</p>
-              </div>
-            </div>
-            <span className="text-[10px] font-semibold bg-white/20 px-2 py-0.5 rounded text-white/90">
-              WhatsApp Preview
-            </span>
-          </div>
-
-          {/* Chat wallpaper & bubble */}
-          <div
-            className="p-4 space-y-3"
-            style={{
-              backgroundColor: "#efeae2",
-              backgroundImage:
-                "radial-gradient(#ddd5c9 1px, transparent 1px), radial-gradient(#ddd5c9 1px, transparent 1px)",
-              backgroundPosition: "0 0, 8px 8px",
-              backgroundSize: "16px 16px",
-            }}
-          >
-            {/* Timestamp pill */}
-            <div className="text-center">
-              <span className="bg-[#fff2c9] text-[#6d5a2c] text-[9px] font-semibold px-2.5 py-0.5 rounded-full shadow-xs">
-                TODAY
-              </span>
-            </div>
-
-            {/* Outgoing Message Bubble with Pre-filled Content */}
-            <div className="max-w-[94%] ml-auto bg-[#dcf8c6] rounded-2xl rounded-tr-xs p-3.5 text-xs text-[#17251e] shadow-sm border border-[#cbe4b7] space-y-1.5">
-              <div className="flex items-center justify-between pb-1 border-b border-[#c2deb0]">
-                <span className="font-bold text-[#123324] text-[11px]">To: {shopDisplayName}</span>
-                <span className="text-[9px] font-bold text-[#1F5D42] bg-white/70 px-2 py-0.5 rounded-full">
-                  All Details Pre-filled ✓
-                </span>
-              </div>
-              <p className="text-[11px] leading-relaxed font-body whitespace-pre-line text-[#17251e]">
-                {fullMessage}
-              </p>
-              <div className="text-right text-[9px] text-[#6f7b72] flex items-center justify-end gap-1 pt-1">
-                <span>{currentTime}</span>
-                <span className="text-[#38a8d1] font-bold">✓✓</span>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-display font-bold text-sm text-[#123324]">
+                    Send Details to Merchant via WhatsApp
+                  </h3>
+                  <span className="text-[9px] font-bold bg-[#25D366] text-white px-2 py-0.5 rounded-full">
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-xs text-[#5e665f] mt-0.5 leading-snug">
+                  व्यापारी <b>{shopDisplayName}</b> को तुरंत व्हाट्सएप पर ऑर्डर भेजें ताकि वो सामान पैक करके जल्दी भेज सकें।
+                </p>
               </div>
             </div>
 
-            {/* WhatsApp CTA Action */}
-            {whatsappUrl && (
+            {whatsappUrl ? (
               <a
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full mt-3 py-3.5 px-4 bg-[#25D366] hover:bg-[#128C7E] text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+                className="w-full py-4 px-5 bg-gradient-to-r from-[#25D366] via-[#1eb858] to-[#128C7E] hover:brightness-105 active:scale-[0.99] text-white font-body font-bold text-sm sm:text-base rounded-2xl shadow-[0_8px_20px_rgba(37,211,102,0.35)] transition flex items-center justify-center gap-2.5 cursor-pointer"
               >
                 <MessageCircle className="w-5 h-5 fill-white" />
-                <span>Send Order on WhatsApp</span>
+                <span>Send Order on WhatsApp · व्हाट्सएप पर भेजें</span>
                 <ExternalLink className="w-4 h-4 opacity-90" />
               </a>
+            ) : (
+              <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                Shopkeeper contact number is not available for WhatsApp. The order is recorded in their live dashboard.
+              </p>
             )}
+
+            {/* Embedded WhatsApp Chat Preview */}
+            <div className="rounded-2xl overflow-hidden border border-[#cfc8bc] shadow-sm bg-[#efeae2]">
+              <div className="bg-[#075E54] text-white px-3.5 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-[#d7c49d] text-[#123324] font-bold text-[10px] flex items-center justify-center">
+                    🛍️
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-bold leading-tight">{shopDisplayName}</h4>
+                    <p className="text-[8px] text-white/80">pre-filled message preview</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-semibold bg-white/20 px-2 py-0.5 rounded text-white/90">
+                  Ready to send
+                </span>
+              </div>
+
+              <div
+                className="p-3"
+                style={{
+                  backgroundColor: "#efeae2",
+                  backgroundImage:
+                    "radial-gradient(#ddd5c9 1px, transparent 1px), radial-gradient(#ddd5c9 1px, transparent 1px)",
+                  backgroundPosition: "0 0, 8px 8px",
+                  backgroundSize: "16px 16px",
+                }}
+              >
+                <div className="max-w-[96%] ml-auto bg-[#dcf8c6] rounded-xl rounded-tr-xs p-3 text-[11px] text-[#17251e] shadow-xs border border-[#cbe4b7] space-y-1">
+                  <p className="leading-relaxed font-body whitespace-pre-line text-[#17251e]">
+                    {fullMessage}
+                  </p>
+                  <div className="text-right text-[8px] text-[#6f7b72] flex items-center justify-end gap-1 pt-0.5">
+                    <span>{currentTime}</span>
+                    <span className="text-[#38a8d1] font-bold">✓✓</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3. Order Items Summary Breakdown */}
+        <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-5 shadow-sm space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-[#eee8dc]">
+            <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] flex items-center gap-1.5">
+              <ShoppingBag className="w-4 h-4 text-[#1F5D42]" />
+              <span>Items Breakdown ({orderData?.items?.length || 0} items)</span>
+            </h3>
+            <span className="text-xs font-bold text-[#1F5D42]">
+              ₹{orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}
+            </span>
+          </div>
+
+          <div className="divide-y divide-[#eee8dc]">
+            {(orderData?.items || []).map((item: any, idx: number) => (
+              <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+                <div>
+                  <p className="font-medium text-[#123324]">
+                    {item.product_name}
+                    {item.variant_name && (
+                      <span className="text-[#6d756f] ml-1">({item.variant_name})</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-[#6d756f]">
+                    ₹{parseFloat(item.unit_price || "0").toFixed(0)} × {parseFloat(item.quantity || "1")}
+                  </p>
+                </div>
+                <span className="font-bold text-[#123324]">
+                  ₹{parseFloat(item.line_total || "0").toFixed(0)}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Pricing Totals */}
+          <div className="pt-2 border-t border-[#eee8dc] space-y-1.5 text-xs text-[#5e665f]">
+            <div className="flex justify-between">
+              <span>Items Subtotal</span>
+              <span>₹{orderData?.items_subtotal ? parseFloat(orderData.items_subtotal).toFixed(0) : "0"}</span>
+            </div>
+            {orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 && (
+              <div className="flex justify-between">
+                <span>Delivery Charge</span>
+                <span>₹{parseFloat(orderData.delivery_charge).toFixed(0)}</span>
+              </div>
+            )}
+            <div className="flex justify-between pt-1 border-t border-[#eee8dc] text-sm font-bold text-[#123324]">
+              <span>Grand Total</span>
+              <span className="text-[#1F5D42]">
+                ₹{orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* 3. 4-Stage Live Order Status Timeline */}
+        {/* 4. Delivery & Customer Information Card */}
+        <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-5 shadow-sm space-y-3">
+          <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] pb-2 border-b border-[#eee8dc]">
+            Fulfillment & Customer Details
+          </h3>
+          <div className="space-y-2 text-xs">
+            <div className="flex items-start gap-2 text-[#17251e]">
+              <User className="w-4 h-4 text-[#1F5D42] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">{customerName}</p>
+                <p className="text-[11px] text-[#6d756f]">{customerPhone}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2 text-[#17251e] pt-1">
+              {fulfillmentType === "PICKUP" ? (
+                <Store className="w-4 h-4 text-[#1F5D42] shrink-0 mt-0.5" />
+              ) : (
+                <MapPin className="w-4 h-4 text-[#1F5D42] shrink-0 mt-0.5" />
+              )}
+              <div>
+                <p className="font-semibold">{fulfillmentStr}</p>
+                {addrText && <p className="text-[11px] text-[#6d756f]">{addrText}</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 5. 4-Stage Live Order Status Timeline */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-5 shadow-sm space-y-4">
-          <h3 className="font-display font-bold text-sm text-[#123324] uppercase tracking-wider pb-2 border-b border-[#eee8dc]">
+          <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] pb-2 border-b border-[#eee8dc]">
             Live Order Progress
           </h3>
 
           <div className="space-y-4 relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-[#ddd6ca]">
             {/* Step 1: Placed */}
             <div className="relative">
-              <span className="absolute -left-6 top-0.5 w-5 h-5 rounded-full bg-[#1F5D42] text-white flex items-center justify-center ring-4 ring-[#FFFDF8]">
-                <Check className="w-3 h-3" />
+              <span className={`absolute -left-6 top-0.5 w-5 h-5 rounded-full ${cancelled ? "bg-red-500" : "bg-[#1F5D42]"} text-white flex items-center justify-center ring-4 ring-[#FFFDF8]`}>
+                {cancelled ? <XCircle className="w-3 h-3" /> : <Check className="w-3 h-3" />}
               </span>
               <div>
                 <h4 className="text-xs font-bold text-[#123324]">Order Placed</h4>
-                <p className="text-[11px] text-[#6d756f]">Received at shopkeeper's order desk.</p>
+                <p className="text-[11px] text-[#6d756f]">Received in shopkeeper's order desk.</p>
               </div>
             </div>
 
             {/* Step 2: Accepted */}
-            <div className="relative">
+            <div className={`relative ${cancelled ? "opacity-40" : ""}`}>
               <span className="absolute -left-6 top-0.5 w-5 h-5 rounded-full bg-[#E8A33D] text-white flex items-center justify-center ring-4 ring-[#FFFDF8] animate-pulse">
                 <Store className="w-3 h-3" />
               </span>
@@ -316,18 +450,18 @@ export default function OrderConfirmationPage() {
           </div>
         </div>
 
-        {/* 4. Cancellation Action (Valid for 5 mins while pending) */}
+        {/* 6. Order Cancellation Action (Valid for 5 mins while pending) */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-4 shadow-sm space-y-3">
           {cancelled ? (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
               <XCircle className="w-4 h-4 shrink-0" />
-              <span>Order has been successfully cancelled. Reserved items were released.</span>
+              <span>Order has been successfully cancelled. Reserved items were released back to the store shelf.</span>
             </div>
           ) : (
             <div>
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-[#123324]">Need to make changes?</h4>
+                  <h4 className="text-xs font-bold text-[#123324]">Need to cancel?</h4>
                   <p className="text-[11px] text-[#6d756f]">
                     You can cancel your order within {timeFormatted} minutes before packing begins.
                   </p>
@@ -345,7 +479,7 @@ export default function OrderConfirmationPage() {
                   type="button"
                   onClick={handleCancelOrder}
                   disabled={cancelling}
-                  className="mt-3 w-full py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className="mt-3 w-full py-2.5 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {cancelling ? (
                     <>
@@ -364,11 +498,11 @@ export default function OrderConfirmationPage() {
           )}
         </div>
 
-        {/* 5. Return to Shop CTA */}
+        {/* 7. Return to Shop CTA */}
         <div className="text-center pt-2">
           <Link
             href={`/shop/${publicSlug}`}
-            className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-[#1F5D42] text-white text-xs font-bold font-display hover:bg-[#123324] shadow-sm transition-all"
+            className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-[#123324] hover:bg-[#1F5D42] text-white text-xs font-bold font-display shadow-sm transition-all"
           >
             <span>Done · Return to {shop?.name || "Shop"}</span>
           </Link>
@@ -377,3 +511,4 @@ export default function OrderConfirmationPage() {
     </div>
   );
 }
+

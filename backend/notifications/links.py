@@ -305,10 +305,16 @@ def get_customer_order_notification_links(
     order_id = str(getattr(order, "id", ""))
     short_order_num = order_id[:8] if order_id else "UNKNOWN"
     shop_name = getattr(shop, "name", "Store")
+    customer_name = getattr(order, "customer_name_snapshot", "Customer") or "Customer"
     customer_phone = getattr(order, "customer_phone_snapshot", "")
     fulfillment = getattr(order, "fulfillment_type", "HOME_DELIVERY")
+
+
+    total_amount = str(getattr(order, "total_amount", "0.00"))
     subtotal = str(getattr(order, "items_subtotal", total_amount))
     delivery_charge = str(getattr(order, "delivery_charge_snapshot", "0.00"))
+
+
 
     items_lines = []
     items_qs = getattr(order, "items", None)

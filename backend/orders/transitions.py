@@ -287,3 +287,28 @@ def cancel_pending_order_as_customer(customer_id, session_id, order_id):
         ])
         request_order_notification(order, "CUSTOMER_CANCELLED", order.rejection_reason_code)
         return order, False
+
+
+def cancel_pending_order_for_shop(shop_id, order_id):
+    """Atomically cancel a pending storefront Order and release its stock reservation."""
+    with transaction.atomic():
+        order = _locked_order(shop_id, order_id)
+        now = timezone.now()
+        if order.status == Order.Status.PENDING and order.expires_at and now >= order.expires_at:
+            _expire_pending_order(order, now)
+            return order, True
+        if order.status != Order.Status.PENDING:
+            raise OrderTransitionConflict("Only PENDING Orders can be cancelled.")
+
+        _release_pending_stock(order)
+        order.status = Order.Status.REJECTED
+        order.rejection_actor = Order.RejectionActor.CUSTOMER
+        order.rejection_reason_code = "CUSTOMER_CANCELLED"
+        order.rejection_note = ""
+        order.rejected_at = now
+        order.save(update_fields=[
+            "status", "rejection_actor", "rejection_reason_code", "rejection_note", "rejected_at", "updated_at",
+        ])
+        request_order_notification(order, "CUSTOMER_CANCELLED", order.rejection_reason_code)
+        return order, False
+

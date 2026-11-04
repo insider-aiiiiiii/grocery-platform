@@ -43,10 +43,13 @@ export function MasterCatalogTable({
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [brand, setBrand] = useState("");
+  const [mrp, setMrp] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedUnit, setSelectedUnit] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [clearImage, setClearImage] = useState(false);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(false);
@@ -66,10 +69,13 @@ export function MasterCatalogTable({
     setName("");
     setCategory("");
     setBrand("");
+    setMrp("");
     setDescription("");
+    setSelectedUnit("");
     setImageUrls([]);
     setImageFiles([]);
     setNewImageUrl("");
+    setClearImage(false);
     setError(null);
   };
 
@@ -84,9 +90,12 @@ export function MasterCatalogTable({
     setName(p.name || "");
     setCategory(p.category_name || (p.category ? String(p.category) : ""));
     setBrand(p.brand || "");
+    setMrp(p.mrp ? String(p.mrp) : "");
     setDescription(p.description || "");
     const initialImages: string[] = [];
-    if (p.image) initialImages.push(p.image);
+    if (p.effective_image) initialImages.push(p.effective_image);
+    else if (p.image) initialImages.push(p.image);
+    else if (p.image_url) initialImages.push(p.image_url);
     if (Array.isArray(p.images)) {
       p.images.forEach((img) => {
         if (!initialImages.includes(img)) initialImages.push(img);
@@ -94,6 +103,7 @@ export function MasterCatalogTable({
     }
     setImageUrls(initialImages.slice(0, 6));
     setImageFiles([]);
+    setClearImage(false);
   };
 
   const handleImageFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,6 +118,7 @@ export function MasterCatalogTable({
         if (typeof reader.result === "string") {
           setImageUrls((prev) => [...prev, reader.result as string]);
           setImageFiles((prev) => [...prev, file]);
+          setClearImage(false);
         }
       };
       reader.readAsDataURL(file);
@@ -126,11 +137,23 @@ export function MasterCatalogTable({
     }
     setImageUrls([...imageUrls, trimmed]);
     setNewImageUrl("");
+    setClearImage(false);
   };
 
   const handleRemoveImageUrl = (index: number) => {
-    setImageUrls((prev) => prev.filter((_, idx) => idx !== index));
+    setImageUrls((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      if (next.length === 0) setClearImage(true);
+      return next;
+    });
     setImageFiles((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleRemoveAllImages = () => {
+    setImageUrls([]);
+    setImageFiles([]);
+    setNewImageUrl("");
+    setClearImage(true);
   };
 
   const handleCreateProduct = async (e: React.FormEvent) => {
@@ -146,6 +169,7 @@ export function MasterCatalogTable({
         const formData = new FormData();
         formData.append("name", name.trim());
         if (brand.trim()) formData.append("brand", brand.trim());
+        if (mrp.trim()) formData.append("mrp", mrp.trim());
         if (description.trim()) formData.append("description", description.trim());
         if (category.trim()) {
           const catNum = parseInt(category.trim(), 10);
@@ -159,6 +183,9 @@ export function MasterCatalogTable({
           brand: brand.trim(),
           description: description.trim(),
         };
+        if (mrp.trim()) {
+          payload.mrp = mrp.trim();
+        }
         if (category.trim()) {
           const catNum = parseInt(category.trim(), 10);
           if (!isNaN(catNum)) {
@@ -166,7 +193,7 @@ export function MasterCatalogTable({
           }
         }
         if (imageUrls.length > 0) {
-          payload.image = imageUrls[0];
+          payload.image_url = imageUrls[0];
         }
         await adminApi.createMasterProduct(payload, token);
       }
@@ -194,6 +221,7 @@ export function MasterCatalogTable({
         const formData = new FormData();
         formData.append("name", name.trim());
         if (brand.trim()) formData.append("brand", brand.trim());
+        if (mrp.trim()) formData.append("mrp", mrp.trim());
         if (description.trim()) formData.append("description", description.trim());
         if (category.trim()) {
           const catNum = parseInt(category.trim(), 10);
@@ -206,6 +234,8 @@ export function MasterCatalogTable({
           name: name.trim(),
           brand: brand.trim(),
           description: description.trim(),
+          mrp: mrp.trim() ? mrp.trim() : null,
+          clear_image: clearImage,
         };
         if (category.trim()) {
           const catNum = parseInt(category.trim(), 10);
@@ -213,8 +243,8 @@ export function MasterCatalogTable({
             payload.category = catNum;
           }
         }
-        if (imageUrls.length > 0) {
-          payload.image = imageUrls[0];
+        if (imageUrls.length > 0 && !clearImage) {
+          payload.image_url = imageUrls[0];
         }
         await adminApi.updateMasterProduct(editingProduct.id, payload, token);
       }
@@ -351,17 +381,25 @@ export function MasterCatalogTable({
     }
   };
 
-  // Filter products by search query
+  // Filter products by search query and sort A-Z by category and name
   const filteredProducts = useMemo(() => {
-    if (!searchQuery.trim()) return products;
-    const q = searchQuery.toLowerCase();
-    return products.filter(
-      (p) =>
-        p.name?.toLowerCase().includes(q) ||
-        p.brand?.toLowerCase().includes(q) ||
-        p.category_name?.toLowerCase().includes(q) ||
-        p.description?.toLowerCase().includes(q)
-    );
+    let list = products;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = products.filter(
+        (p) =>
+          p.name?.toLowerCase().includes(q) ||
+          p.brand?.toLowerCase().includes(q) ||
+          p.category_name?.toLowerCase().includes(q) ||
+          p.description?.toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      const catA = (a.category_name || "").toLowerCase();
+      const catB = (b.category_name || "").toLowerCase();
+      if (catA !== catB) return catA.localeCompare(catB);
+      return (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase());
+    });
   }, [products, searchQuery]);
 
   // Paginated slice
@@ -380,7 +418,7 @@ export function MasterCatalogTable({
             Master Product Catalog ({products.length})
           </h2>
           <p className="text-xs text-[#6d756f] mt-0.5">
-            Platform-wide verified SKU repository. Merchants can browse and select these templates for their shops.
+            Platform-wide verified SKU repository organized A-Z. Merchants can browse and select these templates for their shops.
           </p>
         </div>
 
@@ -442,7 +480,7 @@ export function MasterCatalogTable({
           />
         </div>
         <div className="text-[11px] font-medium text-[#6d756f] shrink-0">
-          Showing {paginatedProducts.length} of {filteredProducts.length} results
+          Showing {paginatedProducts.length} of {filteredProducts.length} results (A-Z)
         </div>
       </div>
 
@@ -454,15 +492,16 @@ export function MasterCatalogTable({
               <th className="py-3 px-4">Product Name</th>
               <th className="py-3 px-3">Category</th>
               <th className="py-3 px-3">Brand</th>
+              <th className="py-3 px-3">MRP (₹)</th>
               <th className="py-3 px-3">Description</th>
-              <th className="py-3 px-3">Photos</th>
+              <th className="py-3 px-3">Photos / S3 Link</th>
               <th className="py-3 px-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eee9df]">
             {paginatedProducts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-[#869088]">
+                <td colSpan={7} className="py-12 text-center text-[#869088]">
                   <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
                   <p className="font-semibold text-sm text-[#123324]">No master products found</p>
                   <p className="text-xs text-[#6d756f] mt-1">
@@ -471,61 +510,75 @@ export function MasterCatalogTable({
                 </td>
               </tr>
             ) : (
-              paginatedProducts.map((p) => (
-                <tr key={p.id} className="hover:bg-[#FAF8F3] transition-colors">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      {p.image ? (
-                        <img
-                          src={p.image}
-                          alt={p.name}
-                          className="w-9 h-9 object-cover rounded-lg border border-[#ddd6ca] shrink-0"
-                        />
-                      ) : (
-                        <div className="w-9 h-9 rounded-lg bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
-                          <ImageIcon className="w-4 h-4" />
+              paginatedProducts.map((p) => {
+                const displayImg = p.effective_image || p.image || p.image_url;
+                const isS3Link = Boolean(p.image_url && !p.image);
+                return (
+                  <tr key={p.id} className="hover:bg-[#FAF8F3] transition-colors">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        {displayImg ? (
+                          <img
+                            src={displayImg}
+                            alt={p.name}
+                            className="w-9 h-9 object-cover rounded-lg border border-[#ddd6ca] shrink-0 bg-white"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
+                            <ImageIcon className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div>
+                          <div className="font-bold text-[#123324]">{p.name}</div>
+                          <div className="text-[10px] text-[#869088]">ID: #{p.id}</div>
                         </div>
-                      )}
-                      <div>
-                        <div className="font-bold text-[#123324]">{p.name}</div>
-                        <div className="text-[10px] text-[#869088]">ID: #{p.id}</div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-3">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5]">
-                      <Tag className="w-3 h-3 text-[#1F5D42]" />
-                      {p.category_name || (p.category ? `Cat #${p.category}` : "General")}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-[#123324] font-medium">{p.brand || "—"}</td>
-                  <td className="py-3 px-3 text-[#6d756f] max-w-xs truncate">{p.description || "—"}</td>
-                  <td className="py-3 px-3">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6d756f]">
-                      <ImageIcon className="w-3 h-3 text-[#1F5D42]" />
-                      <span>{p.image ? "1+ photo" : "No photo"}</span>
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-right">
-                    <div className="inline-flex items-center gap-1.5">
-                      <button
-                        onClick={() => handleOpenEdit(p)}
-                        className="p-1.5 text-[#1F5D42] hover:bg-[#e7f2eb] rounded-lg transition-colors"
-                        title="Edit Master Product"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProduct(p.id, p.name)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete Master Product"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td className="py-3 px-3">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5]">
+                        <Tag className="w-3 h-3 text-[#1F5D42]" />
+                        {p.category_name || (p.category ? `Cat #${p.category}` : "General")}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-[#123324] font-medium">{p.brand || "—"}</td>
+                    <td className="py-3 px-3 font-semibold text-[#1F5D42]">
+                      {p.mrp ? `₹${parseFloat(String(p.mrp)).toFixed(2)}` : "—"}
+                    </td>
+                    <td className="py-3 px-3 text-[#6d756f] max-w-xs truncate">{p.description || "—"}</td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6d756f]">
+                          <ImageIcon className="w-3 h-3 text-[#1F5D42]" />
+                          <span>{displayImg ? "1 photo" : "No photo"}</span>
+                        </span>
+                        {isS3Link && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-50 text-blue-700 border border-blue-200">
+                            S3 URL
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleOpenEdit(p)}
+                          className="p-1.5 text-[#1F5D42] hover:bg-[#e7f2eb] rounded-lg transition-colors"
+                          title="Edit Master Product"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(p.id, p.name)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete Master Product"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -618,22 +671,22 @@ export function MasterCatalogTable({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-[#123324] mb-1">
-                    Category (Optional)
+                    Category
                   </label>
                   <input
                     type="text"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    placeholder="e.g. Dairy or Category ID"
+                    placeholder="e.g. Dairy"
                     className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
                   />
                 </div>
                 <div>
                   <label className="block font-bold text-[#123324] mb-1">
-                    Brand Name (Optional)
+                    Brand Name
                   </label>
                   <input
                     type="text"
@@ -642,6 +695,57 @@ export function MasterCatalogTable({
                     placeholder="e.g. Amul"
                     className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
                   />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#123324] mb-1">
+                    MRP (₹)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={mrp}
+                    onChange={(e) => setMrp(e.target.value)}
+                    placeholder="e.g. 68.00"
+                    className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Loose Item Unit / Packaging Selector */}
+              <div>
+                <label className="block font-bold text-[#123324] mb-1">
+                  Packaging / Loose Unit (पैकेजिंग / खुली बिक्री इकाई)
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {["1 kg", "500g", "250g", "100g", "1 packet", "1 piece", "1 liter", "500 ml"].map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => {
+                        setSelectedUnit(u);
+                        if (!name.includes(u)) {
+                          setName((prev) => (prev.trim() ? `${prev.trim()} (${u})` : u));
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
+                        selectedUnit === u
+                          ? "bg-[#1F5D42] text-white border-[#1F5D42]"
+                          : "bg-[#f8f6f0] hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                  {selectedUnit && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUnit("")}
+                      className="text-[10px] text-red-600 hover:underline ml-1"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -661,9 +765,20 @@ export function MasterCatalogTable({
               {/* Photos Management (Max 6 photos) */}
               <div className="border-t border-[#eee9df] pt-3">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="font-bold text-[#123324]">
-                    Product Photos (Max 6)
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="font-bold text-[#123324]">
+                      Product Photos / S3 Link
+                    </label>
+                    {imageUrls.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveAllImages}
+                        className="text-[10px] text-red-600 hover:underline font-semibold"
+                      >
+                        Remove Image
+                      </button>
+                    )}
+                  </div>
                   <span className="text-[10px] text-[#6d756f] font-mono">
                     {imageUrls.length}/6 photos added
                   </span>

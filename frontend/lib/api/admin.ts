@@ -94,6 +94,9 @@ export interface MasterProduct {
   brand?: string;
   description?: string;
   image?: string;
+  image_url?: string;
+  effective_image?: string;
+  mrp?: string | number | null;
   images?: string[];
   is_active?: boolean;
   is_verified?: boolean;
@@ -102,6 +105,7 @@ export interface MasterProduct {
 export interface MerchantShopItem {
   id: number;
   shopId: number;
+  merchantId?: number;
   shopName: string;
   merchantName: string;
   mobileNumber: string;
@@ -228,9 +232,11 @@ export const adminApi = {
   listShops: async (token?: string): Promise<MerchantShopItem[]> => {
     const res = await apiClient.get<Array<{
       id: number;
+      shop_id?: number | null;
+      merchant_id?: number;
       name: string;
-      public_slug: string;
-      status: "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
+      public_slug?: string;
+      status: "ACTIVE" | "PENDING_PASSWORD_CHANGE" | "SUSPENDED" | "DEACTIVATED";
       city: string;
       owner__username?: string;
       owner__mobile_number?: string;
@@ -242,8 +248,9 @@ export const adminApi = {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data.map((item) => ({
-      id: item.id,
-      shopId: item.id,
+      id: item.merchant_id || item.id,
+      merchantId: item.merchant_id,
+      shopId: item.shop_id || (item.id > 0 ? item.id : 0),
       shopName: item.name,
       merchantName: item.owner_username || item.owner__username || "Merchant",
       mobileNumber: item.owner_mobile_number || item.owner__mobile_number || "—",
@@ -251,8 +258,17 @@ export const adminApi = {
       status: item.status,
       catalogItemsCount: item.catalog_items_count ?? 0,
       monthlyVolume: item.monthly_volume || "₹0",
-      publicSlug: item.public_slug,
+      publicSlug: item.public_slug || "",
     }));
+  },
+
+  resetMerchantPassword: async (merchantId: number, temporaryPassword: string, token?: string) => {
+    const res = await apiClient.post(`/super-admin/merchants/${merchantId}/reset-password/`, {
+      password: temporaryPassword,
+    }, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
   },
 
   promoteShopProduct: async (
@@ -341,6 +357,13 @@ export const adminApi = {
 
   deleteCampaign: async (campaignId: number, token?: string) => {
     const res = await apiClient.delete(`/campaigns/${campaignId}/`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  updateMerchantMobile: async (merchantId: number, mobileNumber: string, token?: string) => {
+    const res = await apiClient.patch(`/super-admin/merchants/${merchantId}/`, { mobile_number: mobileNumber }, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;

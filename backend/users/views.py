@@ -173,6 +173,96 @@ class SuperAdminCreateMerchantView(APIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+class SuperAdminResetMerchantPasswordView(APIView):
+    """
+    POST /api/v1/super-admin/merchants/<int:pk>/reset-password/
+    Allows Super Admin to set a temporary password for a merchant.
+    Requires Super Admin authentication.
+    Sets merchant.must_change_password = True.
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def post(self, request, pk: int):
+        merchant = Merchant.objects.filter(pk=pk).select_related("user").first()
+        if not merchant:
+            merchant = Merchant.objects.filter(user_id=pk).select_related("user").first()
+        if not merchant:
+            return Response({"detail": "Merchant not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        new_password = request.data.get("password") or request.data.get("temporary_password")
+        if not new_password or len(str(new_password).strip()) < 8:
+            return Response(
+                {"password": ["Temporary password must be at least 8 characters long."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            user = merchant.user
+            user.set_password(str(new_password).strip())
+            user.save(update_fields=["password"])
+            merchant.must_change_password = True
+            merchant.save(update_fields=["must_change_password"])
+
+            # Invalidate any existing active sessions/tokens
+            outstanding = OutstandingToken.objects.filter(user=user)
+            for token in outstanding:
+                BlacklistedToken.objects.get_or_create(token=token)
+            UserAuthSession.objects.filter(user=user).delete()
+
+        return Response(
+            {
+                "status": "success",
+                "detail": "Merchant password has been reset successfully.",
+                "merchant_id": merchant.id,
+                "user_id": merchant.user_id,
+                "mobile_number": merchant.user.mobile_number,
+                "must_change_password": True,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class SuperAdminUpdateMerchantView(APIView):
+    """
+    PATCH /api/v1/super-admin/merchants/<int:pk>/
+    Allows Super Admin to update merchant details like mobile number.
+    """
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+
+    def patch(self, request, pk: int):
+        import re
+        merchant = Merchant.objects.filter(pk=pk).select_related("user").first()
+        if not merchant:
+            merchant = Merchant.objects.filter(user_id=pk).select_related("user").first()
+        if not merchant:
+            return Response({"detail": "Merchant not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        user = merchant.user
+        mobile = request.data.get("mobile_number")
+        if mobile:
+            digits = re.sub(r"\D", "", str(mobile))
+            if len(digits) < 10:
+                return Response(
+                    {"mobile_number": ["Enter a valid 10-digit mobile number."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            formatted = f"+91{digits[-10:]}"
+            if User.objects.filter(mobile_number=formatted).exclude(pk=user.pk).exists():
+                return Response(
+                    {"mobile_number": ["This mobile number is already in use by another account."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            user.mobile_number = formatted
+            user.save(update_fields=["mobile_number"])
+
+        return Response({
+            "status": "success",
+            "merchant_id": merchant.id,
+            "user_id": user.id,
+            "mobile_number": user.mobile_number,
+        })
+
+
 class RefreshView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
