@@ -92,6 +92,9 @@ class PublicCheckoutView(APIView):
         return Response(format_public_order_response(order, shop), status=201 if created else 200)
 
 
+from orders.transitions import OrderTransitionConflict, cancel_pending_order_for_shop
+
+
 class PublicOrderDetailView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -113,6 +116,35 @@ class PublicOrderDetailView(APIView):
         if not order:
             return Response(
                 {"detail": "Order not found in this shop.", "code": "ORDER_NOT_FOUND"},
+                status=404,
+            )
+
+        return Response(format_public_order_response(order, shop), status=200)
+
+    def post(self, request, public_slug: str, order_id: int):
+        return PublicOrderCancelView().post(request, public_slug, order_id)
+
+
+class PublicOrderCancelView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, public_slug: str, order_id: int):
+        shop = Shop.get_by_slug_or_code(public_slug)
+        if not shop or shop.status != Shop.Status.ACTIVE:
+            return Response(
+                {"detail": "Shop not found or unavailable.", "code": "SHOP_UNAVAILABLE"},
+                status=404,
+            )
+
+        try:
+            order, expired = cancel_pending_order_for_shop(shop.id, order_id)
+        except OrderTransitionConflict as exc:
+            return Response({"detail": str(exc), "code": "INVALID_TRANSITION"}, status=409)
+        except Exception as exc:
+            logger.warning("Order cancellation failed for shop %s, order %s: %s", shop.id, order_id, exc)
+            return Response(
+                {"detail": "Order not found or cannot be cancelled.", "code": "CANCEL_FAILED"},
                 status=404,
             )
 

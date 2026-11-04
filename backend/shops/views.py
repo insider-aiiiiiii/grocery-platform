@@ -278,11 +278,47 @@ class SuperAdminShopDeleteView(APIView):
 
 
 class SuperAdminShopListView(generics.ListAPIView):
-    """API endpoint allowing an authenticated Super Admin to list all platform shops."""
+    """API endpoint allowing an authenticated Super Admin to list all platform shops and provisioned merchants."""
 
     permission_classes = [IsAuthenticated, IsSuperAdmin]
     serializer_class = SuperAdminShopDirectorySerializer
     queryset = Shop.objects.all().select_related("merchant__user").order_by("-created_at")
+
+    def list(self, request, *args, **kwargs):
+        from users.models import Merchant
+
+        shops = self.get_queryset()
+        shop_data = self.get_serializer(shops, many=True).data
+
+        # Also include provisioned merchants who have not yet set up a shop
+        merchants_with_shops = Shop.objects.values_list("merchant_id", flat=True)
+        pending_merchants = (
+            Merchant.objects.exclude(id__in=merchants_with_shops)
+            .select_related("user")
+            .order_by("-user__date_joined")
+        )
+
+        pending_data = []
+        for m in pending_merchants:
+            status_val = "PENDING_PASSWORD_CHANGE" if m.must_change_password else m.status
+            pending_data.append({
+                "id": -(m.id),
+                "shop_id": None,
+                "merchant_id": m.id,
+                "name": f"{m.user.username}'s Store (Pending Setup)",
+                "public_slug": "",
+                "status": status_val,
+                "city": "Pending Setup",
+                "owner__username": m.user.username,
+                "owner__mobile_number": m.user.mobile_number,
+                "owner_username": m.user.username,
+                "owner_mobile_number": m.user.mobile_number,
+                "catalog_items_count": 0,
+                "monthly_volume": "₹0",
+                "created_at": m.user.date_joined.isoformat() if m.user.date_joined else None,
+            })
+
+        return Response(shop_data + pending_data, status=status.HTTP_200_OK)
 
 
 class PublicShopDetailView(APIView):

@@ -36,8 +36,13 @@ import {
   Sparkles,
   MessageCircle,
   Receipt,
+  Edit3,
+  Minus,
 } from "lucide-react";
 import { getApiError, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
+import { BulkExcelUploadModal } from "./BulkExcelUploadModal";
+import { OrdersHistoryView } from "./OrdersHistoryView";
+import { MerchantProductDetailModal, MerchantProductDetailItem } from "./MerchantProductDetailModal";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 const dateTime = (value: string) => new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
@@ -52,13 +57,7 @@ const productSchema = z.object({
 type ProductValues = z.infer<typeof productSchema>;
 type ProductInput = z.input<typeof productSchema>;
 
-const batchSchema = z.object({
-  batchName: z.string().min(1, "Enter batch name (e.g., Old Stock / New Stock)"),
-  price: z.coerce.number().min(0, "Price cannot be negative"),
-  quantity: z.coerce.number().min(1, "Quantity must be at least 1"),
-});
-type BatchValues = z.infer<typeof batchSchema>;
-type BatchInput = z.input<typeof batchSchema>;
+
 
 const shopSettingsSchema = z.object({
   name: z.string().min(1),
@@ -161,11 +160,28 @@ export default function MerchantWorkspace() {
   const [period, setPeriod] = useState("today");
   const [search, setSearch] = useState("");
   const [newProductOpen, setNewProductOpen] = useState(false);
-  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [activeProductDetail, setActiveProductDetail] = useState<MerchantProductDetailItem | null>(null);
+  const [pendingItemId, setPendingItemId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [lang, setLang] = useState<"en" | "hi">("en");
   const [catalogTab, setCatalogTab] = useState<"shop" | "master">("shop");
   const [masterSearch, setMasterSearch] = useState("");
+  const [masterBrandFilter, setMasterBrandFilter] = useState("ALL");
+  const [masterCategoryFilter, setMasterCategoryFilter] = useState("ALL");
+
+  // Inventory Filters and Price Editing State
+  const [inventorySearch, setInventorySearch] = useState("");
+  const [inventoryBrandFilter, setInventoryBrandFilter] = useState("ALL");
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("ALL");
+  const [editingPriceItem, setEditingPriceItem] = useState<{
+    productId: number;
+    name: string;
+    price: string;
+    mrp: string;
+  } | null>(null);
+  const [editPriceLoading, setEditPriceLoading] = useState(false);
+  const [editPriceError, setEditPriceError] = useState<string | null>(null);
 
   useEffect(() => {
     const syncLang = () => {
@@ -178,8 +194,9 @@ export default function MerchantWorkspace() {
   }, []);
 
   const analytics = useQuery({ queryKey: ["merchant", "analytics", period], queryFn: () => merchantApi.analytics(period), enabled: ["overview", "analytics"].includes(section) });
-  const orders = useQuery({ queryKey: ["merchant", "orders"], queryFn: merchantApi.orders, enabled: ["overview", "orders"].includes(section), refetchInterval: section === "orders" ? 30000 : false });
+  const orders = useQuery({ queryKey: ["merchant", "orders"], queryFn: merchantApi.orders, enabled: ["overview", "orders", "customers"].includes(section), refetchInterval: ["overview", "orders"].includes(section) ? 10000 : false });
   const products = useQuery({ queryKey: ["merchant", "products"], queryFn: merchantApi.products, enabled: ["overview", "catalog", "inventory"].includes(section) });
+  const categories = useQuery({ queryKey: ["merchant", "categories"], queryFn: merchantApi.categories, enabled: ["catalog", "inventory"].includes(section) });
   const masterCatalog = useQuery({ queryKey: ["merchant", "master-catalog"], queryFn: merchantApi.getMasterCatalog, enabled: section === "catalog" });
   const stock = useQuery({ queryKey: ["merchant", "inventory"], queryFn: merchantApi.inventory, enabled: ["overview", "inventory"].includes(section) });
   const customers = useQuery({ queryKey: ["merchant", "customers"], queryFn: merchantApi.customers, enabled: section === "customers" });
@@ -206,7 +223,7 @@ export default function MerchantWorkspace() {
   const orderMutation = useMutation({
     mutationFn: ({ id, action }: { id: number; action: string }) => merchantApi.orderAction(id, action),
     onSuccess: () => {
-      setNotice("Order updated successfully.");
+      setNotice(lang === "hi" ? "ऑर्डर सफलतापूर्वक अपडेट हुआ।" : "Order updated successfully.");
       refresh("orders");
       refresh("analytics");
     },
@@ -216,12 +233,43 @@ export default function MerchantWorkspace() {
   const stockMutation = useMutation({
     mutationFn: ({ item, action, quantity }: { item: InventoryItem; action: "set-stock" | "add-stock" | "subtract-stock"; quantity: string }) =>
       merchantApi.updateStock(item.id, action, quantity),
-    onSuccess: () => {
-      setNotice("Stock updated.");
+    onMutate: async ({ item, action, quantity }) => {
+      setPendingItemId(item.id);
+      await queryClient.cancelQueries({ queryKey: ["merchant", "inventory"] });
+      const previous = queryClient.getQueryData<InventoryItem[]>(["merchant", "inventory"]);
+
+      if (previous) {
+        const qtyNum = Number(quantity) || 0;
+        queryClient.setQueryData<InventoryItem[]>(["merchant", "inventory"], (old) => {
+          if (!old) return [];
+          return old.map((it) => {
+            if (it.id !== item.id) return it;
+            let newQty = Number(it.available_quantity);
+            if (action === "set-stock") newQty = qtyNum;
+            else if (action === "add-stock") newQty += qtyNum;
+            else if (action === "subtract-stock") newQty = Math.max(0, newQty - qtyNum);
+            return {
+              ...it,
+              available_quantity: String(newQty),
+              quantity: String(newQty),
+              is_out_of_stock: newQty <= 0,
+            };
+          });
+        });
+      }
+      return { previous };
+    },
+    onError: (e, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["merchant", "inventory"], context.previous);
+      }
+      setNotice(getApiError(e));
+    },
+    onSettled: () => {
+      setPendingItemId(null);
       refresh("inventory");
       refresh("analytics");
     },
-    onError: (e) => setNotice(getApiError(e)),
   });
 
   const productMutation = useMutation({
@@ -235,10 +283,92 @@ export default function MerchantWorkspace() {
     onError: (e) => setNotice(getApiError(e)),
   });
 
+  const handleSaveProductPrice = async (price: string, mrp: string) => {
+    if (!editingPriceItem) return;
+    setEditPriceLoading(true);
+    setEditPriceError(null);
+    try {
+      await merchantApi.updateProduct(editingPriceItem.productId, {
+        price: price.trim(),
+        mrp: mrp.trim() || undefined,
+      });
+      setNotice(lang === "hi" ? "विक्रय मूल्य व MRP सफलतापूर्वक अपडेट हो गया।" : "Price & MRP updated successfully.");
+      setEditingPriceItem(null);
+      refresh("products");
+      refresh("inventory");
+      refresh("master-catalog");
+    } catch (err: any) {
+      setEditPriceError(err.response?.data?.price?.[0] || err.message || "Failed to update price");
+    } finally {
+      setEditPriceLoading(false);
+    }
+  };
+
   const filteredOrders = useMemo(
     () => (orders.data ?? []).filter((row) => `${row.id} ${row.customer_name_snapshot} ${row.customer_phone_snapshot} ${row.status}`.toLowerCase().includes(search.toLowerCase())),
     [orders.data, search]
   );
+
+  const productMap = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
+
+  const categoryMap = useMemo(
+    () => new Map((categories.data ?? []).map((c) => [c.id, c.name])),
+    [categories.data]
+  );
+
+  const inventoryCategories = useMemo(() => {
+    const set = new Set<string>();
+    (products.data ?? []).forEach((p) => {
+      const catName = p.category_name || (p.categories?.[0] ? categoryMap.get(p.categories[0]) : undefined);
+      if (catName) set.add(catName);
+    });
+    return Array.from(set).sort();
+  }, [products.data, categoryMap]);
+
+  const inventoryBrands = useMemo(() => {
+    const set = new Set<string>();
+    (products.data ?? []).forEach((p) => {
+      if (p.brand) set.add(p.brand);
+    });
+    return Array.from(set).sort();
+  }, [products.data]);
+
+  const filteredStock = useMemo(() => {
+    return (stock.data ?? []).filter((item) => {
+      const prod = productMap.get(item.product);
+      const prodCat = prod?.category_name || (prod?.categories?.[0] ? categoryMap.get(prod.categories[0]) : undefined);
+      if (inventoryCategoryFilter !== "ALL" && prodCat !== inventoryCategoryFilter) {
+        return false;
+      }
+      if (inventoryBrandFilter !== "ALL" && prod?.brand !== inventoryBrandFilter) {
+        return false;
+      }
+      if (inventorySearch.trim()) {
+        const q = inventorySearch.toLowerCase();
+        const matchesName = item.product_name?.toLowerCase().includes(q);
+        const matchesBrand = prod?.brand?.toLowerCase().includes(q);
+        const matchesSku = item.sku?.toLowerCase().includes(q);
+        if (!matchesName && !matchesBrand && !matchesSku) return false;
+      }
+      return true;
+    });
+  }, [stock.data, productMap, categoryMap, inventoryCategoryFilter, inventoryBrandFilter, inventorySearch]);
+
+  const masterCategories = useMemo(() => {
+    const set = new Set<string>();
+    (masterCatalog.data ?? []).forEach((mp) => {
+      if (mp.category_name) set.add(mp.category_name);
+    });
+    return Array.from(set).sort();
+  }, [masterCatalog.data]);
+
+  const masterBrands = useMemo(() => {
+    const set = new Set<string>();
+    (masterCatalog.data ?? []).forEach((mp) => {
+      if (mp.brand) set.add(mp.brand);
+    });
+    return Array.from(set).sort();
+  }, [masterCatalog.data]);
 
   useEffect(() => {
     if (!notice) return;
@@ -255,40 +385,96 @@ export default function MerchantWorkspace() {
         orders={orders}
         period={period}
         setPeriod={setPeriod}
+        onToggleStatus={async () => {
+          if (!shop.data) return;
+          try {
+            await merchantApi.updateShop({ is_temporarily_closed: !shop.data.is_temporarily_closed });
+            refresh("shop");
+            setNotice(
+              !shop.data.is_temporarily_closed
+                ? (lang === "hi" ? "दुकान अस्थायी रूप से बंद कर दी गई है।" : "Store is now marked as Closed.")
+                : (lang === "hi" ? "दुकान सफलतापूर्वक खोल दी गई है।" : "Store is now marked as Open!")
+            );
+          } catch (e) {
+            setNotice(getApiError(e));
+          }
+        }}
         lang={lang}
       />
     );
   }
 
-  // Section 02: Inventory & Batches
+  // Section 02: Inventory
   if (section === "inventory") {
     return (
       <>
         <Title
-          eyebrow="Stock room"
-          title="Inventory & Batches"
-          description="Tick what you sell · batches keep old/new prices separate"
+          eyebrow={lang === "hi" ? "दुकान का स्टॉक" : "Store Stock"}
+          title={lang === "hi" ? "इन्वेंट्री" : "Inventory"}
+          description={
+            lang === "hi"
+              ? "दुकान का स्टॉक बढ़ाएं/घटाएं, 'स्टॉक में नहीं' टॉगल करें, और उत्पाद का विक्रय मूल्य व MRP सीधे बदलें।"
+              : "Directly manage stock quantity, toggle Out of Stock status, and adjust selling prices."
+          }
           action={
             <div className="flex gap-2">
               <button
-                onClick={() => setBatchModalOpen(true)}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#E8A33D] px-4 text-xs font-bold text-[#123324] hover:bg-[#d6902b] shadow-xs transition"
-              >
-                <Plus size={15} />
-                <span>+ Add new batch</span>
-              </button>
-              <button
-                onClick={() => refresh("inventory")}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#ddd6ca] bg-white px-3.5 text-xs font-semibold text-[#1F5D42] hover:bg-[#F6F0E6]"
+                onClick={() => {
+                  refresh("inventory");
+                  refresh("products");
+                }}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#ddd6ca] bg-white px-3.5 text-xs font-semibold text-[#1F5D42] hover:bg-[#F6F0E6] cursor-pointer shadow-xs transition"
               >
                 <RefreshCw size={14} />
-                <span>Refresh</span>
+                <span>{lang === "hi" ? "रिफ्रेश" : "Refresh"}</span>
               </button>
             </div>
           }
         />
 
-        {/* Master List Tick Panel */}
+        {/* Filter Bar: Search, Category, Brand */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-white p-3.5 rounded-2xl border border-[#ddd6ca] shadow-xs">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8b948d]" />
+            <input
+              type="text"
+              value={inventorySearch}
+              onChange={(e) => setInventorySearch(e.target.value)}
+              placeholder={lang === "hi" ? "सामान या ब्रांड खोजें..." : "Search inventory items or brands..."}
+              className="w-full pl-9 pr-3 py-2 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={inventoryCategoryFilter}
+              onChange={(e) => setInventoryCategoryFilter(e.target.value)}
+              className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
+            >
+              <option value="ALL">{lang === "hi" ? "सभी श्रेणियां (All Categories)" : "All Categories"}</option>
+              {inventoryCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={inventoryBrandFilter}
+              onChange={(e) => setInventoryBrandFilter(e.target.value)}
+              className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
+            >
+              <option value="ALL">{lang === "hi" ? "सभी ब्रांड (All Brands)" : "All Brands"}</option>
+              {inventoryBrands.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Inventory Items List */}
         <div className="space-y-4">
           {stock.isLoading ? (
             <LoadingRows />
@@ -297,74 +483,54 @@ export default function MerchantWorkspace() {
           ) : (
             <div className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] overflow-hidden shadow-xs">
               <div className="border-b border-[#eee9df] bg-[#f8f6f0] px-5 py-3 flex justify-between items-center text-xs font-bold text-[#123324]">
-                <span>Active Master Items (Tick to Stock)</span>
-                <span className="text-[#6d756f] font-normal">{stock.data?.length ?? 0} items monitored</span>
+                <span>{lang === "hi" ? "दुकान इन्वेंट्री सूची" : "Store Inventory List"}</span>
+                <span className="text-[#6d756f] font-normal">
+                  {filteredStock.length} / {stock.data?.length ?? 0} {lang === "hi" ? "सामान" : "items"}
+                </span>
               </div>
-              <div className="divide-y divide-[#eee9df]">
-                {stock.data?.map((item) => (
-                  <InventoryTickRow
-                    key={item.id}
-                    item={item}
-                    onSave={(action, quantity) => stockMutation.mutate({ item, action, quantity })}
-                    busy={stockMutation.isPending}
-                  />
-                ))}
-              </div>
+              {filteredStock.length === 0 ? (
+                <div className="p-8 text-center text-xs text-[#6d756f]">
+                  {lang === "hi" ? "कोई सामान इस फ़िल्टर में नहीं मिला।" : "No inventory items match the selected filter."}
+                </div>
+              ) : (
+                <div className="divide-y divide-[#eee9df]">
+                  {filteredStock.map((item) => {
+                    const prod = productMap.get(item.product);
+                    return (
+                      <InventoryTickRow
+                        key={item.id}
+                        item={item}
+                        product={prod}
+                        lang={lang}
+                        onSave={(action, quantity) => stockMutation.mutate({ item, action, quantity })}
+                        onEditPrice={() => {
+                          if (prod) {
+                            setEditingPriceItem({
+                              productId: prod.id,
+                              name: prod.name,
+                              price: String(prod.price ?? ""),
+                              mrp: String(prod.mrp ?? prod.price ?? ""),
+                            });
+                          }
+                        }}
+                        busy={pendingItemId === item.id}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-
-          {/* Multiple Batches Highlight Card (Matching Visual Board) */}
-          <div className="rounded-2xl border border-[#ddd6ca] bg-white p-5 shadow-xs">
-            <div className="flex items-center gap-2 mb-3">
-              <Layers className="w-4 h-4 text-[#1F5D42]" />
-              <h4 className="font-display font-bold text-sm text-[#123324]">Multiple Batches Breakdown</h4>
-            </div>
-            <p className="text-xs text-[#6d756f] mb-3">
-              Keep old lower-price stock and fresh inventory batches separated for transparent billing.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="flex items-center justify-between rounded-xl bg-[#e7f2eb] border border-[#cce3d5] p-3 text-xs">
-                <div>
-                  <p className="font-bold text-[#1F5D42]">Old Stock Batch</p>
-                  <p className="text-[11px] text-[#4d7051]">Costed at previous MRP</p>
-                </div>
-                <span className="font-bold font-mono text-[#1F5D42]">Batch #01</span>
-              </div>
-              <div className="flex items-center justify-between rounded-xl bg-[#fff3db] border border-[#f5deb5] p-3 text-xs">
-                <div>
-                  <p className="font-bold text-[#8a5b1d]">New Arrival Batch</p>
-                  <p className="text-[11px] text-[#7a531d]">Costed at current wholesale rate</p>
-                </div>
-                <span className="font-bold font-mono text-[#8a5b1d]">Batch #02</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Master Catalog Bulk Help Banner */}
-          <div className="rounded-2xl border border-[#f5deb5] bg-[#fff9ed] p-4 flex items-center justify-between gap-4">
-            <div>
-              <b className="text-xs font-bold text-[#7a531d]">Items not on the master list?</b>
-              <p className="text-[11px] text-[#6e736d] mt-0.5">
-                Upload a bulk Excel file to propose new items for approval by the Super Admin catalog team.
-              </p>
-            </div>
-            <button
-              onClick={() => setNotice("Excel Bulk Upload template generated. Ready for catalog team sync.")}
-              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#e5cd9e] text-xs font-bold text-[#7a531d] hover:bg-[#fff3db] shadow-xs transition"
-            >
-              <UploadCloud size={14} />
-              <span>Bulk Excel Upload</span>
-            </button>
-          </div>
         </div>
 
-        {batchModalOpen && (
-          <BatchModal
-            onClose={() => setBatchModalOpen(false)}
-            onSave={(val) => {
-              setBatchModalOpen(false);
-              setNotice(`Batch '${val.batchName}' recorded for inventory tracking.`);
-            }}
+        {editingPriceItem && (
+          <EditPriceModal
+            item={editingPriceItem}
+            loading={editPriceLoading}
+            error={editPriceError}
+            lang={lang}
+            onClose={() => setEditingPriceItem(null)}
+            onSave={(price, mrp) => handleSaveProductPrice(price, mrp)}
           />
         )}
         {notice && <Toast text={notice} onClose={() => setNotice("")} />}
@@ -377,16 +543,20 @@ export default function MerchantWorkspace() {
     return (
       <>
         <Title
-          eyebrow="Order desk"
-          title="Incoming orders"
-          description="Keep the rest of the order moving. Resolve out-of-stock items individually."
+          eyebrow={lang === "hi" ? "ऑर्डर डेस्क" : "Order desk"}
+          title={lang === "hi" ? "नए आने वाले ऑर्डर्स" : "Incoming orders"}
+          description={
+            lang === "hi"
+              ? "ग्राहकों के ऑर्डर्स को तुरंत पूरा करें। अनुपलब्ध सामान को व्यक्तिगत रूप से सुलझाएं।"
+              : "Keep the rest of the order moving. Resolve out-of-stock items individually."
+          }
           action={
             <button
               onClick={() => refresh("orders")}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#ddd6ca] bg-white px-3.5 text-xs font-semibold text-[#1F5D42] hover:bg-[#F6F0E6]"
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#ddd6ca] bg-white px-3.5 text-xs font-semibold text-[#1F5D42] hover:bg-[#F6F0E6] cursor-pointer"
             >
               <RefreshCw size={14} />
-              <span>Refresh Desk</span>
+              <span>{lang === "hi" ? "डेस्क रिफ्रेश करें" : "Refresh Desk"}</span>
             </button>
           }
         />
@@ -397,11 +567,14 @@ export default function MerchantWorkspace() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by order or customer phone"
+              placeholder={lang === "hi" ? "ऑर्डर # या ग्राहक फोन से खोजें..." : "Search by order or customer phone"}
               className="h-10 w-full rounded-xl bg-white border border-[#ddd6ca] pl-9 pr-3 text-xs outline-none focus:border-[#1F5D42]"
             />
           </div>
-          <p className="text-xs text-[#6d756f]">{filteredOrders.length} orders · live polling every 30s</p>
+          <p className="text-xs text-[#6d756f]">
+            {filteredOrders.length} {lang === "hi" ? "ऑर्डर्स · प्रति 10 सेकंड में स्वतः लाइव अपडेट" : "orders · live polling every 10s"}
+          </p>
+
         </div>
 
         {orders.isLoading ? (
@@ -415,6 +588,7 @@ export default function MerchantWorkspace() {
                 <VisualOrderCard
                   key={order.id}
                   order={order}
+                  lang={lang}
                   onAction={(action) => orderMutation.mutate({ id: order.id, action })}
                   busy={orderMutation.isPending}
                   onItemResolved={(itemName) => {
@@ -464,7 +638,13 @@ export default function MerchantWorkspace() {
 
   // Catalog / Products Section
   if (section === "catalog") {
+    const sortedShopProducts = [...(products.data ?? [])].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" })
+    );
+
     const filteredMaster = (masterCatalog.data ?? []).filter((mp) => {
+      if (masterCategoryFilter !== "ALL" && mp.category_name !== masterCategoryFilter) return false;
+      if (masterBrandFilter !== "ALL" && mp.brand !== masterBrandFilter) return false;
       if (!masterSearch.trim()) return true;
       const q = masterSearch.toLowerCase();
       return (
@@ -478,17 +658,21 @@ export default function MerchantWorkspace() {
     return (
       <>
         <Title
-          eyebrow="Your store"
-          title="Product catalog"
-          description="Manage products customers can discover in your shop, or add verified items from the platform Master Catalog."
+          eyebrow={lang === "hi" ? "आपकी दुकान" : "Your store"}
+          title={lang === "hi" ? "उत्पाद कैटलॉग (A-Z)" : "Product catalog (A-Z)"}
+          description={
+            lang === "hi"
+              ? "दुकान में दिखने वाले सामान प्रबंधित करें, या प्रमाणित मास्टर कैटलॉग से एक क्लिक में जोड़ें।"
+              : "Manage products customers can discover in your shop, or add verified items from the platform Master Catalog."
+          }
           action={
             catalogTab === "shop" ? (
               <button
                 onClick={() => setNewProductOpen(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#1F5D42] px-4 text-xs font-bold text-white hover:bg-[#123324] shadow-xs transition"
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#1F5D42] px-4 text-xs font-bold text-white hover:bg-[#123324] shadow-xs transition cursor-pointer"
               >
                 <Plus size={15} />
-                <span>Add custom product</span>
+                <span>{lang === "hi" ? "+ नया सामान जोड़ें" : "Add custom product"}</span>
               </button>
             ) : null
           }
@@ -498,19 +682,19 @@ export default function MerchantWorkspace() {
         <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-[#ddd6ca] pb-3">
           <button
             onClick={() => setCatalogTab("shop")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
               catalogTab === "shop"
                 ? "bg-[#1F5D42] text-white shadow-xs"
                 : "bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#F6F0E6]"
             }`}
           >
             {lang === "hi"
-              ? `मेरी दुकान के प्रोडक्ट्स (${products.data?.length ?? 0})`
-              : `My Dukaan Products (${products.data?.length ?? 0})`}
+              ? `मेरी दुकान के प्रोडक्ट्स (${sortedShopProducts.length})`
+              : `My Dukaan Products (${sortedShopProducts.length})`}
           </button>
           <button
             onClick={() => setCatalogTab("master")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
               catalogTab === "master"
                 ? "bg-[#1F5D42] text-white shadow-xs"
                 : "bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#F6F0E6]"
@@ -533,16 +717,31 @@ export default function MerchantWorkspace() {
           ) : (
             <div className="overflow-hidden rounded-2xl border border-[#ddd6ca] bg-white">
               <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] gap-3 border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
-                <span>Product</span>
-                <span>Price</span>
-                <span>Visibility</span>
-                <span>Action</span>
+                <span>{lang === "hi" ? "उत्पाद विवरण" : "Product"}</span>
+                <span>{lang === "hi" ? "विक्रय मूल्य" : "Price"}</span>
+                <span>{lang === "hi" ? "स्थिति" : "Visibility"}</span>
+                <span>{lang === "hi" ? "क्रिया" : "Action"}</span>
               </div>
-              {products.data?.length ? (
-                products.data.map((item) => (
+              {sortedShopProducts.length ? (
+                sortedShopProducts.map((item) => (
                   <ProductRow
                     key={item.id}
                     product={item}
+                    lang={lang}
+                    onViewDetail={() =>
+                      setActiveProductDetail({
+                        id: item.id,
+                        name: item.name,
+                        price: item.price,
+                        mrp: item.mrp ?? undefined,
+                        brand: item.brand ?? undefined,
+                        description: item.description ?? undefined,
+                        image: item.effective_image || item.image || undefined,
+                        sku: item.sku ?? undefined,
+                        is_available: item.is_available,
+                        is_visible: item.is_visible,
+                      })
+                    }
                     onToggle={() =>
                       merchantApi
                         .updateProduct(item.id, { is_visible: !item.is_visible })
@@ -559,15 +758,15 @@ export default function MerchantWorkspace() {
                   />
                 ))
               ) : (
-                <Empty icon={ShoppingBag} title="Your catalog is ready" text="Add products so customers can browse and order from your shop, or click 'Select from Master Catalog' to import verified items with one click." />
+                <Empty icon={ShoppingBag} title={lang === "hi" ? "कैटलॉग खाली है" : "Your catalog is ready"} text={lang === "hi" ? "नए उत्पाद जोड़ें या मास्टर कैटलॉग से एक क्लिक में सामान जोड़ें।" : "Add products so customers can browse and order from your shop, or click 'Select from Master Catalog' to import verified items with one click."} />
               )}
             </div>
           )
         ) : (
           /* Master Catalog Browser with Tick / Cross Selection */
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-[#ddd6ca]">
-              <div className="relative w-full max-w-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-[#ddd6ca] shadow-xs">
+              <div className="relative flex-1 max-w-sm">
                 <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8b948d]" />
                 <input
                   type="text"
@@ -577,11 +776,34 @@ export default function MerchantWorkspace() {
                   className="w-full pl-9 pr-3 py-2 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
                 />
               </div>
-              <p className="text-xs text-[#6d756f]">
-                {lang === "hi"
-                  ? "जो सामान आपकी दुकान में उपलब्ध है उसे टिक (✓) करें। वह सीधे आपकी दुकान में जुड़ जाएगा।"
-                  : "Tick (✓) items you have in stock. Selected items persist automatically in your Dukaan."}
-              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={masterCategoryFilter}
+                  onChange={(e) => setMasterCategoryFilter(e.target.value)}
+                  className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
+                >
+                  <option value="ALL">{lang === "hi" ? "सभी श्रेणियां (All Categories)" : "All Categories"}</option>
+                  {masterCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={masterBrandFilter}
+                  onChange={(e) => setMasterBrandFilter(e.target.value)}
+                  className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
+                >
+                  <option value="ALL">{lang === "hi" ? "सभी ब्रांड (All Brands)" : "All Brands"}</option>
+                  {masterBrands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {masterCatalog.isLoading ? (
@@ -591,93 +813,116 @@ export default function MerchantWorkspace() {
             ) : filteredMaster.length === 0 ? (
               <div className="bg-white rounded-2xl border border-[#ddd6ca] p-8 text-center text-[#869088]">
                 <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
-                <p className="font-semibold text-sm text-[#123324]">No master products found</p>
-                <p className="text-xs text-[#6d756f] mt-1">Super Admin has not added any master items matching this search yet.</p>
+                <p className="font-semibold text-sm text-[#123324]">{lang === "hi" ? "कोई मास्टर उत्पाद नहीं मिला" : "No master products found"}</p>
+                <p className="text-xs text-[#6d756f] mt-1">{lang === "hi" ? "खोज के अनुरूप कोई सामान उपलब्ध नहीं है।" : "Super Admin has not added any master items matching this search yet."}</p>
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredMaster.map((item) => (
-                  <div
-                    key={item.id}
-                    className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
-                      item.is_in_shop
-                        ? "bg-[#f4f9f6] border-[#a8d3ba] shadow-xs ring-1 ring-[#1F5D42]/20"
-                        : "bg-white border-[#ddd6ca] hover:border-[#bbb0a0]"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start gap-3 mb-3">
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="w-12 h-12 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-xl bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
-                            <ImageIcon className="w-5 h-5 text-[#869088]" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <h4 className="font-bold text-sm text-[#123324] leading-snug line-clamp-2">
-                            {item.name}
-                          </h4>
-                          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                            {item.brand && (
-                              <span className="text-[10px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
-                                {item.brand}
+                {filteredMaster.map((item) => {
+                  const itemImg = item.effective_image || item.image || item.image_url;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-2xl border p-4 transition flex flex-col justify-between ${
+                        item.is_in_shop
+                          ? "bg-[#f4f9f6] border-[#a8d3ba] shadow-xs ring-1 ring-[#1F5D42]/20"
+                          : "bg-white border-[#ddd6ca] hover:border-[#bbb0a0]"
+                      }`}
+                    >
+                      <div>
+                        <div
+                          className="flex items-start gap-3 mb-3 cursor-pointer group"
+                          onClick={() =>
+                            setActiveProductDetail({
+                              id: item.id,
+                              name: item.name,
+                              price: item.mrp ?? 0,
+                              mrp: item.mrp ?? undefined,
+                              brand: item.brand ?? undefined,
+                              category_name: item.category_name ?? undefined,
+                              description: item.description ?? undefined,
+                              image: itemImg || undefined,
+                              is_in_shop: item.is_in_shop,
+                            })
+                          }
+                        >
+                          {itemImg ? (
+                            <img
+                              src={itemImg}
+                              alt={item.name}
+                              className="w-12 h-12 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white group-hover:scale-105 transition"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0 group-hover:bg-[#e7f2eb] transition">
+                              <ImageIcon className="w-5 h-5 text-[#869088]" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-bold text-sm text-[#123324] leading-snug line-clamp-2 group-hover:text-[#1F5D42] transition underline-offset-2 group-hover:underline">
+                              {item.name}
+                            </h4>
+                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                              {item.brand && (
+                                <span className="text-[10px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
+                                  {item.brand}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
+                                {item.category_name || "Grocery"}
                               </span>
-                            )}
-                            <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
-                              {item.category_name || "Grocery"}
-                            </span>
+                              {item.mrp && (
+                                <span className="text-[10px] font-mono font-bold text-[#123324] bg-[#F6F0E6] px-2 py-0.5 rounded-full">
+                                  MRP: ₹{item.mrp}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
+
+                        {item.description && (
+                          <p className="text-xs text-[#6d756f] line-clamp-2 mb-3">
+                            {item.description}
+                          </p>
+                        )}
                       </div>
 
-                      {item.description && (
-                        <p className="text-xs text-[#6d756f] line-clamp-2 mb-3">
-                          {item.description}
-                        </p>
-                      )}
-                    </div>
+                      {/* Tick / Cross Status and Action Bar */}
+                      <div className="pt-3 border-t border-[#eee9df] flex items-center justify-between gap-2">
+                        {item.is_in_shop ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1F5D42]">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#1F5D42]" />
+                            <span>{lang === "hi" ? "दुकान में उपलब्ध (✓)" : "In My Dukaan (✓)"}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#869088]">
+                            <X className="w-3.5 h-3.5 text-[#869088]" />
+                            <span>{lang === "hi" ? "दुकान में नहीं (✗)" : "Not in Dukaan (✗)"}</span>
+                          </span>
+                        )}
 
-                    {/* Tick / Cross Status and Action Bar */}
-                    <div className="pt-3 border-t border-[#eee9df] flex items-center justify-between gap-2">
-                      {item.is_in_shop ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1F5D42]">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[#1F5D42]" />
-                          <span>{lang === "hi" ? "दुकान में उपलब्ध (✓)" : "In My Dukaan (✓)"}</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#869088]">
-                          <X className="w-3.5 h-3.5 text-[#869088]" />
-                          <span>{lang === "hi" ? "दुकान में नहीं (✗)" : "Not in Dukaan (✗)"}</span>
-                        </span>
-                      )}
-
-                      <button
-                        type="button"
-                        disabled={toggleMasterMutation.isPending}
-                        onClick={() =>
-                          toggleMasterMutation.mutate({
-                            master_product_id: item.id,
-                            selected: !item.is_in_shop,
-                          })
-                        }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs ${
-                          item.is_in_shop
-                            ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
-                            : "bg-[#1F5D42] hover:bg-[#123324] text-white"
-                        }`}
-                      >
-                        {item.is_in_shop
-                          ? (lang === "hi" ? "हटाएं ✗" : "Remove ✗")
-                          : (lang === "hi" ? "+ जोड़ें ✓" : "+ Add to Dukaan ✓")}
-                      </button>
+                        <button
+                          type="button"
+                          disabled={toggleMasterMutation.isPending}
+                          onClick={() =>
+                            toggleMasterMutation.mutate({
+                              master_product_id: item.id,
+                              selected: !item.is_in_shop,
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer ${
+                            item.is_in_shop
+                              ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200"
+                              : "bg-[#1F5D42] hover:bg-[#123324] text-white"
+                          }`}
+                        >
+                          {item.is_in_shop
+                            ? (lang === "hi" ? "हटाएं ✗" : "Remove ✗")
+                            : (lang === "hi" ? "+ जोड़ें ✓" : "+ Add to Dukaan ✓")}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -686,59 +931,28 @@ export default function MerchantWorkspace() {
         {newProductOpen && (
           <ProductModal lang={lang} onClose={() => setNewProductOpen(false)} onSave={(payload) => productMutation.mutate(payload)} saving={productMutation.isPending} />
         )}
+        {activeProductDetail && (
+          <MerchantProductDetailModal
+            product={activeProductDetail}
+            onClose={() => setActiveProductDetail(null)}
+            lang={lang}
+          />
+        )}
         {notice && <Toast text={notice} onClose={() => setNotice("")} />}
       </>
     );
   }
 
-  // Customers Section
+  // Orders History Section (formerly Customers)
   if (section === "customers") {
     return (
-      <>
-        <Title
-          eyebrow="Community"
-          title="Customers"
-          description="View customers who have placed orders with this shop."
-          action={
-            <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#e7f2eb] px-3 text-xs font-bold text-[#1F5D42]">
-              <UsersRound size={14} />
-              {customers.data?.length ?? 0} customers
-            </span>
-          }
-        />
-        {customers.isLoading ? (
-          <LoadingRows />
-        ) : customers.isError ? (
-          <Notice error={customers.error} onRetry={() => customers.refetch()} />
-        ) : (
-          <div className="overflow-hidden rounded-2xl border border-[#ddd6ca] bg-white">
-            <div className="grid grid-cols-[1.3fr_1fr_.8fr] border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
-              <span>Customer</span>
-              <span>WhatsApp number</span>
-              <span>First seen</span>
-            </div>
-            {customers.data?.length ? (
-              customers.data.map((customer) => (
-                <div key={customer.id} className="grid grid-cols-[1.3fr_1fr_.8fr] items-center border-b border-[#eee9df] px-5 py-4 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-9 w-9 place-items-center rounded-full bg-[#F6F0E6] text-xs font-bold text-[#1F5D42]">
-                      {customer.name?.slice(0, 1).toUpperCase() || "C"}
-                    </span>
-                    <div>
-                      <p className="text-xs font-bold text-[#123324]">{customer.name || "Customer"}</p>
-                      <p className="mt-0.5 text-[10px] text-[#7d857e]">Customer #{customer.id}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono text-[#1F5D42]">{customer.whatsapp_number}</span>
-                  <span className="text-[11px] text-[#7d857e]">{dateTime(customer.created_at)}</span>
-                </div>
-              ))
-            ) : (
-              <Empty icon={UsersRound} title="Your customer list is ready" text="Customers appear here automatically after placing their first order." />
-            )}
-          </div>
-        )}
-      </>
+      <OrdersHistoryView
+        orders={orders.data ?? []}
+        loading={orders.isLoading}
+        error={orders.error}
+        onRefresh={() => refresh("orders")}
+        lang={lang}
+      />
     );
   }
 
@@ -764,6 +978,7 @@ function MyQrHomePage({
   orders,
   period,
   setPeriod,
+  onToggleStatus,
   lang = "en",
 }: {
   shop?: Shop;
@@ -771,6 +986,7 @@ function MyQrHomePage({
   orders: UseQueryResult<MerchantOrder[]>;
   period: string;
   setPeriod: (val: string) => void;
+  onToggleStatus?: () => void;
   lang?: "en" | "hi";
 }) {
   const [copied, setCopied] = useState(false);
@@ -835,6 +1051,61 @@ function MyQrHomePage({
           </div>
         }
       />
+
+      {/* Prominent Dukaan Status Banner & Switch */}
+      <div
+        className={`rounded-2xl p-4 sm:p-5 border transition flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${
+          !shop?.is_temporarily_closed
+            ? "bg-[#f2faf5] border-[#a2d5ba]"
+            : "bg-[#fff6f3] border-[#f8c1b3]"
+        }`}
+      >
+        <div className="flex items-center gap-3.5">
+          <div
+            className={`w-3.5 h-3.5 rounded-full shrink-0 ${
+              !shop?.is_temporarily_closed ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+            }`}
+          />
+          <div>
+            <h3
+              className={`text-sm sm:text-base font-bold ${
+                !shop?.is_temporarily_closed ? "text-[#1F5D42]" : "text-[#c2410c]"
+              }`}
+            >
+              {!shop?.is_temporarily_closed
+                ? (lang === "hi" ? "दुकान खुली है (Store Open)" : "Store is OPEN · Accepting Orders")
+                : (lang === "hi" ? "दुकान अस्थायी रूप से बंद है (Store Closed)" : "Store is CLOSED · Orders Paused")}
+            </h3>
+            <p className="text-xs text-[#6d756f] mt-0.5">
+              {!shop?.is_temporarily_closed
+                ? (lang === "hi"
+                    ? "QR कोड स्कैन करके ग्राहक सीधे कैटलॉग देख और ऑर्डर कर सकते हैं।"
+                    : "Customers scanning your QR can view catalog and place WhatsApp orders.")
+                : (lang === "hi"
+                    ? "स्टोरफ्रंट पर 'दुकान बंद है' सूचना दिखेगी। ग्राहक अभी ऑर्डर नहीं कर सकेंगे।"
+                    : "Storefront displays closed notification. Customers cannot place orders right now.")}
+            </p>
+          </div>
+        </div>
+
+        {onToggleStatus && (
+          <button
+            type="button"
+            onClick={onToggleStatus}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs shadow-xs transition active:scale-95 cursor-pointer shrink-0 ${
+              !shop?.is_temporarily_closed
+                ? "bg-white border border-[#cbe1d5] text-[#1F5D42] hover:bg-[#e7f2eb]"
+                : "bg-[#c2410c] text-white hover:bg-[#9a3412]"
+            }`}
+          >
+            <span>
+              {!shop?.is_temporarily_closed
+                ? (lang === "hi" ? "दुकान बंद करें ⏸" : "Pause / Close Store ⏸")
+                : (lang === "hi" ? "दुकान खोलें ▶" : "Reopen Store ▶")}
+            </span>
+          </button>
+        )}
+      </div>
 
       {/* Visual Board Frame 1: Prominent QR Hub Card */}
       <div className="rounded-3xl border border-[#ddd6ca] bg-[#FFFDF8] p-6 sm:p-8 shadow-sm">
@@ -994,102 +1265,171 @@ function MyQrHomePage({
 }
 
 // -------------------------------------------------------------
-// Visual Board Component 2: Inventory Tick Row
+// Visual Board Component 2: Overhauled Inventory Row
 // -------------------------------------------------------------
 function InventoryTickRow({
   item,
+  product,
   onSave,
+  onEditPrice,
   busy,
+  lang = "en",
 }: {
   item: InventoryItem;
+  product?: Product;
   onSave: (action: "set-stock" | "add-stock" | "subtract-stock", quantity: string) => void;
+  onEditPrice: () => void;
   busy: boolean;
+  lang?: "en" | "hi";
 }) {
-  const [isChecked, setIsChecked] = useState(!item.is_out_of_stock);
-  const [quantity, setQuantity] = useState("");
-  const [action, setAction] = useState<"set-stock" | "add-stock" | "subtract-stock">("add-stock");
+  const isOutOfStock = item.is_out_of_stock || Number(item.available_quantity) <= 0;
+  const effectiveImg = product?.effective_image || product?.image;
 
-  const handleToggleCheck = () => {
-    const nextState = !isChecked;
-    setIsChecked(nextState);
-    if (!nextState) {
-      // Mark 0 available
-      onSave("set-stock", "0");
-    } else {
-      // Re-enable stock with default 5
+  const handleToggleStock = () => {
+    if (isOutOfStock) {
+      // Toggle back in stock with default 5
       onSave("set-stock", "5");
+    } else {
+      // Set to 0 available (out of stock)
+      onSave("set-stock", "0");
     }
   };
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 hover:bg-[#faf8f3] transition">
-      <div className="flex items-center gap-3">
-        {/* Custom Square Checkbox matching Visual Board */}
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-4 hover:bg-[#faf8f3] transition">
+      {/* Left: Stock Status Toggle, Image & Product Info */}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {/* Prominent In Stock / Out of Stock pill button */}
         <button
           type="button"
-          onClick={handleToggleCheck}
-          className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-            isChecked
-              ? "bg-[#1F5D42] border-[#1F5D42] text-white"
-              : "bg-white border-[#cfc7bb] text-transparent hover:border-[#1F5D42]"
+          onClick={handleToggleStock}
+          disabled={busy}
+          title={isOutOfStock ? "Click to mark as In Stock" : "Click to mark as Out of Stock"}
+          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs ${
+            !isOutOfStock
+              ? "bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5] hover:bg-[#d8ebd2]"
+              : "bg-[#fde8de] text-[#9a4d2a] border border-[#f7cdbb] hover:bg-[#fbd0bf]"
           }`}
         >
-          <Check size={13} strokeWidth={3} />
+          {!isOutOfStock ? (
+            <>
+              <Check size={12} strokeWidth={3} />
+              <span>{lang === "hi" ? "स्टॉक में है" : "In Stock"}</span>
+            </>
+          ) : (
+            <>
+              <X size={12} strokeWidth={3} />
+              <span>{lang === "hi" ? "स्टॉक ख़त्म" : "Out of Stock"}</span>
+            </>
+          )}
         </button>
 
-        <div>
-          <p className={`text-xs font-bold leading-tight ${isChecked ? "text-[#123324]" : "text-[#858c86] line-through"}`}>
+        {/* Thumbnail */}
+        {effectiveImg ? (
+          <img
+            src={effectiveImg}
+            alt={item.product_name}
+            className="w-10 h-10 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white"
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-xl bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
+            <ShoppingBag size={16} />
+          </div>
+        )}
+
+        {/* Name and Tags */}
+        <div className="min-w-0">
+          <p className={`text-xs font-bold leading-tight truncate ${!isOutOfStock ? "text-[#123324]" : "text-[#858c86] line-through"}`}>
             {item.product_name}
             {item.variant_name ? ` · ${item.variant_name}` : ""}
           </p>
-          <p className="text-[11px] text-[#6d756f] mt-0.5">
-            {isChecked ? (
-              <span className="text-[#1F5D42] font-semibold">
-                Available: {item.available_quantity} units {Number(item.available_quantity) <= 2 && Number(item.available_quantity) > 0 && "· Only 2 left!"}
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            {product?.brand && (
+              <span className="text-[10px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
+                {product.brand}
               </span>
-            ) : (
-              <span className="text-[#9a4d2a]">Not selected / Unticked</span>
             )}
-          </p>
+            {product?.category_name && (
+              <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
+                {product.category_name}
+              </span>
+            )}
+            <span className="text-[10px] text-[#6d756f]">
+              {item.sku ? `SKU: ${item.sku}` : ""}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Quick Adjust Stepper */}
-      <div className="flex items-center gap-2 self-end sm:self-auto">
-        <select
-          value={action}
-          onChange={(e) => setAction(e.target.value as typeof action)}
-          className="h-8 rounded-lg border border-[#ddd6ca] bg-white px-2 text-[11px] outline-none"
-        >
-          <option value="add-stock">+ Add</option>
-          <option value="set-stock">Set</option>
-          <option value="subtract-stock">- Subtract</option>
-        </select>
-        <input
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          type="number"
-          min="0"
-          placeholder="Qty"
-          className="h-8 w-16 rounded-lg border border-[#ddd6ca] px-2 text-xs outline-none focus:border-[#1F5D42]"
-        />
+      {/* Center: Selling Price & MRP with Edit Button */}
+      <div className="flex items-center gap-3 shrink-0 px-2 py-1 bg-[#fcfbfa] rounded-xl border border-[#eee9df]">
+        <div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xs font-medium text-[#6d756f]">
+              {lang === "hi" ? "मूल्य:" : "Price:"}
+            </span>
+            <span className="font-mono font-bold text-sm text-[#123324]">
+              {money(product?.price)}
+            </span>
+          </div>
+          {product?.mrp && Number(product.mrp) > Number(product.price) && (
+            <span className="block text-[10px] text-[#869088] line-through font-mono">
+              MRP: {money(product.mrp)}
+            </span>
+          )}
+        </div>
+
         <button
-          disabled={!quantity || busy}
-          onClick={() => {
-            onSave(action, quantity);
-            setQuantity("");
-          }}
-          className="grid h-8 w-8 place-items-center rounded-lg bg-[#e7f2eb] text-[#1F5D42] hover:bg-[#cde0d5] disabled:opacity-40 transition"
-          title="Save stock adjustment"
+          type="button"
+          onClick={onEditPrice}
+          className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1F5D42] hover:text-[#123324] bg-white hover:bg-[#e7f2eb] px-2.5 py-1 rounded-lg border border-[#cbe1d5] shadow-2xs transition cursor-pointer"
+          title="Edit Selling Price & MRP directly"
         >
-          <Check size={14} />
+          <Edit3 size={11} />
+          <span>{lang === "hi" ? "बदलें" : "Edit"}</span>
+        </button>
+      </div>
+
+      {/* Right: Direct Inline Stepper (+ / -) */}
+      <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+        <button
+          type="button"
+          disabled={busy || Number(item.available_quantity) <= 0}
+          onClick={() => onSave("subtract-stock", "1")}
+          className="w-8 h-8 rounded-xl bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#f6f0e6] font-bold text-base shadow-xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition active:scale-95"
+          title="Decrease stock by 1"
+        >
+          <Minus size={14} />
+        </button>
+
+        <div className="min-w-14 text-center">
+          <span className="font-mono font-bold text-sm text-[#123324]">
+            {item.available_quantity}
+          </span>
+          <span className="block text-[9px] text-[#6d756f] uppercase font-semibold">
+            {lang === "hi" ? "मात्रा" : "units"}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSave("add-stock", "1")}
+          className="w-8 h-8 rounded-xl bg-[#1F5D42] text-white hover:bg-[#123324] font-bold text-base shadow-xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition active:scale-95"
+          title="Increase stock by 1"
+        >
+          <Plus size={14} />
         </button>
       </div>
     </div>
   );
 }
 
-function getMerchantWhatsAppUrl(order: MerchantOrder, mode: "status" | "bill" = "status"): string {
+function getMerchantWhatsAppUrl(
+  order: MerchantOrder,
+  mode: "status" | "bill" | "pack" | "out_for_delivery" | "delivered" = "status",
+  lang: "en" | "hi" = "en"
+): string {
   const cleanPhone = (order.customer_phone_snapshot || "").replace(/\D/g, "");
   const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
   if (!phoneWithCountry) return "";
@@ -1106,47 +1446,87 @@ function getMerchantWhatsAppUrl(order: MerchantOrder, mode: "status" | "bill" = 
     const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
 
     const billMsg = [
-      `🛍️ *Order ${shortId} Bill Summary*`,
+      `🛍️ *Order ${shortId} Bill Summary / बिल सारांश*`,
       ``,
-      `Namaste ${customerName}! Here is the bill for your order:`,
+      lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपके ऑर्डर का पक्का बिल विवरण:`
+        : `Namaste ${customerName}! Here is the bill for your order:`,
       ``,
       itemsLines,
       ``,
       order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0
-        ? `Delivery Charge: ₹${parseFloat(order.delivery_charge_snapshot).toFixed(0)}`
+        ? `${lang === "hi" ? "डिलीवरी शुल्क" : "Delivery Charge"}: ₹${parseFloat(order.delivery_charge_snapshot).toFixed(0)}`
         : null,
-      `*Total Amount: ₹${total}* (${order.payment_status === "PAID" ? "PAID Online" : "Payment Pending / Cash on Delivery"})`,
-      order.fulfillment_type === "HOME_DELIVERY" && addrText ? `📍 Delivering to: ${addrText}` : null,
+      `*${lang === "hi" ? "कुल देय राशि" : "Total Payable"}: ₹${total}* (${order.payment_status === "PAID" ? "PAID Online" : "Payment Pending / Cash on Delivery"})`,
+      order.fulfillment_type === "HOME_DELIVERY" && addrText ? `📍 ${lang === "hi" ? "डिलीवरी पता" : "Delivering to"}: ${addrText}` : null,
       ``,
-      `Thank you for ordering with us! 🙏`,
+      lang === "hi" ? `हमारी दुकान से ख़रीदारी के लिए धन्यवाद! 🙏` : `Thank you for ordering with us! 🙏`,
     ].filter(Boolean).join("\n");
 
     return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(billMsg)}`;
   }
 
-  // Status update message
+  if (mode === "pack") {
+    const msg = lang === "hi"
+      ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (₹${total}) पैक हो गया है! 📦 जल्द ही आपको प्राप्त होगा।`
+      : `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been packed and is ready! 📦`;
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
+  }
+
+  if (mode === "out_for_delivery") {
+    const isPickup = order.fulfillment_type === "PICKUP";
+    const msg = isPickup
+      ? lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार है। कृपया दुकान पर आकर अपना सामान प्राप्त करें। कुल राशि: ₹${total}।`
+        : `Namaste ${customerName}! Your order ${shortId} is ready for store pickup. Please visit us to collect! Total: ₹${total}.`
+      : lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} दुकान से निकल चुका है और आपके पते पर डिलीवरी के लिए रास्ते में है! 🛵 कुल राशि: ₹${total}।`
+        : `Namaste ${customerName}! Your order ${shortId} is out for delivery to your address and will reach you shortly! 🛵 Total: ₹${total}.`;
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
+  }
+
+  if (mode === "delivered") {
+    const msg = lang === "hi"
+      ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (कुल राशि: ₹${total}) डिलीवर/पूर्ण हो चुका है। हमारी दुकान से जुड़ने के लिए बहुत धन्यवाद! 🙏`
+      : `Namaste ${customerName}! Your order ${shortId} (Total: ₹${total}) has been delivered. Thank you for shopping with us! 🙏`;
+    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
+  }
+
+  // General Status update message
   let statusMsg = "";
   switch (order.status) {
     case "PENDING":
-      statusMsg = `Namaste ${customerName}! We have received your order ${shortId} for ₹${total}. Checking items on shelves and confirming shortly!`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! हमें आपका ऑर्डर ${shortId} (₹${total}) मिल गया है। स्टॉक चेक करके तुरंत पुष्टि कर रहे हैं!`
+        : `Namaste ${customerName}! We have received your order ${shortId} for ₹${total}. Checking items on shelves and confirming shortly!`;
       break;
     case "ACCEPTED":
-      statusMsg = `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been accepted and is now being packed! 📦`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (₹${total}) स्वीकार कर लिया गया है और अब पैक किया जा रहा है! 📦`
+        : `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been accepted and is now being packed! 📦`;
       break;
     case "PREPARING":
-      statusMsg = `Namaste ${customerName}! Your order ${shortId} is currently being packed. It will be ready soon!`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार किया जा रहा है। जल्द तैयार होगा!`
+        : `Namaste ${customerName}! Your order ${shortId} is currently being packed. It will be ready soon!`;
       break;
     case "READY":
       const actionText = order.fulfillment_type === "PICKUP"
-        ? "Your order is packed and ready for store pickup. Please visit us to collect!"
-        : "Your order is packed and out for delivery to your address!";
-      statusMsg = `Namaste ${customerName}! Your order ${shortId} is ready! ${actionText} Total: ₹${total}.`;
+        ? (lang === "hi" ? "दुकान से पिकअप के लिए तैयार है।" : "ready for store pickup. Please visit us to collect!")
+        : (lang === "hi" ? "डिलीवरी के लिए निकल चुका है।" : "out for delivery to your address!");
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार है और ${actionText} कुल राशि: ₹${total}।`
+        : `Namaste ${customerName}! Your order ${shortId} is ready and ${actionText} Total: ₹${total}.`;
       break;
     case "COMPLETED":
-      statusMsg = `Namaste ${customerName}! Your order ${shortId} has been completed/delivered. Thank you for shopping with us! 🙏`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} डिलीवर/पूर्ण हो चुका है। धन्यवाद! 🙏`
+        : `Namaste ${customerName}! Your order ${shortId} has been completed/delivered. Thank you! 🙏`;
       break;
     case "REJECTED":
-      statusMsg = `Namaste ${customerName}, we are unable to accept order ${shortId} at this time. Sorry for the inconvenience!`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी, किसी कारणवश हम आपका ऑर्डर ${shortId} स्वीकार नहीं कर पाए हैं। असुविधा के लिए खेद है!`
+        : `Namaste ${customerName}, we are unable to accept order ${shortId} at this time. Sorry for the inconvenience!`;
       break;
     default:
       statusMsg = `Namaste ${customerName}! Regarding your order ${shortId}: Total ₹${total}.`;
@@ -1163,22 +1543,24 @@ function VisualOrderCard({
   onAction,
   busy,
   onItemResolved,
+  lang = "en",
 }: {
   order: MerchantOrder;
   onAction: (action: string) => void;
   busy: boolean;
   onItemResolved: (itemName: string) => void;
+  lang?: "en" | "hi";
 }) {
   const [missingItem, setMissingItem] = useState<string | null>(null);
 
   const transitions: Record<string, Array<[string, string]>> = {
     PENDING: [
-      ["accept", "Accept"],
-      ["reject", "Reject"],
+      ["accept", lang === "hi" ? "स्वीकार करें (Accept)" : "Accept"],
+      ["reject", lang === "hi" ? "रद्द करें (Reject)" : "Reject"],
     ],
-    ACCEPTED: [["prepare", "Start packing"]],
-    PREPARING: [["ready", "Packed / Done"]],
-    READY: [["complete", "Out for delivery"]],
+    ACCEPTED: [["prepare", lang === "hi" ? "पैकिंग शुरू करें" : "Start packing"]],
+    PREPARING: [["ready", lang === "hi" ? "पैक हो गया / तैयार" : "Packed / Done"]],
+    READY: [["complete", order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "दुकान से उठाया गया" : "Picked up from store") : (lang === "hi" ? "डिलीवरी रवाना / पूर्ण" : "Out for delivery / Complete")]],
   };
 
   const handleRemoveMissingItem = (itemName: string) => {
@@ -1297,27 +1679,47 @@ function VisualOrderCard({
 
         {/* 1-Click WhatsApp Actions for Merchant */}
         {order.customer_phone_snapshot && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <a
-              href={getMerchantWhatsAppUrl(order, "status")}
+              href={getMerchantWhatsAppUrl(order, "status", lang)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white text-xs font-bold shadow-xs transition active:scale-[0.98]"
-              title="Message customer on WhatsApp with pre-filled status update"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
+              title="Message customer on WhatsApp with current status"
             >
               <MessageCircle className="w-3.5 h-3.5 fill-white" />
-              <span>WhatsApp Customer</span>
+              <span>{lang === "hi" ? "व्हाट्सएप चैट" : "WhatsApp"}</span>
             </a>
 
             <a
-              href={getMerchantWhatsAppUrl(order, "bill")}
+              href={getMerchantWhatsAppUrl(order, "pack", lang)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-xs font-bold shadow-xs transition active:scale-[0.98]"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
+              title="Send Pack Ho Gaya notification"
+            >
+              <span>{lang === "hi" ? "पैक हो गया 📦" : "Pack Done 📦"}</span>
+            </a>
+
+            <a
+              href={getMerchantWhatsAppUrl(order, "out_for_delivery", lang)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
+              title={order.fulfillment_type === "PICKUP" ? "Send Ready for Pickup notification" : "Send Out for Delivery notification"}
+            >
+              <span>{order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप तैयार 🛍️" : "Pickup Ready 🛍️") : (lang === "hi" ? "डिलीवरी रवाना 🛵" : "Out for Delivery 🛵")}</span>
+            </a>
+
+            <a
+              href={getMerchantWhatsAppUrl(order, "bill", lang)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
               title="Share pre-filled itemized bill with customer on WhatsApp"
             >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>Share Bill</span>
+              <Receipt className="w-3 h-3" />
+              <span>{lang === "hi" ? "पक्का बिल 🧾" : "Share Bill 🧾"}</span>
             </a>
           </div>
         )}
@@ -1603,46 +2005,112 @@ function VisualAnalyticsPanel({
 // -------------------------------------------------------------
 // Helper Modals & Rows
 // -------------------------------------------------------------
-function BatchModal({ onClose, onSave }: { onClose: () => void; onSave: (val: BatchValues) => void }) {
-  const { register, handleSubmit } = useForm<BatchInput, unknown, BatchValues>({
-    resolver: zodResolver(batchSchema),
-    defaultValues: { batchName: "New Stock Arrival", price: 265, quantity: 5 },
-  });
+function EditPriceModal({
+  item,
+  loading,
+  error,
+  lang = "en",
+  onClose,
+  onSave,
+}: {
+  item: { productId: number; name: string; price: string; mrp: string };
+  loading: boolean;
+  error: string | null;
+  lang?: "en" | "hi";
+  onClose: () => void;
+  onSave: (price: string, mrp: string) => void;
+}) {
+  const [price, setPrice] = useState(item.price);
+  const [mrp, setMrp] = useState(item.mrp);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!price || Number(price) <= 0) return;
+    onSave(price, mrp);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <form onSubmit={handleSubmit(onSave)} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+      <form onSubmit={handleSubmit} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
-          <h3 className="font-display font-bold text-base text-[#123324]">Add New Price Batch</h3>
-          <button type="button" onClick={onClose} className="text-[#6d756f] hover:text-[#123324]">
+          <div>
+            <h3 className="font-display font-bold text-base text-[#123324]">
+              {lang === "hi" ? "विक्रय मूल्य व MRP बदलें" : "Edit Selling Price & MRP"}
+            </h3>
+            <p className="text-xs text-[#6d756f] mt-0.5 line-clamp-1">{item.name}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
             <X size={16} />
           </button>
         </div>
-        <p className="text-xs text-[#6d756f]">
-          Create a fresh batch to sell newly stocked goods at a different MRP without altering previous batch prices.
-        </p>
+
+        {error && (
+          <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+            {error}
+          </div>
+        )}
+
         <div className="space-y-3 text-xs">
           <div>
-            <label className="block font-bold text-[#123324] mb-1">Batch Label</label>
-            <input {...register("batchName")} className="w-full h-9 rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
+            <label className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "दुकान विक्रय मूल्य (Selling Price ₹) *" : "Shop Selling Price (₹) *"}
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              min="0.1"
+              required
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="0.00"
+              className="w-full h-10 rounded-xl border border-[#ddd6ca] px-3 font-mono text-sm outline-none focus:border-[#1F5D42]"
+            />
+            <p className="text-[11px] text-[#6d756f] mt-1">
+              {lang === "hi" ? "इस मूल्य पर ग्राहक आपकी दुकान से ख़रीदेगा।" : "The actual price charged to customer at checkout."}
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block font-bold text-[#123324] mb-1">Price per Pack (₹)</label>
-              <input type="number" step="0.5" {...register("price", { valueAsNumber: true })} className="w-full h-9 rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
-            </div>
-            <div>
-              <label className="block font-bold text-[#123324] mb-1">Quantity of Packs</label>
-              <input type="number" min="1" {...register("quantity", { valueAsNumber: true })} className="w-full h-9 rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
-            </div>
+
+          <div>
+            <label className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "प्रिंटेड एमआरपी (MRP ₹ - वैकल्पिक)" : "Printed MRP (₹ - Optional)"}
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              min="0.1"
+              value={mrp}
+              onChange={(e) => setMrp(e.target.value)}
+              placeholder="0.00"
+              className="w-full h-10 rounded-xl border border-[#ddd6ca] px-3 font-mono text-sm outline-none focus:border-[#1F5D42]"
+            />
+            <p className="text-[11px] text-[#6d756f] mt-1">
+              {lang === "hi" ? "यदि विक्रय मूल्य MRP से कम है, तो ग्राहक को छूट दिखेगी।" : "If MRP > Selling Price, customers see a discount tag."}
+            </p>
           </div>
         </div>
+
         <div className="flex justify-end gap-2 pt-3 border-t border-[#eee9df]">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#6d756f]">
-            Cancel
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-xs font-semibold text-[#6d756f] hover:bg-[#eee9df] rounded-xl transition"
+          >
+            {lang === "hi" ? "रद्द करें" : "Cancel"}
           </button>
-          <button type="submit" className="px-4 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324]">
-            Save Batch
+          <button
+            type="submit"
+            disabled={loading || !price}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] disabled:opacity-60 transition"
+          >
+            {loading ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" />
+                <span>{lang === "hi" ? "अपडेट हो रहा है..." : "Saving..."}</span>
+              </>
+            ) : (
+              <span>{lang === "hi" ? "मूल्य सुरक्षित करें" : "Update Price"}</span>
+            )}
           </button>
         </div>
       </form>
@@ -1650,27 +2118,73 @@ function BatchModal({ onClose, onSave }: { onClose: () => void; onSave: (val: Ba
   );
 }
 
-function ProductRow({ product, onToggle, onDelete }: { product: Product; onToggle: () => void; onDelete: () => void }) {
+function ProductRow({
+  product,
+  onToggle,
+  onDelete,
+  onViewDetail,
+  lang = "en",
+}: {
+  product: Product;
+  onToggle: () => void;
+  onDelete: () => void;
+  onViewDetail?: () => void;
+  lang?: "en" | "hi";
+}) {
+  const effectiveImg = product.effective_image || product.image;
   return (
     <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] items-center gap-3 border-b border-[#eee9df] px-5 py-4 last:border-0 text-xs">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#F6F0E6] text-[#1F5D42]">
-          <ShoppingBag size={16} />
-        </span>
+      <div
+        className="flex min-w-0 items-center gap-3 cursor-pointer group"
+        onClick={onViewDetail}
+      >
+        {effectiveImg ? (
+          <img
+            src={effectiveImg}
+            alt={product.name}
+            className="w-9 h-9 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white group-hover:scale-105 transition"
+          />
+        ) : (
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#F6F0E6] text-[#1F5D42] group-hover:bg-[#e7f2eb] transition">
+            <ShoppingBag size={16} />
+          </span>
+        )}
         <div className="min-w-0">
-          <p className="truncate font-bold text-[#123324]">{product.name}</p>
-          <p className="mt-0.5 truncate text-[10px] text-[#7d857e]">{product.brand || "Local"}{product.sku ? ` · ${product.sku}` : ""}</p>
+          <p className="truncate font-bold text-[#123324] group-hover:text-[#1F5D42] transition underline-offset-2 group-hover:underline">
+            {product.name}
+          </p>
+          <p className="mt-0.5 truncate text-[10px] text-[#7d857e]">
+            {product.brand || "Local"}{product.sku ? ` · ${product.sku}` : ""}
+          </p>
         </div>
       </div>
-      <span className="font-mono font-bold text-[#123324]">{money(product.price)}</span>
+      <div>
+        <span className="font-mono font-bold text-[#123324]">{money(product.price)}</span>
+        {product.mrp && Number(product.mrp) > Number(product.price) && (
+          <span className="block text-[10px] text-[#869088] line-through font-mono">
+            {money(product.mrp)}
+          </span>
+        )}
+      </div>
       <span className={`text-[10px] font-bold ${product.is_visible && product.is_available ? "text-[#1F5D42]" : "text-[#9a4d2a]"}`}>
-        {!product.is_visible ? "Hidden" : product.is_available ? "Visible" : "Out of stock"}
+        {!product.is_visible
+          ? (lang === "hi" ? "छिपा हुआ" : "Hidden")
+          : product.is_available
+          ? (lang === "hi" ? "दुकान में दिखेगा" : "Visible")
+          : (lang === "hi" ? "आउट ऑफ स्टॉक" : "Out of stock")}
       </span>
       <div className="flex items-center gap-2">
-        <button onClick={onToggle} className="rounded-lg bg-[#F6F0E6] px-2.5 py-1.5 text-[10px] font-bold text-[#1F5D42] hover:bg-[#eee9df]">
-          {product.is_visible ? "Hide" : "Show"}
+        <button
+          onClick={onToggle}
+          className="rounded-lg bg-[#F6F0E6] px-2.5 py-1.5 text-[10px] font-bold text-[#1F5D42] hover:bg-[#eee9df] cursor-pointer"
+        >
+          {product.is_visible ? (lang === "hi" ? "छिपाएं" : "Hide") : (lang === "hi" ? "दिखाएं" : "Show")}
         </button>
-        <button aria-label={`Delete ${product.name}`} onClick={onDelete} className="rounded-lg p-1.5 text-[#9a4d2a] hover:bg-[#ffece6]">
+        <button
+          aria-label={`Delete ${product.name}`}
+          onClick={onDelete}
+          className="rounded-lg p-1.5 text-[#9a4d2a] hover:bg-[#ffece6] cursor-pointer"
+        >
           <X size={14} />
         </button>
       </div>
@@ -2155,10 +2669,59 @@ function ShopSettings({
               <p className="text-[11px] text-[#6d756f]">{shop.city}, {shop.state}</p>
             </div>
           </div>
-          <label className="flex items-center gap-2 text-xs cursor-pointer">
-            <input {...register("is_temporarily_closed")} type="checkbox" className="accent-[#1F5D42]" />
-            <span className="font-bold text-[#123324]">{lang === "hi" ? "दुकान अस्थायी रूप से बंद है" : "Temporarily closed"}</span>
-          </label>
+          {/* Modern Dukaan Open / Closed Toggle Switch Card */}
+          <div
+            onClick={() => {
+              setValue("is_temporarily_closed", !watched.is_temporarily_closed, {
+                shouldDirty: true,
+                shouldTouch: true,
+                shouldValidate: true,
+              });
+            }}
+            className={`flex items-center gap-3 p-3 rounded-2xl border transition cursor-pointer select-none shadow-xs ${
+              !watched.is_temporarily_closed
+                ? "bg-[#f0f8f4] border-[#a9d7be]"
+                : "bg-[#fff5f2] border-[#f8c0b0]"
+            }`}
+          >
+            <div className="text-right">
+              <span
+                className={`block text-xs font-bold ${
+                  !watched.is_temporarily_closed ? "text-[#1F5D42]" : "text-[#c2410c]"
+                }`}
+              >
+                {!watched.is_temporarily_closed
+                  ? lang === "hi"
+                    ? "दुकान खुली है (Store Open)"
+                    : "Store is OPEN"
+                  : lang === "hi"
+                  ? "दुकान अस्थायी रूप से बंद है"
+                  : "Store is CLOSED"}
+              </span>
+              <span className="text-[10px] text-[#6d756f]">
+                {!watched.is_temporarily_closed
+                  ? lang === "hi"
+                    ? "ग्राहक नए ऑर्डर दे सकते हैं"
+                    : "Accepting orders"
+                  : lang === "hi"
+                  ? "नए ऑर्डर्स रोक दिए गए हैं"
+                  : "Orders paused"}
+              </span>
+            </div>
+
+            {/* iOS style toggle switch button */}
+            <div
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                !watched.is_temporarily_closed ? "bg-[#1F5D42]" : "bg-neutral-300"
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                  !watched.is_temporarily_closed ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 text-xs">

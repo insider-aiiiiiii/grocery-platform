@@ -94,7 +94,6 @@ export function Sidebar({
     { id: "catalog", labelEn: "Master Catalog", labelHi: "मास्टर कैटलॉग", icon: Boxes, badge: catalogCount },
     { id: "campaigns", labelEn: "Marketing Campaigns", labelHi: "मार्केटिंग अभियान", icon: Megaphone, badge: campaignCount },
     { id: "analytics", labelEn: "Platform Analytics", labelHi: "प्लेटफॉर्म विश्लेषण", icon: BarChart3 },
-    { id: "security", labelEn: "Security & Recovery", labelHi: "सुरक्षा एवं रिकवरी", icon: ShieldAlert },
     { id: "settings", labelEn: "Console Settings", labelHi: "कंसोल सेटिंग्स", icon: Settings },
   ];
 

@@ -83,7 +83,6 @@ class MerchantOrderListSerializer(serializers.ModelSerializer):
             Order.Status.READY: "ORDER_READY",
             Order.Status.COMPLETED: "ORDER_COMPLETED",
             Order.Status.REJECTED: "ORDER_REJECTED",
-            Order.Status.CANCELLED: "ORDER_REJECTED",
         }
         event = event_map.get(order.status, "ORDER_ACCEPTED")
         try:

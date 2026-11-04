@@ -11,7 +11,6 @@ import { CampaignsManager, CampaignItem } from "@/components/admin/CampaignsMana
 import { TopProductsRankings, TopProductItem } from "@/components/admin/TopProductsRankings";
 import { OrderStatusBreakdown } from "@/components/admin/OrderStatusBreakdown";
 import { AnalyticsToolbar } from "@/components/admin/AnalyticsToolbar";
-import { SecurityRecoveryModal } from "@/components/admin/SecurityRecoveryModal";
 import {
   IndianRupee,
   Store,
@@ -27,6 +26,10 @@ import {
   Users,
   Menu,
   Languages,
+  X,
+  KeyRound,
+  QrCode,
+  AlertOctagon,
 } from "lucide-react";
 import { adminApi, PlatformAnalytics, MasterProduct } from "@/lib/api/admin";
 
@@ -35,7 +38,7 @@ export default function SuperAdminDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isOnboardOpen, setIsOnboardOpen] = useState(false);
-  const [isSecurityOpen, setIsSecurityOpen] = useState(false);
+  const [showGovernanceModal, setShowGovernanceModal] = useState(false);
   const [analytics, setAnalytics] = useState<PlatformAnalytics | null>(null);
   const [masterProducts, setMasterProducts] = useState<MasterProduct[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
@@ -172,11 +175,7 @@ export default function SuperAdminDashboard() {
   }, []);
 
   const handleTabChange = (tabId: string) => {
-    if (tabId === "security") {
-      setIsSecurityOpen(true);
-    } else {
-      setActiveTab(tabId);
-    }
+    setActiveTab(tabId);
   };
 
   // Formatted Metric Values
@@ -287,8 +286,16 @@ export default function SuperAdminDashboard() {
 
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
+                  onClick={() => setShowGovernanceModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#ddd6ca] text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#FAF8F3] shadow-xs transition-all cursor-pointer"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#1F5D42]" />
+                  <span>{lang === "hi" ? "सुरक्षा नीति व गाइड" : "Governance Policy"}</span>
+                </button>
+                <button
                   onClick={() => setIsOnboardOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all cursor-pointer"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>{lang === "hi" ? "+ नया दुकानदार जोड़ें" : "+ Onboard New Merchant"}</span>
@@ -649,11 +656,109 @@ export default function SuperAdminDashboard() {
         }}
       />
 
-      {/* Security & Recovery Modal */}
-      <SecurityRecoveryModal
-        isOpen={isSecurityOpen}
-        onClose={() => setIsSecurityOpen(false)}
-      />
+      {/* Governance & Policy Modal */}
+      {showGovernanceModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-[#ddd6ca] shadow-2xl p-6 sm:p-7">
+            <div className="flex items-start justify-between pb-4 border-b border-[#eee8df] mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#e7f2eb] border border-[#cbe1d5] flex items-center justify-center text-[#1F5D42]">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-[#123324] font-display">
+                    {lang === "hi" ? "सुपर एडमिन सुरक्षा व गवर्नेंस गाइड" : "Super Admin Governance & Security Policy"}
+                  </h3>
+                  <p className="text-xs text-[#6d756f]">
+                    {lang === "hi"
+                      ? "मल्टी-टेनेंट सुरक्षा, यूआरएल रोटेशन और क्रेडेंशियल्स प्रबंधन नियम"
+                      : "Multi-tenant tenant isolation, URL rotation rules, and credential policies"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGovernanceModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-[#6d756f] hover:bg-[#FAF8F3] hover:text-[#123324] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Policy 1: QR & Slug Rotation */}
+              <div className="p-4 rounded-xl bg-[#FAF8F3] border border-[#eee8df]">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <QrCode className="w-4 h-4 text-[#1F5D42]" />
+                  <h4 className="text-sm font-bold text-[#123324]">
+                    {lang === "hi" ? "1. स्लग व क्यूआर कोड रोटेशन (Slug & QR Rotation)" : "1. Slug & QR Code Rotation Policy"}
+                  </h4>
+                </div>
+                <p className="text-xs text-[#4a554f] leading-relaxed">
+                  {lang === "hi"
+                    ? "दुकान का सार्वजनिक स्लग बदलने से ग्राहक का वेब यूआरएल बदल जाता है। दुकान पर पहले से लगे पुराने प्रिंटेड क्यूआर (QR) कोड काम करना बंद कर देंगे। स्लग अपडेट करने के बाद नया क्यूआर कोड प्रिंट करके काउंटर पर लगाना अनिवार्य है।"
+                    : "Changing a shop's public slug alters its customer-facing storefront URL. Previously printed physical QR stickers will break immediately. Always inform the merchant to print and paste the updated QR code on their storefront."}
+                </p>
+              </div>
+
+              {/* Policy 2: Password Reset */}
+              <div className="p-4 rounded-xl bg-[#FAF8F3] border border-[#eee8df]">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <KeyRound className="w-4 h-4 text-amber-700" />
+                  <h4 className="text-sm font-bold text-[#123324]">
+                    {lang === "hi" ? "2. पासवर्ड रीसेट व सुरक्षा नीति (Password Policy)" : "2. Password Reset & Verification"}
+                  </h4>
+                </div>
+                <p className="text-xs text-[#4a554f] leading-relaxed">
+                  {lang === "hi"
+                    ? "मल्टी-टेनेंट सुरक्षा बनाए रखने के लिए दुकानदार स्वयं ओटीपी से पासवर्ड रीसेट नहीं कर सकते। सुपर एडमिन द्वारा जारी किया गया अस्थायी पासवर्ड केवल पहले लॉगिन के लिए होता है। दुकानदार को लॉगिन करते ही अपना नया स्थायी पासवर्ड सेट करना आवश्यक है।"
+                    : "To prevent multi-tenant credential takeover, self-serve OTP reset is disabled for merchants. Temporary passwords issued by Super Admin are single-use tokens; merchants are forced to create a strong permanent password immediately on first sign-in."}
+                </p>
+              </div>
+
+              {/* Policy 3: Shop Deactivation vs Deletion */}
+              <div className="p-4 rounded-xl bg-[#FAF8F3] border border-[#eee8df]">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <AlertOctagon className="w-4 h-4 text-red-600" />
+                  <h4 className="text-sm font-bold text-[#123324]">
+                    {lang === "hi" ? "3. दुकान निष्क्रियता बनाम स्थायी विलोपन (Deactivation vs Deletion)" : "3. Shop Deactivation vs Deletion"}
+                  </h4>
+                </div>
+                <p className="text-xs text-[#4a554f] leading-relaxed">
+                  {lang === "hi"
+                    ? "दुकान को 'निष्क्रिय (Deactivate)' करने से स्टोर ग्राहक के लिए बंद हो जाता है, परंतु दुकानदार के पिछले ऑर्डर्स, बिक्री और बहीखाता सुरक्षित रहते हैं। 'हटाएं (Delete)' करने पर दुकान और उसके सभी डेटा स्थायी रूप से नष्ट हो जाते हैं (अपरिवर्तनीय)।"
+                    : "Deactivating a shop temporarily closes the customer storefront while safely preserving all historical order ledgers, audit records, and billing data. Deleting a shop permanently and irreversibly purges the tenant database record."}
+                </p>
+              </div>
+
+              {/* Policy 4: Strict Tenant Isolation */}
+              <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-800" />
+                  <h4 className="text-sm font-bold text-emerald-950">
+                    {lang === "hi" ? "4. मल्टी-टेनेंट डेटा सुरक्षा (Tenant Data Isolation)" : "4. Strict Tenant Boundary Isolation"}
+                  </h4>
+                </div>
+                <p className="text-xs text-emerald-900/90 leading-relaxed">
+                  {lang === "hi"
+                    ? "प्रत्येक दुकानदार का स्टॉक, बिक्री मूल्य (Selling Price), एमआरपी और ग्राहक ऑर्डर पूर्णतः सुरक्षित और पृथक (isolated) हैं। कोई भी दुकानदार अन्य दुकान का डेटा न तो देख सकता है और न ही संशोधित कर सकता है।"
+                    : "Every merchant's catalog pricing, inventory quantities, customer order ledger, and phone records are strictly isolated. No merchant can access or modify another tenant's store data."}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-[#eee8df] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowGovernanceModal(false)}
+                className="px-4 py-2 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] transition-colors cursor-pointer"
+              >
+                {lang === "hi" ? "समझ गया / बंद करें" : "Understood / Close"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

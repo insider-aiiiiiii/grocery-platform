@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -19,7 +20,11 @@ import {
 import { merchantApi, getApiError } from "@/lib/api/merchant";
 
 const schema = z.object({
-  mobile_number: z.string().min(8, "Enter your registered mobile number"),
+  mobile_number: z
+    .string()
+    .trim()
+    .min(10, "Enter 10-digit mobile number / 10 अंकों का मोबाइल नंबर दर्ज करें")
+    .max(14, "Invalid mobile number"),
   password: z.string().min(1, "Enter your password"),
 });
 type Values = z.infer<typeof schema>;
@@ -53,6 +58,7 @@ export default function MerchantLoginPage() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<Values>({ resolver: zodResolver(schema) });
 
@@ -60,7 +66,10 @@ export default function MerchantLoginPage() {
     setError("");
     setSubmitting(true);
     try {
-      const result = await merchantApi.login(values.mobile_number, values.password);
+      const digits = values.mobile_number.replace(/\D/g, "");
+      const clean10 = digits.slice(-10);
+      const formattedPhone = `+91${clean10}`;
+      const result = await merchantApi.login(formattedPhone, values.password);
       if (result.user.role !== "MERCHANT") {
         throw new Error("This sign-in is for merchant accounts.");
       }
@@ -231,14 +240,18 @@ export default function MerchantLoginPage() {
                 <span className="mb-1.5 block text-xs font-semibold text-[#123324]">
                   {lang === "hi" ? "रजिस्टर्ड मोबाइल नंबर" : "Mobile number"}
                 </span>
-                <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
-                  <Phone size={16} className="text-[#6d756f] shrink-0" />
+                <span className="flex h-12 items-center gap-2 rounded-xl border border-[#ddd6ca] bg-white px-3 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F6F0E6] text-xs font-bold text-[#1F5D42] border border-[#e5dfd2] select-none shrink-0">
+                    <Phone size={13} />
+                    <span>+91</span>
+                  </span>
                   <input
                     {...register("mobile_number")}
                     autoComplete="tel"
-                    inputMode="tel"
-                    placeholder="+91 98765 43210"
-                    className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="98765 43210"
+                    className="w-full bg-transparent text-sm font-semibold tracking-wide text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
                 </span>
                 {errors.mobile_number && (
@@ -276,6 +289,17 @@ export default function MerchantLoginPage() {
                     {errors.password.message}
                   </span>
                 )}
+                <div className="flex justify-between items-center mt-1.5 px-0.5">
+                  <span className="text-[11px] text-[#6d756f]">
+                    {lang === "hi" ? "पासवर्ड भूल गए?" : "Forgot password?"}
+                  </span>
+                  <Link
+                    href="/merchant/recover"
+                    className="text-[11px] font-semibold text-[#1F5D42] hover:underline"
+                  >
+                    {lang === "hi" ? "सुपर एडमिन से रीसेट कराएं" : "Contact Super Admin"}
+                  </Link>
+                </div>
               </label>
 
               {/* Error Alert */}

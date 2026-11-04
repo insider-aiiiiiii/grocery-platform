@@ -103,7 +103,7 @@ class MasterProductViewSet(viewsets.ModelViewSet):
       existing Shop Products.
     """
 
-    queryset = MasterProduct.objects.all().select_related("category").order_by("name", "id")
+    queryset = MasterProduct.objects.all().select_related("category").order_by("category__name", "name", "id")
     serializer_class = MasterProductSerializer
     permission_classes = [IsAuthenticated, IsSuperAdmin]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -286,7 +286,7 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
             return self._shop_error
         shop = self._shop
 
-        master_products = MasterProduct.objects.filter(is_active=True).select_related("category").order_by("name", "id")
+        master_products = MasterProduct.objects.filter(is_active=True).select_related("category").order_by("category__name", "name", "id")
 
         # Map of master_product_id -> ShopProduct for this shop
         shop_products_map = {
@@ -303,6 +303,9 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
                     image_url = request.build_absolute_uri(mp.image.url)
                 except Exception:
                     image_url = str(mp.image)
+            elif mp.image_url:
+                image_url = mp.image_url
+
             results.append({
                 "id": mp.id,
                 "name": mp.name,
@@ -311,6 +314,7 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
                 "category": mp.category_id,
                 "category_name": mp.category.name if mp.category else None,
                 "image": image_url,
+                "mrp": str(mp.mrp) if mp.mrp is not None else None,
                 "is_in_shop": sp is not None,
                 "shop_product_id": sp.id if sp else None,
                 "shop_product_price": str(sp.price) if sp and sp.price is not None else None,
@@ -343,11 +347,14 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
 
         if selected:
             if not existing:
-                raw_price = request.data.get("price", "0.00") or "0.00"
-                try:
-                    price_val = Decimal(str(raw_price))
-                except Exception:
-                    price_val = Decimal("0.00")
+                raw_price = request.data.get("price")
+                if raw_price is not None and str(raw_price).strip() != "":
+                    try:
+                        price_val = Decimal(str(raw_price))
+                    except Exception:
+                        price_val = master_product.mrp or Decimal("0.00")
+                else:
+                    price_val = master_product.mrp or Decimal("0.00")
 
                 existing = ShopProduct.objects.create(
                     shop=shop,

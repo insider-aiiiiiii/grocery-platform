@@ -33,6 +33,8 @@ export function ProductDetailModal({
 
   const isOutOfStock = product.is_out_of_stock || !product.is_orderable;
 
+  const modalImg = selectedVariant?.effective_image || selectedVariant?.image || product.effective_image || product.image;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[#123324]/60 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="bg-[#FFFDF8] w-full max-w-lg rounded-t-3xl sm:rounded-2xl max-h-[90vh] overflow-y-auto shadow-2xl border border-[#e2ddd4]">
@@ -43,7 +45,7 @@ export function ProductDetailModal({
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-[#6d756f] hover:text-[#123324] hover:bg-[#eee8dc] transition-colors"
+            className="p-1 rounded-full text-[#6d756f] hover:text-[#123324] hover:bg-[#eee8dc] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -51,9 +53,9 @@ export function ProductDetailModal({
 
         {/* Media */}
         <div className="w-full aspect-[4/3] bg-gradient-to-br from-[#efe2c7]/40 to-[#d5b275]/20 flex items-center justify-center border-b border-[#e2ddd4] p-6 relative">
-          {product.image ? (
+          {modalImg ? (
             <img
-              src={product.image}
+              src={modalImg}
               alt={product.name}
               className="max-h-full max-w-full object-contain"
             />
@@ -76,8 +78,18 @@ export function ProductDetailModal({
             <h2 className="font-display font-bold text-base sm:text-lg text-[#123324] tracking-tight">
               {product.name}
             </h2>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{price.toFixed(0)}</span>
+              {product.mrp && parseFloat(product.mrp) > price && (
+                <span className="text-sm text-[#869088] line-through font-mono">
+                  MRP ₹{parseFloat(product.mrp).toFixed(0)}
+                </span>
+              )}
+              {product.mrp && parseFloat(product.mrp) > price && (
+                <span className="text-[11px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
+                  {Math.round(((parseFloat(product.mrp) - price) / parseFloat(product.mrp)) * 100)}% OFF
+                </span>
+              )}
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
                 <ShieldCheck className="w-3 h-3 text-[#1F5D42]" />
                 Fresh Shelf Quality

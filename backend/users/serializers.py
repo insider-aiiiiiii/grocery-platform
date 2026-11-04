@@ -22,12 +22,11 @@ class SuperAdminLoginSerializer(serializers.Serializer):
 class SuperAdminCreateMerchantSerializer(serializers.Serializer):
     username = serializers.CharField(
         max_length=150,
-        validators=[UniqueValidator(queryset=User.objects.all())],
+        validators=[UniqueValidator(queryset=User.objects.all(), message="A merchant with this username already exists.")],
     )
     mobile_number = serializers.CharField(
         max_length=32,
         trim_whitespace=False,
-        validators=[UniqueValidator(queryset=User.objects.all())],
     )
     email = serializers.EmailField(
         required=False,
@@ -35,6 +34,19 @@ class SuperAdminCreateMerchantSerializer(serializers.Serializer):
         validators=[UniqueValidator(queryset=User.objects.all())],
     )
     initial_password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_mobile_number(self, value):
+        import re
+        digits = re.sub(r"\D", "", str(value))
+        if len(digits) < 10:
+            raise serializers.ValidationError("Enter a valid 10-digit mobile number.")
+        formatted = f"+91{digits[-10:]}"
+        existing = User.objects.filter(mobile_number=formatted).first()
+        if existing:
+            raise serializers.ValidationError(
+                f"Mobile number {formatted} is already registered to merchant '{existing.username}'. You can find them in the Tenant Directory."
+            )
+        return formatted
 
     def validate_initial_password(self, value):
         try:

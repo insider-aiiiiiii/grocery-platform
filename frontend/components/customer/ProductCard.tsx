@@ -44,8 +44,12 @@ export function ProductCard({
     ? parseFloat(activeVariant.price)
     : null;
 
-  // Derive MRP with slight markup for visual display if MRP isn't explicitly returned
-  const mrpPrice = sellPrice !== null ? Math.round(sellPrice * 1.08) : null;
+  // Prioritize real MRP if set by SuperAdmin/Shop, fallback to visual markup
+  const mrpPrice = product.mrp
+    ? parseFloat(product.mrp)
+    : sellPrice !== null
+    ? Math.round(sellPrice * 1.08)
+    : null;
 
   const packSize =
     activeVariant?.name ||
@@ -54,6 +58,7 @@ export function ProductCard({
     "";
 
   const emoji = getCategoryEmoji(product.name, product.brand);
+  const displayImage = product.effective_image || product.image;
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-all border border-[#e2ddd4] flex gap-3.5 sm:gap-4 relative overflow-hidden group">
@@ -62,9 +67,9 @@ export function ProductCard({
         onClick={() => onClickDetail?.(product)}
         className="w-20 h-20 sm:w-22 sm:h-22 bg-gradient-to-br from-[#efe2c7]/60 to-[#d5b275]/40 rounded-xl flex-shrink-0 flex items-center justify-center border border-[#e5dec9] cursor-pointer relative overflow-hidden group-hover:scale-105 transition-transform"
       >
-        {product.image ? (
+        {displayImage ? (
           <img
-            src={product.image}
+            src={displayImage}
             alt={product.name}
             className="w-full h-full object-contain p-2"
           />

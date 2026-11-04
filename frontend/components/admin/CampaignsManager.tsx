@@ -16,6 +16,9 @@ import {
   Square as UncheckedSquare,
   Clock,
   Layers,
+  Upload,
+  Image as ImageIcon,
+  X,
 } from "lucide-react";
 import { adminApi, CampaignItem } from "@/lib/api/admin";
 import { MerchantShopItem } from "@/components/admin/MerchantTable";
@@ -37,6 +40,8 @@ export function CampaignsManager({
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const bannerInputRef = React.useRef<HTMLInputElement>(null);
   const [shopScope, setShopScope] = useState<"ALL_SHOPS" | "SELECTED_SHOPS">("ALL_SHOPS");
   const [selectedShops, setSelectedShops] = useState<number[]>([]);
   const [shopSearch, setShopSearch] = useState("");
@@ -47,11 +52,22 @@ export function CampaignsManager({
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBannerPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Filter available merchants for target shop selection
   const filteredMerchants = useMemo(() => {
-    if (!shopSearch.trim()) return merchants;
+    const activeWithShops = merchants.filter((m) => m.shopId > 0);
+    if (!shopSearch.trim()) return activeWithShops;
     const q = shopSearch.toLowerCase();
-    return merchants.filter(
+    return activeWithShops.filter(
       (m) =>
         m.shopName.toLowerCase().includes(q) ||
         m.publicSlug.toLowerCase().includes(q) ||
@@ -96,9 +112,17 @@ export function CampaignsManager({
 
     setSubmitting(true);
     try {
+      let finalContent = content.trim();
+      if (bannerPreview) {
+        finalContent = JSON.stringify({
+          text: content.trim(),
+          image: bannerPreview,
+        });
+      }
+
       await adminApi.createCampaign({
         title: title.trim(),
-        content: content.trim() || undefined,
+        content: finalContent || undefined,
         shop_scope: shopScope,
         selected_shops: shopScope === "SELECTED_SHOPS" ? selectedShops : [],
         starts_at: startsAt ? new Date(startsAt).toISOString() : null,
@@ -108,6 +132,7 @@ export function CampaignsManager({
       setIsCreateOpen(false);
       setTitle("");
       setContent("");
+      setBannerPreview(null);
       setShopScope("ALL_SHOPS");
       setSelectedShops([]);
       setEndsAt("");
@@ -373,6 +398,49 @@ export function CampaignsManager({
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="e.g. Free delivery on all orders above ₹299 this weekend!"
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
+                />
+              </div>
+
+              {/* Promotional Banner Image (Direct Upload) */}
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  Promotional Banner Image (Optional)
+                </label>
+                {bannerPreview ? (
+                  <div className="relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                    <img
+                      src={bannerPreview}
+                      alt="Campaign Banner Preview"
+                      className="w-full max-h-36 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBannerPreview(null);
+                        if (bannerInputRef.current) bannerInputRef.current.value = "";
+                      }}
+                      className="absolute top-2 right-2 p-1 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-sm"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => bannerInputRef.current?.click()}
+                    className="w-full py-4 px-3 border-2 border-dashed border-slate-300 hover:border-[#1F5D42] rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-[#1F5D42] bg-slate-50/50 hover:bg-[#f0f7f3]/50 transition cursor-pointer"
+                  >
+                    <Upload className="w-5 h-5 mb-1" />
+                    <span className="text-xs font-semibold">Upload Banner Image File</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, or WEBP · 16:9 or wide format recommended</span>
+                  </button>
+                )}
+                <input
+                  ref={bannerInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={handleBannerSelect}
                 />
               </div>
 
