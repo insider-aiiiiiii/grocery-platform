@@ -266,8 +266,138 @@ export function MerchantTable({ merchants, onRefresh, token }: MerchantTableProp
         </div>
       </div>
 
-      {/* Table Body */}
-      <div className="overflow-x-auto">
+      {/* Mobile Card View (Zero horizontal scroll on phones) */}
+      <div className="block sm:hidden divide-y divide-slate-100">
+        {filteredMerchants.length === 0 ? (
+          <div className="py-8 text-center text-slate-400 text-xs px-4">
+            No merchants found matching the selected filter.
+          </div>
+        ) : (
+          filteredMerchants.map((m) => {
+            const isLoading = actionLoadingId === (m.shopId ?? m.id);
+            return (
+              <div key={m.id} className="p-3.5 bg-white space-y-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-slate-900">
+                      <QrCode className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      {m.publicSlug ? (
+                        <span>QR-{m.publicSlug.slice(0, 8).toUpperCase()}</span>
+                      ) : (
+                        <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded font-sans font-medium">
+                          Setup Pending
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="font-bold text-slate-900 text-sm mt-0.5">{m.shopName}</h4>
+                    <div className="flex items-center gap-1.5 text-xs font-mono text-slate-500 mt-0.5">
+                      <span>{m.mobileNumber}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditMobile(m)}
+                        title="Edit Merchant Mobile Number"
+                        className="p-0.5 rounded text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    {m.status === "ACTIVE" ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                        Active
+                      </span>
+                    ) : m.status === "PENDING_PASSWORD_CHANGE" ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                        <Clock className="w-3 h-3 text-amber-600" />
+                        Pending Pwd
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-800 border border-red-200">
+                        <Ban className="w-3 h-3 text-red-600" />
+                        Suspended
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg text-center text-xs">
+                  <div>
+                    <div className="text-[10px] text-slate-400 uppercase font-medium">Location</div>
+                    <div className="font-semibold text-slate-800 text-[11px] truncate">{m.city || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-400 uppercase font-medium">Catalog</div>
+                    <div className="font-semibold text-slate-800 text-[11px]">{m.catalogItemsCount} SKUs</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-400 uppercase font-medium">30-Day Sales</div>
+                    <div className="font-semibold text-emerald-700 text-[11px]">{m.monthlyVolume}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-slate-100">
+                  <button
+                    onClick={() => handleOpenReset(m)}
+                    disabled={isLoading}
+                    title="Reset Merchant Password"
+                    className="p-1.5 rounded border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white transition-colors"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                  </button>
+
+                  {m.shopId ? (
+                    <button
+                      onClick={() => handleRegenerateQR(m.shopId!)}
+                      disabled={isLoading}
+                      title="Rotate QR Slug"
+                      className="p-1.5 rounded border border-slate-200 hover:bg-slate-100 text-slate-600"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                    </button>
+                  ) : null}
+
+                  {m.shopId ? (
+                    m.status === "ACTIVE" ? (
+                      <button
+                        onClick={() => handleDeactivate(m.shopId!)}
+                        disabled={isLoading}
+                        className="px-2.5 py-1 rounded text-xs font-semibold bg-red-50 border border-red-200 text-red-700 hover:bg-red-600 hover:text-white transition-colors"
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleReactivate(m.shopId!)}
+                        disabled={isLoading}
+                        className="px-2.5 py-1 rounded text-xs font-semibold bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-600 hover:text-white transition-colors"
+                      >
+                        Reactivate
+                      </button>
+                    )
+                  ) : null}
+
+                  {m.shopId ? (
+                    <button
+                      onClick={() => handleDeleteShop(m.shopId!, m.shopName)}
+                      disabled={isLoading}
+                      title="Permanently Delete Shop"
+                      className="p-1.5 rounded border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-[#0F172A] text-slate-100 text-[10px] uppercase font-bold tracking-wider">

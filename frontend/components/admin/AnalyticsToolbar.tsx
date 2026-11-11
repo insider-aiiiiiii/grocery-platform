@@ -50,46 +50,48 @@ export function AnalyticsToolbar({
     <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm space-y-3">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         {/* Left: Period Quick Filters */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider mr-1">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 w-full lg:w-auto">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0">
             <Calendar className="w-3.5 h-3.5 text-slate-400" />
             <span>Time Horizon:</span>
           </div>
 
-          <div className="inline-flex rounded-md border border-slate-200 p-0.5 bg-slate-50 text-xs">
-            {periods.map((p) => {
-              const isActive = selectedPeriod === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => onPeriodChange(p.id)}
-                  className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
-                    isActive
-                      ? "bg-[#1F5D42] text-white shadow-xs"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
+          <div className="overflow-x-auto pb-1 sm:pb-0 max-w-full">
+            <div className="inline-flex rounded-md border border-slate-200 p-0.5 bg-slate-50 text-xs shrink-0">
+              {periods.map((p) => {
+                const isActive = selectedPeriod === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onPeriodChange(p.id)}
+                    className={`px-3 py-1 rounded text-xs font-semibold whitespace-nowrap transition-all ${
+                      isActive
+                        ? "bg-[#1F5D42] text-white shadow-xs"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Right: Tenant Node Filter & Refresh */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 text-xs">
-            <label className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-slate-50 hover:bg-white rounded text-xs font-medium text-slate-700 cursor-pointer focus-within:border-[#1F5D42] focus-within:ring-1 focus-within:ring-[#1F5D42] transition-colors">
-              <Store className="w-3.5 h-3.5 text-[#1F5D42]" />
-              <span className="text-[11px] font-bold text-slate-400 uppercase">Tenant:</span>
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end w-full lg:w-auto">
+          <div className="flex items-center gap-1.5 text-xs flex-1 sm:flex-initial min-w-0">
+            <label className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-slate-50 hover:bg-white rounded text-xs font-medium text-slate-700 cursor-pointer focus-within:border-[#1F5D42] focus-within:ring-1 focus-within:ring-[#1F5D42] transition-colors w-full sm:w-auto min-w-0">
+              <Store className="w-3.5 h-3.5 text-[#1F5D42] shrink-0" />
+              <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0">Tenant:</span>
               <select
                 value={selectedShopId ?? ""}
                 onChange={(e) => {
                   const val = e.target.value;
                   onShopChange(val === "" ? null : parseInt(val, 10));
                 }}
-                className="bg-transparent text-xs font-semibold text-slate-900 outline-none cursor-pointer pr-1"
+                className="bg-transparent text-xs font-semibold text-slate-900 outline-none cursor-pointer pr-1 truncate flex-1 min-w-0 max-w-[170px] sm:max-w-[240px]"
               >
                 <option value="">All Merchant Nodes (Platform-wide)</option>
                 {merchants.filter((m) => m.shopId > 0).map((m) => (
@@ -105,7 +107,7 @@ export function AnalyticsToolbar({
                 type="button"
                 onClick={() => onShopChange(null)}
                 title="Clear tenant filter"
-                className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200"
+                className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200 shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -116,7 +118,7 @@ export function AnalyticsToolbar({
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded shadow-2xs transition-all disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded shadow-2xs transition-all disabled:opacity-50 shrink-0"
           >
             <RotateCcw className={`w-3.5 h-3.5 text-slate-500 ${loading ? "animate-spin text-emerald-600" : ""}`} />
             <span>{loading ? "Refreshing..." : "Refresh"}</span>

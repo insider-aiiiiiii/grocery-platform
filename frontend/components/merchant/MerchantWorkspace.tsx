@@ -51,6 +51,7 @@ const productSchema = z.object({
   name: z.string().trim().min(1, "Enter a product name"),
   price: z.coerce.number().min(0, "Price cannot be negative"),
   brand: z.string().optional(),
+  unit: z.string().optional(),
   sku: z.string().optional(),
   description: z.string().optional(),
 });
@@ -870,6 +871,11 @@ export default function MerchantWorkspace() {
                               <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
                                 {item.category_name || "Grocery"}
                               </span>
+                              {item.unit && (
+                                <span className="text-[10px] font-semibold text-[#1F5D42] bg-[#FAF8F3] px-2 py-0.5 rounded-full border border-[#ddd6ca]">
+                                  {item.unit}
+                                </span>
+                              )}
                               {item.mrp && (
                                 <span className="text-[10px] font-mono font-bold text-[#123324] bg-[#F6F0E6] px-2 py-0.5 rounded-full">
                                   MRP: ₹{item.mrp}
@@ -2203,10 +2209,11 @@ function ProductModal({
   saving: boolean;
   lang?: "en" | "hi";
 }) {
-  const { register, trigger, getValues } = useForm<ProductInput, unknown, ProductValues>({
+  const { register, trigger, getValues, setValue, watch } = useForm<ProductInput, unknown, ProductValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", price: 0, brand: "", sku: "", description: "" },
+    defaultValues: { name: "", price: 0, brand: "", sku: "", description: "", unit: "" },
   });
+  const selectedUnit = watch("unit") || "";
 
   const [images, setImages] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
@@ -2235,12 +2242,13 @@ function ProductModal({
       formData.append("name", values.name);
       formData.append("price", String(values.price));
       if (values.brand) formData.append("brand", values.brand);
+      if (values.unit) formData.append("unit", values.unit);
       if (values.sku) formData.append("sku", values.sku);
       if (values.description) formData.append("description", values.description);
       formData.append("image", images[0]); // primary image
       onSave(formData);
     } else {
-      onSave({ ...values, price: String(values.price) });
+      onSave({ ...values, price: String(values.price), unit: values.unit });
     }
   };
 
@@ -2274,6 +2282,73 @@ function ProductModal({
             </span>
             <input {...register("brand")} className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
           </label>
+
+          {/* Unit / Measurement Selector */}
+          <div className="sm:col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="block font-bold text-[#123324]">
+                {lang === "hi" ? "इकाई / माप (खुला सामान या पैक्ड)" : "Unit / Measurement (Loose or Packaged)"}
+              </span>
+              {selectedUnit && (
+                <button
+                  type="button"
+                  onClick={() => setValue("unit", "")}
+                  className="text-[10px] text-red-600 hover:underline font-semibold"
+                >
+                  {lang === "hi" ? "इकाई हटाएं" : "Clear Unit"}
+                </button>
+              )}
+            </div>
+            <input
+              {...register("unit")}
+              placeholder={lang === "hi" ? "उदा. kg, g, liter, ml, piece, packet, 1 kg, 500g" : "e.g. kg, g, liter, ml, piece, packet, 1 kg, 500g"}
+              className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42] text-xs mb-2"
+            />
+            <div className="space-y-1.5 bg-[#FAF8F3] p-2 rounded-xl border border-[#eee9df]">
+              <div>
+                <span className="text-[9px] font-bold text-[#1F5D42] uppercase tracking-wider block mb-1">
+                  {lang === "hi" ? "खुला सामान (Loose Units)" : "Loose Units"}
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {["kg", "g", "liter", "ml", "piece", "packet", "dozen"].map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setValue("unit", selectedUnit === u ? "" : u)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                        selectedUnit === u
+                          ? "bg-[#1F5D42] text-white border-[#1F5D42] shadow-2xs"
+                          : "bg-white hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="pt-1.5 border-t border-[#eee9df]">
+                <span className="text-[9px] font-bold text-[#6d756f] uppercase tracking-wider block mb-1">
+                  {lang === "hi" ? "स्टैंडर्ड पैक (Packaged)" : "Packaged Quantities"}
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {["1 kg", "500g", "250g", "100g", "1 liter", "500 ml", "1 piece", "1 packet"].map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setValue("unit", selectedUnit === u ? "" : u)}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                        selectedUnit === u
+                          ? "bg-[#1F5D42] text-white border-[#1F5D42] shadow-2xs"
+                          : "bg-white hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Product Images (Max 4) */}
           <div className="sm:col-span-2">

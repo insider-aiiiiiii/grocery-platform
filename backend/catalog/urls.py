@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    MasterCategoryViewSet,
     MasterProductViewSet,
     MerchantShopBrandViewSet,
     MerchantShopCategoryViewSet,
@@ -19,6 +20,7 @@ from .views import (
 app_name = "catalog"
 
 router = DefaultRouter()
+router.register(r"master-categories", MasterCategoryViewSet, basename="master-category")
 router.register(r"master-products", MasterProductViewSet, basename="master-product")
 router.register(r"master-catalog/products", MasterProductViewSet, basename="master-catalog-product")
 router.register(r"products", MerchantShopProductViewSet, basename="merchant-product")

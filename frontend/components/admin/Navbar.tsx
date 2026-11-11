@@ -14,22 +14,22 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
   const [lang, setLang] = useState<"en" | "hi">("en");
 
   useEffect(() => {
-    const saved = localStorage.getItem("portal_language") as "en" | "hi" | null;
+    const saved = localStorage.getItem("super_admin_language") as "en" | "hi" | null;
     if (saved === "hi" || saved === "en") setLang(saved);
 
     const onStorageChange = () => {
-      const current = localStorage.getItem("portal_language") as "en" | "hi" | null;
+      const current = localStorage.getItem("super_admin_language") as "en" | "hi" | null;
       if (current === "hi" || current === "en") setLang(current);
     };
-    window.addEventListener("portal-lang-changed", onStorageChange);
-    return () => window.removeEventListener("portal-lang-changed", onStorageChange);
+    window.addEventListener("admin-lang-changed", onStorageChange);
+    return () => window.removeEventListener("admin-lang-changed", onStorageChange);
   }, []);
 
   const toggleLanguage = () => {
     const next = lang === "hi" ? "en" : "hi";
     setLang(next);
-    localStorage.setItem("portal_language", next);
-    window.dispatchEvent(new Event("portal-lang-changed"));
+    localStorage.setItem("super_admin_language", next);
+    window.dispatchEvent(new Event("admin-lang-changed"));
   };
 
   const handleLogout = () => {

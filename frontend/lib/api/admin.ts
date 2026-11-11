@@ -97,7 +97,9 @@ export interface MasterProduct {
   image_url?: string;
   effective_image?: string;
   mrp?: string | number | null;
+  unit?: string;
   images?: string[];
+  all_images?: string[];
   is_active?: boolean;
   is_verified?: boolean;
 }
@@ -191,11 +193,30 @@ export const adminApi = {
     return res.data;
   },
 
-  listMasterProducts: async (token?: string) => {
-    const res = await apiClient.get<{ results: MasterProduct[] }>("/catalog/master-products/", {
+  listMasterCategories: async (token?: string): Promise<Array<{ id: number; name: string; slug: string; products_count?: number }>> => {
+    const res = await apiClient.get<any>("/catalog/master-categories/", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.results) ? res.data.results : []);
+  },
+
+  createMasterCategory: async (name: string, token?: string): Promise<{ id: number; name: string; slug: string }> => {
+    const res = await apiClient.post<{ id: number; name: string; slug: string }>("/catalog/master-categories/", { name: name.trim() }, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;
+  },
+
+  listMasterProducts: async (token?: string): Promise<{ results: MasterProduct[] }> => {
+    const res = await apiClient.get<any>("/catalog/master-products/", {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    const items: MasterProduct[] = Array.isArray(res.data)
+      ? res.data
+      : Array.isArray(res.data?.results)
+      ? res.data.results
+      : [];
+    return { results: items };
   },
 
   createMasterProduct: async (payload: FormData | Partial<MasterProduct>, token?: string) => {
@@ -205,6 +226,27 @@ export const adminApi = {
       headers["Content-Type"] = "multipart/form-data";
     }
     const res = await apiClient.post<MasterProduct>("/catalog/master-products/", payload, {
+      headers,
+    });
+    return res.data;
+  },
+
+  bulkUploadMasterProducts: async (
+    payload: { products: Array<Partial<MasterProduct>> } | FormData,
+    token?: string
+  ) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined" && payload instanceof FormData) {
+      headers["Content-Type"] = "multipart/form-data";
+    }
+    const res = await apiClient.post<{
+      success: boolean;
+      created_count: number;
+      total: number;
+      product_ids: number[];
+      errors: any[];
+    }>("/catalog/master-products/bulk-upload/", payload, {
       headers,
     });
     return res.data;
@@ -336,6 +378,24 @@ export const adminApi = {
     token?: string
   ): Promise<CampaignItem> => {
     const res = await apiClient.post<CampaignItem>("/campaigns/", payload, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    return res.data;
+  },
+
+  updateCampaign: async (
+    campaignId: number,
+    payload: {
+      title?: string;
+      content?: string;
+      shop_scope?: "ALL_SHOPS" | "SELECTED_SHOPS";
+      selected_shops?: number[];
+      starts_at?: string | null;
+      ends_at?: string | null;
+    },
+    token?: string
+  ): Promise<CampaignItem> => {
+    const res = await apiClient.patch<CampaignItem>(`/campaigns/${campaignId}/`, payload, {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     return res.data;

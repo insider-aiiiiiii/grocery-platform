@@ -55,6 +55,7 @@ class MasterProduct(models.Model):
         null=True,
         blank=True,
     )
+    unit = models.CharField(max_length=64, blank=True, default="")
     is_active = models.BooleanField(default=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -71,7 +72,43 @@ class MasterProduct(models.Model):
         return self.name
 
 
+class MasterProductImage(models.Model):
+    """
+    Gallery photo for a Master Catalog product (supports up to 6 photos total per product).
+    Files are stored in default storage (local media or AWS S3 in production).
+    """
+
+    master_product = models.ForeignKey(
+        MasterProduct,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+    )
+    image = models.FileField(
+        upload_to="catalog/master_products/gallery/",
+        blank=True,
+        null=True,
+    )
+    image_url = models.URLField(max_length=1024, blank=True, default="")
+    sort_order = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Master Product Image"
+        verbose_name_plural = "Master Product Images"
+        ordering = ["sort_order", "id"]
+
+    def __str__(self):
+        return f"Image #{self.pk} for {self.master_product_id}"
+
+    @property
+    def effective_url(self) -> str:
+        if self.image:
+            return self.image.url
+        return self.image_url
+
+
 class ShopCategory(models.Model):
+
     """
     Shop-owned Category representation fully controlled by the Merchant.
 
@@ -282,6 +319,7 @@ class ShopProduct(models.Model):
         blank=True,
     )
     sku = models.CharField(max_length=128, blank=True, default="")
+    unit = models.CharField(max_length=64, blank=True, default="")
     attributes = models.JSONField(default=dict, blank=True)
     is_visible = models.BooleanField(default=True, db_index=True)
     is_available = models.BooleanField(default=True, db_index=True)

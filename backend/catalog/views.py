@@ -1,3 +1,5 @@
+import csv
+import json
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
@@ -13,6 +15,7 @@ from shops.permissions import IsActiveMerchant
 from users.permissions import IsSuperAdmin
 
 from .models import (
+    MasterCategory,
     MasterProduct,
     ShopBrand,
     ShopCategory,
@@ -20,6 +23,7 @@ from .models import (
     ShopProduct,
 )
 from .serializers import (
+    MasterCategorySerializer,
     MasterProductSerializer,
     PromoteShopProductSerializer,
     PublicBrandSerializer,
@@ -85,11 +89,23 @@ def promote_shop_product_to_master(shop_product, validated_data=None):
             description=description,
             brand=brand,
             category=category,
+            unit=validated_data.get("unit") or shop_product.unit,
             is_active=is_active,
             image=image,
         )
 
     return master_product
+
+
+class MasterCategoryViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for platform-level Master Categories managed by Super Admin.
+    """
+
+    queryset = MasterCategory.objects.all().order_by("name")
+    serializer_class = MasterCategorySerializer
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+    pagination_class = None
 
 
 class MasterProductViewSet(viewsets.ModelViewSet):
@@ -154,6 +170,83 @@ class MasterProductViewSet(viewsets.ModelViewSet):
         master_product = promote_shop_product_to_master(shop_product, serializer.validated_data)
         response_serializer = MasterProductSerializer(master_product, context={"request": request})
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="bulk-upload")
+    def bulk_upload(self, request):
+        """
+        Bulk upload master products via JSON array or uploaded .json / .csv file.
+        Automatically downloads external image URLs (up to 6 photos per product)
+        and persists them directly into platform S3/media storage.
+        """
+        items_to_process = []
+
+        # Check for uploaded file
+        uploaded_file = request.FILES.get("file")
+        if uploaded_file:
+            try:
+                content = uploaded_file.read().decode("utf-8")
+                if uploaded_file.name.endswith(".json"):
+                    parsed = json.loads(content)
+                    if isinstance(parsed, list):
+                        items_to_process = parsed
+                    elif isinstance(parsed, dict) and "results" in parsed:
+                        items_to_process = parsed["results"]
+                elif uploaded_file.name.endswith(".csv"):
+                    reader = csv.DictReader(content.splitlines())
+                    for row in reader:
+                        items_to_process.append(row)
+            except Exception as exc:
+                return Response(
+                    {"detail": f"Failed to parse uploaded file: {str(exc)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif isinstance(request.data, list):
+            items_to_process = request.data
+        elif isinstance(request.data, dict):
+            items_to_process = request.data.get("products", [])
+
+        if not isinstance(items_to_process, list) or not items_to_process:
+            return Response(
+                {"detail": "No valid products provided for bulk upload. Provide an array of products or upload a file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_products = []
+        errors = []
+
+        for idx, item in enumerate(items_to_process):
+            if not isinstance(item, dict):
+                continue
+            item_data = dict(item)
+
+            # Normalize image fields
+            if "images" in item_data and isinstance(item_data["images"], list):
+                if item_data["images"] and "image_url" not in item_data:
+                    item_data["image_url"] = item_data["images"][0]
+            elif "image" in item_data and isinstance(item_data["image"], str) and item_data["image"].startswith("http"):
+                item_data["image_url"] = item_data["image"]
+                item_data["images"] = [item_data["image"]]
+
+            serializer = MasterProductSerializer(data=item_data, context={"request": request})
+            if serializer.is_valid():
+                try:
+                    product = serializer.save()
+                    created_products.append(product.id)
+                except Exception as exc:
+                    errors.append({"index": idx, "name": item_data.get("name"), "error": str(exc)})
+            else:
+                errors.append({"index": idx, "name": item_data.get("name"), "errors": serializer.errors})
+
+        return Response(
+            {
+                "success": True,
+                "created_count": len(created_products),
+                "total": len(items_to_process),
+                "product_ids": created_products,
+                "errors": errors,
+            },
+            status=status.HTTP_201_CREATED if created_products else status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class SuperAdminPromoteShopProductView(APIView):
@@ -315,6 +408,7 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
                 "category_name": mp.category.name if mp.category else None,
                 "image": image_url,
                 "mrp": str(mp.mrp) if mp.mrp is not None else None,
+                "unit": mp.unit,
                 "is_in_shop": sp is not None,
                 "shop_product_id": sp.id if sp else None,
                 "shop_product_price": str(sp.price) if sp and sp.price is not None else None,
@@ -362,6 +456,7 @@ class MerchantShopProductViewSet(viewsets.ModelViewSet):
                     name=master_product.name,
                     brand=master_product.brand,
                     description=master_product.description,
+                    unit=master_product.unit,
                     image=master_product.image,
                     price=price_val,
                     is_visible=True,

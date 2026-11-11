@@ -19,6 +19,7 @@ import {
   Upload,
   Image as ImageIcon,
   X,
+  Pencil,
 } from "lucide-react";
 import { adminApi, CampaignItem } from "@/lib/api/admin";
 import { MerchantShopItem } from "@/components/admin/MerchantTable";
@@ -38,6 +39,7 @@ export function CampaignsManager({
   onRefresh,
 }: CampaignsManagerProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<CampaignItem | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [bannerPreview, setBannerPreview] = useState<string | null>(null);
@@ -51,6 +53,55 @@ export function CampaignsManager({
   const [endsAt, setEndsAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleOpenCreate = () => {
+    setEditingCampaign(null);
+    setTitle("");
+    setContent("");
+    setBannerPreview(null);
+    setShopScope("ALL_SHOPS");
+    setSelectedShops([]);
+    setStartsAt(
+      new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    );
+    setEndsAt("");
+    setActionError(null);
+    setIsCreateOpen(true);
+  };
+
+  const handleOpenEdit = (c: CampaignItem) => {
+    setEditingCampaign(c);
+    setTitle(c.title || "");
+
+    let textContent = c.content || "";
+    let imgPreview: string | null = null;
+    if (c.content && c.content.trim().startsWith("{") && c.content.includes('"image"')) {
+      try {
+        const parsed = JSON.parse(c.content);
+        textContent = parsed.text || "";
+        imgPreview = parsed.image || null;
+      } catch {
+        // Plain text fallback
+      }
+    }
+    setContent(textContent);
+    setBannerPreview(imgPreview);
+    setShopScope(c.shop_scope as "ALL_SHOPS" | "SELECTED_SHOPS");
+    setSelectedShops(c.selected_shops || []);
+
+    if (c.starts_at) {
+      setStartsAt(new Date(c.starts_at).toISOString().slice(0, 16));
+    } else {
+      setStartsAt("");
+    }
+    if (c.ends_at) {
+      setEndsAt(new Date(c.ends_at).toISOString().slice(0, 16));
+    } else {
+      setEndsAt("");
+    }
+    setActionError(null);
+    setIsCreateOpen(true);
+  };
 
   const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,7 +142,7 @@ export function CampaignsManager({
     setSelectedShops((prev) => prev.filter((id) => !ids.has(id)));
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionError(null);
 
@@ -120,16 +171,23 @@ export function CampaignsManager({
         });
       }
 
-      await adminApi.createCampaign({
+      const payload = {
         title: title.trim(),
         content: finalContent || undefined,
         shop_scope: shopScope,
         selected_shops: shopScope === "SELECTED_SHOPS" ? selectedShops : [],
         starts_at: startsAt ? new Date(startsAt).toISOString() : null,
         ends_at: endsAt ? new Date(endsAt).toISOString() : null,
-      });
+      };
+
+      if (editingCampaign) {
+        await adminApi.updateCampaign(editingCampaign.id, payload);
+      } else {
+        await adminApi.createCampaign(payload);
+      }
 
       setIsCreateOpen(false);
+      setEditingCampaign(null);
       setTitle("");
       setContent("");
       setBannerPreview(null);
@@ -142,7 +200,9 @@ export function CampaignsManager({
         err?.response?.data?.selected_shops?.[0] ||
         err?.response?.data?.ends_at?.[0] ||
         err?.response?.data?.title?.[0] ||
-        "Failed to create campaign. Verify Super Admin authorization.";
+        err?.response?.data?.detail ||
+        err?.response?.data?.error ||
+        "Failed to save campaign. Verify Super Admin authorization.";
       setActionError(msg);
     } finally {
       setSubmitting(false);
@@ -197,10 +257,7 @@ export function CampaignsManager({
         </div>
 
         <button
-          onClick={() => {
-            setActionError(null);
-            setIsCreateOpen(true);
-          }}
+          onClick={handleOpenCreate}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded-lg hover:bg-[#164430] transition-colors shadow-2xs"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -223,8 +280,103 @@ export function CampaignsManager({
         </div>
       )}
 
-      {/* Campaign List Table */}
-      <div className="overflow-x-auto">
+      {/* Mobile Card View (Zero horizontal scroll on phones) */}
+      <div className="block sm:hidden divide-y divide-slate-100">
+        {campaigns.length === 0 ? (
+          <div className="py-10 text-center text-slate-400 text-xs px-4">
+            <Megaphone className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+            <p className="font-semibold text-slate-600">No campaigns created yet</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Create platform-wide or shop-specific announcement banners to showcase on storefronts.
+            </p>
+          </div>
+        ) : (
+          campaigns.map((c) => (
+            <div key={c.id} className="p-3.5 bg-white space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-semibold text-slate-900 text-xs leading-snug">{c.title}</h4>
+                  {c.content && (
+                    <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">{c.content}</p>
+                  )}
+                </div>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                    c.status === "ACTIVE"
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                      : c.status === "DRAFT"
+                      ? "bg-slate-100 text-slate-700 border border-slate-200"
+                      : "bg-rose-100 text-rose-800 border border-rose-200"
+                  }`}
+                >
+                  {c.status}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                {c.shop_scope === "ALL_SHOPS" ? (
+                  <span className="inline-flex items-center gap-1 font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px]">
+                    <Layers className="w-3 h-3 text-emerald-600" />
+                    All Shops
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px]">
+                    <Store className="w-3 h-3 text-indigo-600" />
+                    {c.selected_shops?.length ?? 0} Shops
+                  </span>
+                )}
+
+                <div className="flex items-center gap-1 text-slate-500 text-[10px]">
+                  <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span>
+                    {c.starts_at ? new Date(c.starts_at).toLocaleDateString("en-IN") : "Immediate"}
+                    {c.ends_at && ` → ${new Date(c.ends_at).toLocaleDateString("en-IN")}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                <button
+                  onClick={() => handleOpenEdit(c)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-[#e7f2eb] border border-slate-200 text-[#1F5D42] rounded text-[11px] font-semibold transition-colors"
+                  title="Edit Campaign"
+                >
+                  <Pencil className="w-3 h-3 text-[#1F5D42]" />
+                  Edit
+                </button>
+                {c.status === "DRAFT" && (
+                  <button
+                    onClick={() => handleActivate(c.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
+                  >
+                    <Play className="w-3 h-3" />
+                    Activate
+                  </button>
+                )}
+                {c.status === "ACTIVE" && (
+                  <button
+                    onClick={() => handleEnd(c.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800"
+                  >
+                    <Square className="w-3 h-3" />
+                    End
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDelete(c.id, c.title)}
+                  className="inline-flex items-center p-1 text-slate-400 hover:text-rose-600 rounded"
+                  title="Delete Campaign"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-[#FAF7F2] border-b border-[#E8E2D9] text-slate-600 uppercase tracking-wider font-semibold text-[10px]">
             <tr>
@@ -318,6 +470,14 @@ export function CampaignsManager({
                   {/* Lifecycle Actions */}
                   <td className="py-3 px-4 text-right">
                     <div className="inline-flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleOpenEdit(c)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-[#e7f2eb] border border-slate-200 text-[#1F5D42] rounded text-[11px] font-semibold transition-colors shadow-2xs"
+                        title="Edit Campaign"
+                      >
+                        <Pencil className="w-3 h-3 text-[#1F5D42]" />
+                        Edit
+                      </button>
                       {c.status === "DRAFT" && (
                         <button
                           onClick={() => handleActivate(c.id)}
@@ -352,26 +512,33 @@ export function CampaignsManager({
         </table>
       </div>
 
-      {/* Modal: Create Platform Campaign */}
+      {/* Modal: Create or Edit Platform Campaign */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 p-5 space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Create Storefront Campaign</h3>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {editingCampaign ? "Edit Storefront Campaign" : "Create Storefront Campaign"}
+                </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Configure an announcement banner and target specific merchant storefronts.
+                  {editingCampaign
+                    ? "Update announcement details, schedule dates, or shop audience."
+                    : "Configure an announcement banner and target specific merchant storefronts."}
                 </p>
               </div>
               <button
-                onClick={() => setIsCreateOpen(false)}
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setEditingCampaign(null);
+                }}
                 className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 rounded hover:bg-slate-100"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-3.5 text-xs overflow-y-auto pr-1">
+            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs overflow-y-auto pr-1">
               {/* Campaign Title */}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
@@ -601,7 +768,10 @@ export function CampaignsManager({
               <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsCreateOpen(false)}
+                  onClick={() => {
+                    setIsCreateOpen(false);
+                    setEditingCampaign(null);
+                  }}
                   className="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs hover:bg-slate-50 transition-colors"
                 >
                   Cancel
@@ -611,7 +781,7 @@ export function CampaignsManager({
                   disabled={submitting}
                   className="px-4 py-1.5 bg-[#1F5D42] text-white rounded-lg text-xs font-semibold hover:bg-[#164430] disabled:opacity-50 transition-colors shadow-2xs"
                 >
-                  {submitting ? "Creating..." : "Save Draft Campaign"}
+                  {submitting ? "Saving..." : editingCampaign ? "Save Changes" : "Save Draft Campaign"}
                 </button>
               </div>
             </form>

@@ -33,17 +33,13 @@ class CampaignViewSet(viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
-        if serializer.instance.status != Campaign.Status.DRAFT:
+        if serializer.instance.status == Campaign.Status.ENDED:
             raise serializers.ValidationError(
-                "Only Draft campaigns can be edited."
+                "Ended campaigns cannot be edited. Please create a new campaign instead."
             )
         serializer.save()
 
     def perform_destroy(self, instance):
-        if instance.status != Campaign.Status.DRAFT:
-            raise serializers.ValidationError(
-                "Only Draft campaigns can be deleted."
-            )
         instance.delete()
 
     @action(detail=True, methods=["post"])

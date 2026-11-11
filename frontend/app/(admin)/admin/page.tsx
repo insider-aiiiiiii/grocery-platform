@@ -12,6 +12,7 @@ import { TopProductsRankings, TopProductItem } from "@/components/admin/TopProdu
 import { OrderStatusBreakdown } from "@/components/admin/OrderStatusBreakdown";
 import { AnalyticsToolbar } from "@/components/admin/AnalyticsToolbar";
 import {
+  LayoutDashboard,
   IndianRupee,
   Store,
   Receipt,
@@ -60,15 +61,15 @@ export default function SuperAdminDashboard() {
   const [lang, setLang] = useState<"en" | "hi">("en");
 
   useEffect(() => {
-    const saved = localStorage.getItem("portal_language") as "en" | "hi" | null;
+    const saved = localStorage.getItem("super_admin_language") as "en" | "hi" | null;
     if (saved === "hi" || saved === "en") setLang(saved);
 
     const onStorageChange = () => {
-      const current = localStorage.getItem("portal_language") as "en" | "hi" | null;
+      const current = localStorage.getItem("super_admin_language") as "en" | "hi" | null;
       if (current === "hi" || current === "en") setLang(current);
     };
-    window.addEventListener("portal-lang-changed", onStorageChange);
-    return () => window.removeEventListener("portal-lang-changed", onStorageChange);
+    window.addEventListener("admin-lang-changed", onStorageChange);
+    return () => window.removeEventListener("admin-lang-changed", onStorageChange);
   }, []);
 
   useEffect(() => {
@@ -138,8 +139,8 @@ export default function SuperAdminDashboard() {
   const toggleLanguage = () => {
     const next = lang === "hi" ? "en" : "hi";
     setLang(next);
-    localStorage.setItem("portal_language", next);
-    window.dispatchEvent(new Event("portal-lang-changed"));
+    localStorage.setItem("super_admin_language", next);
+    window.dispatchEvent(new Event("admin-lang-changed"));
   };
 
   const loadData = async () => {
@@ -152,7 +153,13 @@ export default function SuperAdminDashboard() {
         adminApi.listShops().catch(() => null),
       ]);
       if (analyticsData) setAnalytics(analyticsData);
-      if (catalogData && catalogData.results) setMasterProducts(catalogData.results);
+      if (catalogData) {
+        if (Array.isArray(catalogData)) {
+          setMasterProducts(catalogData);
+        } else if (Array.isArray(catalogData.results)) {
+          setMasterProducts(catalogData.results);
+        }
+      }
       if (Array.isArray(campaignsData)) setCampaigns(campaignsData);
       if (topProductsData && topProductsData.top_products) setTopProducts(topProductsData.top_products);
       if (liveShops && Array.isArray(liveShops)) {
@@ -218,9 +225,9 @@ export default function SuperAdminDashboard() {
       />
 
       {/* Main Content Viewport */}
-      <div className="lg:pl-[240px] flex flex-col min-h-screen">
+      <div className="lg:pl-[240px] flex flex-col min-h-screen w-full max-w-full min-w-0 overflow-x-hidden">
         {/* Top Global Navbar (Matching Merchant Portal Header) */}
-        <header className="sticky top-0 z-30 flex h-[70px] items-center justify-between border-b border-[#ddd6ca] bg-white/80 px-4 backdrop-blur md:px-8">
+        <header className="sticky top-0 z-30 flex h-[70px] items-center justify-between border-b border-[#ddd6ca] bg-white/80 px-4 backdrop-blur md:px-8 w-full max-w-full min-w-0">
           <div className="flex items-center gap-3">
             <button
               className="rounded-lg p-2 text-[#5e665f] hover:bg-[#eee9df] lg:hidden"
@@ -262,40 +269,79 @@ export default function SuperAdminDashboard() {
           </div>
         </header>
 
-        <main className="flex-1 p-3.5 sm:p-6 min-h-screen">
-          <div className="max-w-7xl mx-auto space-y-6">
+        {/* Mobile Quick Navigation Strip (1-tap tab switching on phones) */}
+        <div className="lg:hidden sticky top-[70px] z-20 bg-white/95 backdrop-blur-md border-b border-[#ddd6ca] px-3 py-2 overflow-x-auto shadow-2xs">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {[
+              { id: "overview", label: lang === "hi" ? "अवलोकन" : "Overview", icon: LayoutDashboard },
+              { id: "merchants", label: lang === "hi" ? "दुकानदार" : "Tenants", count: merchants.length, icon: Store },
+              { id: "catalog", label: lang === "hi" ? "कैटलॉग" : "Catalog", count: masterProducts.length, icon: Boxes },
+              { id: "campaigns", label: lang === "hi" ? "अभियान" : "Campaigns", count: campaigns.length, icon: Megaphone },
+              { id: "analytics", label: lang === "hi" ? "विश्लेषण" : "Analytics", icon: TrendingUp },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                    isActive
+                      ? "bg-[#1F5D42] text-white shadow-xs"
+                      : "bg-[#FAF8F3] text-[#123324] border border-[#ddd6ca] hover:bg-[#e7f2eb]"
+                  }`}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? "text-[#E8A33D]" : "text-[#1F5D42]"}`} />
+                  <span>{tab.label}</span>
+                  {tab.count !== undefined && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                        isActive ? "bg-[#123324] text-[#E8A33D]" : "bg-black/5 text-[#6d756f]"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <main className="flex-1 p-3 sm:p-6 min-h-screen w-full max-w-full min-w-0 overflow-x-hidden">
+          <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 w-full max-w-full min-w-0">
             {/* Header Title Section */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#ddd6ca] bg-[#FFFDF8] p-4 sm:p-5 rounded-2xl border shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 pb-3 sm:pb-4 border-b border-[#ddd6ca] bg-[#FFFDF8] p-3.5 sm:p-5 rounded-2xl border shadow-xs">
               <div>
-                <div className="flex items-center gap-2.5">
-                  <h1 className="text-xl font-bold font-display text-[#123324] tracking-tight">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-bold font-display text-[#123324] tracking-tight">
                     {lang === "hi" ? "प्लेटफॉर्म गवर्नेंस मैट्रिक्स" : "Platform Governance Matrix"}
                   </h1>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
+                  <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
                     {activeTab}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                  <p className="text-xs text-[#6d756f]">
+                  <p className="text-[11px] sm:text-xs text-[#6d756f]">
                     {lang === "hi" ? "लॉगिन किया गया: " : "Logged in as "}
                     <strong className="text-[#123324] font-semibold">{adminUsername}</strong> ({lang === "hi" ? "सुपर एडमिन" : "Super Admin"})
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setShowGovernanceModal(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#ddd6ca] text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#FAF8F3] shadow-xs transition-all cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-white border border-[#ddd6ca] text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#FAF8F3] shadow-xs transition-all cursor-pointer w-full sm:w-auto"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-[#1F5D42]" />
                   <span>{lang === "hi" ? "सुरक्षा नीति व गाइड" : "Governance Policy"}</span>
                 </button>
                 <button
                   onClick={() => setIsOnboardOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 sm:py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-all cursor-pointer w-full sm:w-auto"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>{lang === "hi" ? "+ नया दुकानदार जोड़ें" : "+ Onboard New Merchant"}</span>
@@ -305,18 +351,18 @@ export default function SuperAdminDashboard() {
 
             {/* TAB 1: NETWORK OVERVIEW (Executive summary, uncluttered) */}
             {activeTab === "overview" && (
-              <div className="space-y-6">
-                {/* KPI Metric Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-4 sm:space-y-6">
+                {/* KPI Metric Cards (2-column on mobile, 4-column on desktop) */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                   <MetricCard
-                    title={`${scopePrefix} Realized Sales (${activePeriodLabel})`}
+                    title={`${scopePrefix} Sales`}
                     value={realizedSales}
                     contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
                   <MetricCard
-                    title="Total Active Shops"
+                    title="Active Shops"
                     value={`${activeShops} / ${totalShops}`}
                     contextText="Network Health"
                     icon={Store}
@@ -325,27 +371,27 @@ export default function SuperAdminDashboard() {
                   <MetricCard
                     title={`Total Orders (${activePeriodLabel})`}
                     value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={`${analytics?.orders?.completed_orders ?? 0} completed · ${analytics?.orders?.rejected_orders ?? 0} rejected`}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} done`}
                     icon={Receipt}
                     accentColor="slate"
                   />
                   <MetricCard
                     title="Stock-Out Alerts"
                     value={`${outOfStock} SKUs`}
-                    contextText="Zero Available Stock"
+                    contextText="Zero Stock"
                     icon={AlertTriangle}
                     accentColor="amber"
                   />
                 </div>
 
                 {/* 2-Column Summary Cards */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                   {/* Registered Tenants Preview */}
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="bg-white border border-[#ddd6ca] rounded-2xl p-4 sm:p-5 shadow-xs">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#eee9df]">
                       <div className="flex items-center gap-2">
                         <Store className="w-4 h-4 text-[#1F5D42]" />
-                        <h3 className="text-sm font-bold text-slate-900">Tenant Directory Snapshot</h3>
+                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">Tenant Directory Snapshot</h3>
                       </div>
                       <button
                         onClick={() => setActiveTab("merchants")}
@@ -354,27 +400,27 @@ export default function SuperAdminDashboard() {
                         View All {merchants.length} Tenants →
                       </button>
                     </div>
-                    <div className="mt-4 space-y-2.5">
+                    <div className="mt-3.5 space-y-2">
                       {merchants.length === 0 ? (
-                        <div className="py-8 text-center text-xs text-slate-400">
+                        <div className="py-6 text-center text-xs text-[#869088]">
                           No merchants onboarded yet. Use the Onboard button above to add one.
                         </div>
                       ) : (
                         merchants.slice(0, 4).map((m) => (
                           <div
                             key={m.id}
-                            className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"
+                            className="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-[#FAF8F3] border border-[#eee9df] hover:border-[#ddd6ca] transition-colors"
                           >
                             <div>
-                              <div className="text-xs font-bold text-slate-900">{m.shopName || m.merchantName}</div>
-                              <div className="text-[11px] text-slate-500 font-mono">
+                              <div className="text-xs font-bold text-[#123324]">{m.shopName || m.merchantName}</div>
+                              <div className="text-[11px] text-[#6d756f] font-mono">
                                 Mobile: {m.mobileNumber} | {m.city || "Urban Node"}
                               </div>
                             </div>
                             <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${m.status === "ACTIVE"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-amber-100 text-amber-800"
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.status === "ACTIVE"
+                                ? "bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5]"
+                                : "bg-amber-100 text-amber-800 border border-amber-200"
                                 }`}
                             >
                               {m.status}
@@ -386,11 +432,11 @@ export default function SuperAdminDashboard() {
                   </div>
 
                   {/* Master Catalog Preview */}
-                  <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm">
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="bg-white border border-[#ddd6ca] rounded-2xl p-4 sm:p-5 shadow-xs">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#eee9df]">
                       <div className="flex items-center gap-2">
                         <Boxes className="w-4 h-4 text-[#1F5D42]" />
-                        <h3 className="text-sm font-bold text-slate-900">Master Catalog Snapshot</h3>
+                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">Master Catalog Snapshot</h3>
                       </div>
                       <button
                         onClick={() => setActiveTab("catalog")}
@@ -399,24 +445,24 @@ export default function SuperAdminDashboard() {
                         View All {masterProducts.length} SKUs →
                       </button>
                     </div>
-                    <div className="mt-4 space-y-2.5">
+                    <div className="mt-3.5 space-y-2">
                       {masterProducts.length === 0 ? (
-                        <div className="py-8 text-center text-xs text-slate-400">
+                        <div className="py-6 text-center text-xs text-[#869088]">
                           No master catalog products found.
                         </div>
                       ) : (
                         masterProducts.slice(0, 4).map((p) => (
                           <div
                             key={p.id}
-                            className="flex items-center justify-between p-3 rounded-md bg-slate-50 border border-slate-100"
+                            className="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-[#FAF8F3] border border-[#eee9df]"
                           >
                             <div>
-                              <div className="text-xs font-bold text-slate-900">{p.name}</div>
-                              <div className="text-[11px] text-slate-500">
+                              <div className="text-xs font-bold text-[#123324]">{p.name}</div>
+                              <div className="text-[11px] text-[#6d756f]">
                                 Brand: {p.brand || "Generic"} | {p.category_name || "General"}
                               </div>
                             </div>
-                            <div className="text-right text-xs font-semibold text-emerald-700">
+                            <div className="text-right text-xs font-semibold text-[#1F5D42]">
                               {p.is_verified ? "Verified SKU" : "Standard"}
                             </div>
                           </div>
@@ -427,10 +473,10 @@ export default function SuperAdminDashboard() {
                 </div>
 
                 {/* Quick Navigation Panels */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                   <div
                     onClick={() => setActiveTab("merchants")}
-                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                    className="bg-white border border-[#ddd6ca] hover:border-[#1F5D42] p-4 rounded-2xl cursor-pointer transition-all shadow-xs group"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <Store className="w-5 h-5 text-[#1F5D42]" />
@@ -446,32 +492,32 @@ export default function SuperAdminDashboard() {
 
                   <div
                     onClick={() => setActiveTab("catalog")}
-                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                    className="bg-white border border-[#ddd6ca] hover:border-[#1F5D42] p-4 rounded-2xl cursor-pointer transition-all shadow-xs group"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <Boxes className="w-5 h-5 text-[#1F5D42]" />
-                      <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                      <span className="text-xs font-bold text-[#869088] group-hover:text-[#1F5D42]">
                         {masterProducts.length} Items →
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900">Master Catalog</h4>
-                    <p className="text-[11px] text-slate-500 mt-1">
+                    <h4 className="text-xs font-bold text-[#123324]">Master Catalog</h4>
+                    <p className="text-[11px] text-[#6d756f] mt-1">
                       Universal barcode registry and categories.
                     </p>
                   </div>
 
                   <div
                     onClick={() => setActiveTab("campaigns")}
-                    className="bg-white border border-slate-200 hover:border-[#1F5D42] p-4 rounded-lg cursor-pointer transition-all shadow-sm group"
+                    className="bg-white border border-[#ddd6ca] hover:border-[#1F5D42] p-4 rounded-2xl cursor-pointer transition-all shadow-xs group"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <Megaphone className="w-5 h-5 text-[#1F5D42]" />
-                      <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
+                      <span className="text-xs font-bold text-[#869088] group-hover:text-[#1F5D42]">
                         {campaigns.length} Active →
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900">Marketing Campaigns</h4>
-                    <p className="text-[11px] text-slate-500 mt-1">
+                    <h4 className="text-xs font-bold text-[#123324]">Marketing Campaigns</h4>
+                    <p className="text-[11px] text-[#6d756f] mt-1">
                       Launch platform-wide banners, announcements, and storefront campaigns.
                     </p>
                   </div>
@@ -521,26 +567,26 @@ export default function SuperAdminDashboard() {
                   onRefresh={() => refreshAnalytics()}
                 />
 
-                {/* 5 KPI Metric Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {/* 5 KPI Metric Cards (2-column on mobile, 5-column on desktop) */}
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-4">
                   <MetricCard
-                    title={`${scopePrefix} Realized Sales (${activePeriodLabel})`}
+                    title={`${scopePrefix} Sales`}
                     value={realizedSales}
                     contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
                   <MetricCard
-                    title={currentFilteredShop ? "Tenant Status" : "Active Merchant Nodes"}
+                    title={currentFilteredShop ? "Tenant Status" : "Active Nodes"}
                     value={currentFilteredShop ? currentFilteredShop.status : `${activeShops} / ${totalShops}`}
                     contextText={currentFilteredShop ? (currentFilteredShop.city || "Single Tenant") : "Platform Coverage"}
                     icon={Store}
                     accentColor="emerald"
                   />
                   <MetricCard
-                    title={`Total Orders (${activePeriodLabel})`}
+                    title={`Orders (${activePeriodLabel})`}
                     value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={`${analytics?.orders?.completed_orders ?? 0} completed · ${analytics?.orders?.rejected_orders ?? 0} rejected`}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} done`}
                     icon={Receipt}
                     accentColor="slate"
                   />
@@ -551,13 +597,15 @@ export default function SuperAdminDashboard() {
                     icon={Users}
                     accentColor="blue"
                   />
-                  <MetricCard
-                    title="Stock-Out Alerts"
-                    value={`${outOfStock} SKUs`}
-                    contextText="Zero Available Stock"
-                    icon={AlertTriangle}
-                    accentColor="amber"
-                  />
+                  <div className="col-span-2 lg:col-span-1">
+                    <MetricCard
+                      title="Stock-Out Alerts"
+                      value={`${outOfStock} SKUs`}
+                      contextText="Zero Available Stock"
+                      icon={AlertTriangle}
+                      accentColor="amber"
+                    />
+                  </div>
                 </div>
 
                 {/* Order Status Breakdown + Top Performers */}
