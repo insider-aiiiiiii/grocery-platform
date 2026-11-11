@@ -66,6 +66,7 @@ export type Product = {
   price: string;
   mrp?: string | null;
   sku: string;
+  unit?: string;
   image?: string | null;
   effective_image?: string | null;
   images?: string[];
@@ -215,6 +216,7 @@ export const merchantApi = {
       image_url?: string | null;
       effective_image?: string | null;
       mrp?: string | null;
+      unit?: string | null;
       is_in_shop: boolean;
       shop_product_id: number | null;
       shop_product_price: string | null;

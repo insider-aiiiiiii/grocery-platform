@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Boxes,
   Plus,
@@ -20,8 +20,25 @@ import {
   Image as ImageIcon,
   X,
   AlertCircle,
+  Filter,
 } from "lucide-react";
 import { adminApi, MasterProduct } from "@/lib/api/admin";
+
+export const DEFAULT_GROCERY_CATEGORIES = [
+  "Dairy & Bakery",
+  "Chocolates & Sweets",
+  "Snacks & Namkeen",
+  "Atta, Rice & Dal",
+  "Edible Oils & Ghee",
+  "Spices, Salt & Sugar",
+  "Beverages & Tea/Coffee",
+  "Instant & Packaged Food",
+  "Personal Care & Hygiene",
+  "Cleaning & Household",
+  "Fruits & Vegetables",
+  "Baby Care",
+  "Pooja Needs",
+];
 
 interface MasterCatalogTableProps {
   products: MasterProduct[];
@@ -39,6 +56,12 @@ export function MasterCatalogTable({
   const [editingProduct, setEditingProduct] = useState<MasterProduct | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
+  // Category State
+  const [categoriesList, setCategoriesList] = useState<string[]>(DEFAULT_GROCERY_CATEGORIES);
+  const [showCustomCatInput, setShowCustomCatInput] = useState(false);
+  const [customCatName, setCustomCatName] = useState("");
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("");
+
   // Form states (Add / Edit)
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -51,6 +74,39 @@ export function MasterCatalogTable({
   const [newImageUrl, setNewImageUrl] = useState("");
   const [clearImage, setClearImage] = useState(false);
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync categories from API and current products
+  useEffect(() => {
+    adminApi.listMasterCategories(token).then((cats) => {
+      if (cats && cats.length > 0) {
+        setCategoriesList((prev) => {
+          const names = cats.map((c) => c.name);
+          return Array.from(new Set([...prev, ...names]));
+        });
+      }
+    }).catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    if (products.length > 0) {
+      const fromProducts = products.map((p) => p.category_name).filter(Boolean) as string[];
+      if (fromProducts.length > 0) {
+        setCategoriesList((prev) => Array.from(new Set([...prev, ...fromProducts])));
+      }
+    }
+  }, [products]);
+
+  const handleAddCustomCategory = async () => {
+    const trimmed = customCatName.trim();
+    if (!trimmed) return;
+    if (!categoriesList.includes(trimmed)) {
+      setCategoriesList((prev) => [...prev, trimmed]);
+      adminApi.createMasterCategory(trimmed, token).catch(() => {});
+    }
+    setCategory(trimmed);
+    setCustomCatName("");
+    setShowCustomCatInput(false);
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,14 +148,19 @@ export function MasterCatalogTable({
     setBrand(p.brand || "");
     setMrp(p.mrp ? String(p.mrp) : "");
     setDescription(p.description || "");
+    setSelectedUnit(p.unit || "");
     const initialImages: string[] = [];
-    if (p.effective_image) initialImages.push(p.effective_image);
-    else if (p.image) initialImages.push(p.image);
-    else if (p.image_url) initialImages.push(p.image_url);
-    if (Array.isArray(p.images)) {
-      p.images.forEach((img) => {
-        if (!initialImages.includes(img)) initialImages.push(img);
-      });
+    if (Array.isArray(p.all_images) && p.all_images.length > 0) {
+      initialImages.push(...p.all_images);
+    } else {
+      if (p.effective_image) initialImages.push(p.effective_image);
+      else if (p.image) initialImages.push(p.image);
+      else if (p.image_url) initialImages.push(p.image_url);
+      if (Array.isArray(p.images)) {
+        p.images.forEach((img) => {
+          if (!initialImages.includes(img)) initialImages.push(img);
+        });
+      }
     }
     setImageUrls(initialImages.slice(0, 6));
     setImageFiles([]);
@@ -171,10 +232,8 @@ export function MasterCatalogTable({
         if (brand.trim()) formData.append("brand", brand.trim());
         if (mrp.trim()) formData.append("mrp", mrp.trim());
         if (description.trim()) formData.append("description", description.trim());
-        if (category.trim()) {
-          const catNum = parseInt(category.trim(), 10);
-          if (!isNaN(catNum)) formData.append("category", String(catNum));
-        }
+        if (selectedUnit.trim()) formData.append("unit", selectedUnit.trim());
+        if (category.trim()) formData.append("category", category.trim());
         formData.append("image", imageFiles[0]);
         await adminApi.createMasterProduct(formData, token);
       } else {
@@ -182,18 +241,17 @@ export function MasterCatalogTable({
           name: name.trim(),
           brand: brand.trim(),
           description: description.trim(),
+          unit: selectedUnit.trim() || undefined,
         };
         if (mrp.trim()) {
           payload.mrp = mrp.trim();
         }
         if (category.trim()) {
-          const catNum = parseInt(category.trim(), 10);
-          if (!isNaN(catNum)) {
-            payload.category = catNum;
-          }
+          payload.category = category.trim();
         }
         if (imageUrls.length > 0) {
           payload.image_url = imageUrls[0];
+          payload.images = imageUrls.slice(0, 6);
         }
         await adminApi.createMasterProduct(payload, token);
       }
@@ -223,10 +281,8 @@ export function MasterCatalogTable({
         if (brand.trim()) formData.append("brand", brand.trim());
         if (mrp.trim()) formData.append("mrp", mrp.trim());
         if (description.trim()) formData.append("description", description.trim());
-        if (category.trim()) {
-          const catNum = parseInt(category.trim(), 10);
-          if (!isNaN(catNum)) formData.append("category", String(catNum));
-        }
+        if (selectedUnit.trim()) formData.append("unit", selectedUnit.trim());
+        if (category.trim()) formData.append("category", category.trim());
         formData.append("image", imageFiles[0]);
         await adminApi.updateMasterProduct(editingProduct.id, formData, token);
       } else {
@@ -234,17 +290,16 @@ export function MasterCatalogTable({
           name: name.trim(),
           brand: brand.trim(),
           description: description.trim(),
+          unit: selectedUnit.trim() || "",
           mrp: mrp.trim() ? mrp.trim() : null,
           clear_image: clearImage,
         };
         if (category.trim()) {
-          const catNum = parseInt(category.trim(), 10);
-          if (!isNaN(catNum)) {
-            payload.category = catNum;
-          }
+          payload.category = category.trim();
         }
         if (imageUrls.length > 0 && !clearImage) {
           payload.image_url = imageUrls[0];
+          payload.images = imageUrls.slice(0, 6);
         }
         await adminApi.updateMasterProduct(editingProduct.id, payload, token);
       }
@@ -283,12 +338,14 @@ export function MasterCatalogTable({
 
   // Export to CSV / Excel
   const handleExportCSV = () => {
-    const headers = ["ID", "Name", "Category", "Brand", "Description", "Image"];
+    const headers = ["ID", "Name", "Category", "Brand", "Unit", "MRP", "Description", "Image"];
     const rows = products.map((p) => [
       p.id,
       `"${(p.name || "").replace(/"/g, '""')}"`,
       `"${(p.category_name || (p.category ? String(p.category) : "")).replace(/"/g, '""')}"`,
       `"${(p.brand || "").replace(/"/g, '""')}"`,
+      `"${(p.unit || "").replace(/"/g, '""')}"`,
+      p.mrp ? String(p.mrp) : "",
       `"${(p.description || "").replace(/"/g, '""')}"`,
       `"${(p.image || "").replace(/"/g, '""')}"`,
     ]);
@@ -347,27 +404,47 @@ export function MasterCatalogTable({
         throw new Error("Please select a .json or .csv file.");
       }
 
-      setImportStatus(`Uploading ${importedItems.length} products to master catalog...`);
-      let successCount = 0;
-      for (const item of importedItems) {
-        if (!item.name) continue;
-        try {
-          await adminApi.createMasterProduct(
-            {
-              name: item.name,
-              brand: item.brand || "",
-              description: item.description || "",
-              category: typeof item.category === "number" ? item.category : undefined,
-            },
-            token
-          );
-          successCount++;
-        } catch {
-          // Ignore individual row failure, continue with remaining
+      setImportStatus(`Uploading ${importedItems.length} products to master catalog with S3 auto-sync...`);
+      
+      const payloadItems = importedItems.map((item: any) => {
+        const imgList: string[] = [];
+        if (Array.isArray(item.images)) {
+          imgList.push(...item.images.filter(Boolean));
+        } else if (item.image_url) {
+          imgList.push(item.image_url);
+        } else if (item.image && typeof item.image === "string") {
+          imgList.push(item.image);
         }
+        return {
+          name: item.name,
+          brand: item.brand || "",
+          unit: item.unit || item.packaging || "",
+          description: item.description || "",
+          mrp: item.mrp || undefined,
+          category: typeof item.category === "number" ? item.category : undefined,
+          image_url: imgList[0] || undefined,
+          images: imgList.slice(0, 6),
+        };
+      });
+
+      try {
+        const res = await adminApi.bulkUploadMasterProducts({ products: payloadItems }, token);
+        setImportStatus(`Successfully imported ${res.created_count} of ${payloadItems.length} products with photo sync!`);
+      } catch {
+        // Fallback to sequential uploads if bulk endpoint encounters individual issue
+        let successCount = 0;
+        for (const pItem of payloadItems) {
+          if (!pItem.name) continue;
+          try {
+            await adminApi.createMasterProduct(pItem, token);
+            successCount++;
+          } catch {
+            // continue
+          }
+        }
+        setImportStatus(`Imported ${successCount} of ${payloadItems.length} products!`);
       }
 
-      setImportStatus(`Successfully imported ${successCount} of ${importedItems.length} products!`);
       setTimeout(() => {
         setShowImportModal(false);
         setImportStatus(null);
@@ -381,7 +458,7 @@ export function MasterCatalogTable({
     }
   };
 
-  // Filter products by search query and sort A-Z by category and name
+  // Filter products by search query, category, and sort A-Z by category and name
   const filteredProducts = useMemo(() => {
     let list = products;
     if (searchQuery.trim()) {
@@ -394,13 +471,18 @@ export function MasterCatalogTable({
           p.description?.toLowerCase().includes(q)
       );
     }
+    if (selectedCategoryFilter) {
+      list = list.filter(
+        (p) => (p.category_name || "").toLowerCase() === selectedCategoryFilter.toLowerCase()
+      );
+    }
     return [...list].sort((a, b) => {
       const catA = (a.category_name || "").toLowerCase();
       const catB = (b.category_name || "").toLowerCase();
       if (catA !== catB) return catA.localeCompare(catB);
       return (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase());
     });
-  }, [products, searchQuery]);
+  }, [products, searchQuery, selectedCategoryFilter]);
 
   // Paginated slice
   const totalPages = Math.ceil(filteredProducts.length / pageSize) || 1;
@@ -412,7 +494,7 @@ export function MasterCatalogTable({
   return (
     <div className="bg-white border border-[#ddd6ca] rounded-2xl overflow-hidden shadow-xs">
       {/* Header Bar */}
-      <div className="p-4 sm:p-5 border-b border-[#ddd6ca] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFFDF8]">
+      <div className="p-3.5 sm:p-5 border-b border-[#ddd6ca] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFFDF8]">
         <div>
           <h2 className="text-base font-bold font-display text-[#123324]">
             Master Product Catalog ({products.length})
@@ -464,34 +546,144 @@ export function MasterCatalogTable({
         </div>
       </div>
 
-      {/* Search Filter Bar */}
-      <div className="p-3 bg-[#FAF8F3] border-b border-[#eee9df] flex items-center justify-between gap-3 text-xs">
-        <div className="relative w-full max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8b948d]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder="Search products by name, brand, or category..."
-            className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
-          />
+      {/* Search & Category Filter Bar */}
+      <div className="p-3 bg-[#FAF8F3] border-b border-[#eee9df] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:max-w-xl">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8b948d]" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search products by name, brand, or category..."
+              className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
+            />
+          </div>
+
+          <div className="relative min-w-[170px]">
+            <Filter className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#8b948d] pointer-events-none" />
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => {
+                setSelectedCategoryFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42] cursor-pointer text-[#123324] font-medium"
+            >
+              <option value="">All Categories</option>
+              {categoriesList.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+
         <div className="text-[11px] font-medium text-[#6d756f] shrink-0">
           Showing {paginatedProducts.length} of {filteredProducts.length} results (A-Z)
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      {/* Mobile Card View (Zero horizontal scroll on phones) */}
+      <div className="block sm:hidden divide-y divide-[#eee9df]">
+        {paginatedProducts.length === 0 ? (
+          <div className="py-12 text-center text-[#869088] px-4">
+            <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
+            <p className="font-semibold text-sm text-[#123324]">No master products found</p>
+            <p className="text-xs text-[#6d756f] mt-1">
+              {searchQuery ? "Try a different search term." : "Click 'Add Master Product' or 'Import Catalog'."}
+            </p>
+          </div>
+        ) : (
+          paginatedProducts.map((p) => {
+            const displayImg = p.effective_image || p.image || p.image_url;
+            const photoCount = Array.isArray(p.all_images) && p.all_images.length > 0 ? p.all_images.length : (displayImg ? 1 : 0);
+            return (
+              <div key={p.id} className="p-3.5 bg-white space-y-2.5">
+                <div className="flex items-start gap-3">
+                  {displayImg ? (
+                    <img
+                      src={displayImg}
+                      alt={p.name}
+                      className="w-12 h-12 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-[#eee9df] flex items-center justify-center text-[#6d756f] shrink-0">
+                      <ImageIcon className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <h4 className="font-bold text-[#123324] text-sm truncate">{p.name}</h4>
+                      <span className="text-[10px] font-mono text-[#869088] shrink-0">#{p.id}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#e7f2eb] text-[#1F5D42]">
+                        <Tag className="w-2.5 h-2.5" />
+                        {p.category_name || (p.category ? `Cat #${p.category}` : "General")}
+                      </span>
+                      {p.brand && (
+                        <span className="text-[11px] font-medium text-[#123324] bg-[#FAF8F3] px-2 py-0.5 rounded border border-[#ddd6ca]">
+                          {p.brand}
+                        </span>
+                      )}
+                      {p.unit && (
+                        <span className="text-[11px] font-semibold text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded border border-[#cbe1d5]">
+                          {p.unit}
+                        </span>
+                      )}
+                      {p.mrp && (
+                        <span className="text-xs font-bold text-[#1F5D42]">
+                          ₹{parseFloat(String(p.mrp)).toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {p.description && (
+                  <p className="text-[11px] text-[#6d756f] line-clamp-2">{p.description}</p>
+                )}
+
+                <div className="flex items-center justify-between pt-1 border-t border-[#eee9df]/60 text-xs">
+                  <div className="flex items-center gap-1.5 text-[11px] text-[#6d756f]">
+                    <ImageIcon className="w-3.5 h-3.5 text-[#1F5D42]" />
+                    <span>{photoCount > 0 ? `${photoCount} photo${photoCount > 1 ? "s" : ""}` : "No photos"}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleOpenEdit(p)}
+                      className="px-2.5 py-1 text-xs font-semibold text-[#1F5D42] bg-[#e7f2eb] rounded-lg hover:bg-[#d8ebd0] transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProduct(p.id, p.name)}
+                      className="px-2.5 py-1 text-xs font-semibold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-[#123324] text-white text-[10px] uppercase font-bold tracking-wider">
               <th className="py-3 px-4">Product Name</th>
               <th className="py-3 px-3">Category</th>
               <th className="py-3 px-3">Brand</th>
+              <th className="py-3 px-3">Unit</th>
               <th className="py-3 px-3">MRP (₹)</th>
               <th className="py-3 px-3">Description</th>
               <th className="py-3 px-3">Photos / S3 Link</th>
@@ -501,7 +693,7 @@ export function MasterCatalogTable({
           <tbody className="divide-y divide-[#eee9df]">
             {paginatedProducts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-[#869088]">
+                <td colSpan={8} className="py-12 text-center text-[#869088]">
                   <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
                   <p className="font-semibold text-sm text-[#123324]">No master products found</p>
                   <p className="text-xs text-[#6d756f] mt-1">
@@ -541,6 +733,7 @@ export function MasterCatalogTable({
                       </span>
                     </td>
                     <td className="py-3 px-3 text-[#123324] font-medium">{p.brand || "—"}</td>
+                    <td className="py-3 px-3 font-semibold text-[#123324]">{p.unit || "—"}</td>
                     <td className="py-3 px-3 font-semibold text-[#1F5D42]">
                       {p.mrp ? `₹${parseFloat(String(p.mrp)).toFixed(2)}` : "—"}
                     </td>
@@ -628,9 +821,10 @@ export function MasterCatalogTable({
 
       {/* Modal: Add or Edit Master Product */}
       {(showAddModal || editingProduct) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white border border-[#ddd6ca] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white border border-[#ddd6ca] rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#eee9df] p-4 sm:p-5 pb-3 shrink-0 bg-[#FFFDF8]">
               <h3 className="text-base font-bold font-display text-[#123324]">
                 {editingProduct ? "Edit Master Product" : "Add Master Product"}
               </h3>
@@ -640,112 +834,234 @@ export function MasterCatalogTable({
                   setShowAddModal(false);
                   setEditingProduct(null);
                 }}
-                className="text-[#6d756f] hover:text-[#123324] p-1 rounded-lg"
+                className="text-[#6d756f] hover:text-[#123324] p-1.5 rounded-lg hover:bg-[#eee9df] transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+            <div className="overflow-y-auto p-4 sm:p-6 space-y-4">
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
 
-            <form
-              onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}
-              className="space-y-3.5 text-xs"
-            >
-              <div>
-                <label className="block font-bold text-[#123324] mb-1">
-                  Product Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Amul Gold Full Cream Milk 1L"
-                  className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
+              <form
+                id="master-product-form"
+                onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}
+                className="space-y-4 text-xs"
+              >
                 <div>
                   <label className="block font-bold text-[#123324] mb-1">
-                    Category
+                    Product Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    placeholder="e.g. Dairy"
-                    className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. Amul Gold Full Cream Milk 1L"
+                    className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
                   />
                 </div>
+
+                {/* Category Dropdown + Custom Category Creator */}
                 <div>
-                  <label className="block font-bold text-[#123324] mb-1">
-                    Brand Name
-                  </label>
-                  <input
-                    type="text"
-                    value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
-                    placeholder="e.g. Amul"
-                    className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-[#123324]">
+                      Category (कैटेगरी)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomCatInput((v) => !v)}
+                      className="text-[11px] font-bold text-[#1F5D42] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{showCustomCatInput ? "Select Existing" : "+ New Category"}</span>
+                    </button>
+                  </div>
+
+                  {showCustomCatInput ? (
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <input
+                        type="text"
+                        value={customCatName}
+                        onChange={(e) => setCustomCatName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddCustomCategory();
+                          }
+                        }}
+                        placeholder="e.g. Frozen Foods, Chocolates, Pooja..."
+                        className="flex-1 px-3 py-2 border border-[#1F5D42] rounded-xl outline-none text-xs font-medium bg-[#FAF8F3]"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddCustomCategory}
+                        className="px-3 py-2 bg-[#1F5D42] text-white rounded-xl text-xs font-bold hover:bg-[#123324] shrink-0 shadow-2xs"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomCatInput(false)}
+                        className="px-2 py-2 text-[#6d756f] hover:text-[#123324] text-xs font-medium shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={category}
+                      onChange={(e) => {
+                        if (e.target.value === "__new__") {
+                          setShowCustomCatInput(true);
+                        } else {
+                          setCategory(e.target.value);
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs bg-white text-[#123324] font-medium cursor-pointer"
+                    >
+                      <option value="">-- Choose Category --</option>
+                      {categoriesList.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__new__">+ Add New Custom Category...</option>
+                    </select>
+                  )}
+
+                  {/* Quick Category Chips for One-Tap Selection */}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    {[
+                      "Dairy & Bakery",
+                      "Chocolates & Sweets",
+                      "Snacks & Namkeen",
+                      "Atta, Rice & Dal",
+                      "Edible Oils & Ghee",
+                      "Beverages & Tea/Coffee",
+                    ].map((quickCat) => (
+                      <button
+                        key={quickCat}
+                        type="button"
+                        onClick={() => {
+                          setCategory(quickCat);
+                          setShowCustomCatInput(false);
+                        }}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                          category === quickCat
+                            ? "bg-[#1F5D42] text-white border-[#1F5D42] shadow-2xs"
+                            : "bg-[#FAF8F3] hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                        }`}
+                      >
+                        {quickCat}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-[#123324] mb-1">
-                    MRP (₹)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={mrp}
-                    onChange={(e) => setMrp(e.target.value)}
-                    placeholder="e.g. 68.00"
-                    className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-mono"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#123324] mb-1">
+                      Brand Name
+                    </label>
+                    <input
+                      type="text"
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                      placeholder="e.g. Amul, Cadbury, Tata"
+                      className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-[#123324] mb-1">
+                      MRP (₹)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={mrp}
+                      onChange={(e) => setMrp(e.target.value)}
+                      placeholder="e.g. 68.00"
+                      className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-mono font-medium"
+                    />
+                  </div>
                 </div>
-              </div>
 
               {/* Loose Item Unit / Packaging Selector */}
               <div>
-                <label className="block font-bold text-[#123324] mb-1">
-                  Packaging / Loose Unit (पैकेजिंग / खुली बिक्री इकाई)
-                </label>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {["1 kg", "500g", "250g", "100g", "1 packet", "1 piece", "1 liter", "500 ml"].map((u) => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => {
-                        setSelectedUnit(u);
-                        if (!name.includes(u)) {
-                          setName((prev) => (prev.trim() ? `${prev.trim()} (${u})` : u));
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer ${
-                        selectedUnit === u
-                          ? "bg-[#1F5D42] text-white border-[#1F5D42]"
-                          : "bg-[#f8f6f0] hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
-                      }`}
-                    >
-                      {u}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-[#123324]">
+                    Unit / Measurement (इकाई - खुला सामान या पैक्ड)
+                  </label>
                   {selectedUnit && (
                     <button
                       type="button"
                       onClick={() => setSelectedUnit("")}
-                      className="text-[10px] text-red-600 hover:underline ml-1"
+                      className="text-[10px] text-red-600 hover:underline font-semibold"
                     >
-                      Clear
+                      Clear Unit
                     </button>
                   )}
+                </div>
+                <input
+                  type="text"
+                  value={selectedUnit}
+                  onChange={(e) => setSelectedUnit(e.target.value)}
+                  placeholder="e.g. kg, g, liter, ml, piece, packet, 1 kg, 500g"
+                  className="w-full px-3 py-2 mb-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
+                />
+
+                <div className="space-y-1.5 bg-[#FAF8F3] p-2.5 rounded-xl border border-[#eee9df]">
+                  <div>
+                    <span className="text-[10px] font-bold text-[#1F5D42] uppercase tracking-wider block mb-1">
+                      खुला सामान (Loose / Variable Quantity Units)
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {["kg", "g", "liter", "ml", "piece", "packet", "dozen"].map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => setSelectedUnit(selectedUnit === u ? "" : u)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                            selectedUnit === u
+                              ? "bg-[#1F5D42] text-white border-[#1F5D42] shadow-2xs"
+                              : "bg-white hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                          }`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="pt-1.5 border-t border-[#eee9df]">
+                    <span className="text-[10px] font-bold text-[#6d756f] uppercase tracking-wider block mb-1">
+                      स्टैंडर्ड पैक (Pre-packaged Quantities)
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {["1 kg", "500g", "250g", "100g", "1 liter", "500 ml", "1 piece", "1 packet"].map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => setSelectedUnit(selectedUnit === u ? "" : u)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition cursor-pointer ${
+                            selectedUnit === u
+                              ? "bg-[#1F5D42] text-white border-[#1F5D42] shadow-2xs"
+                              : "bg-white hover:bg-[#e7f2eb] text-[#123324] border-[#ddd6ca]"
+                          }`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -876,6 +1192,7 @@ export function MasterCatalogTable({
             </form>
           </div>
         </div>
+      </div>
       )}
 
       {/* Modal: Bulk Import Catalog */}

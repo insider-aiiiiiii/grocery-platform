@@ -3,9 +3,11 @@ from decimal import Decimal
 from django.utils.text import slugify
 from rest_framework import serializers
 
+from .image_utils import download_external_image_to_storage
 from .models import (
     MasterCategory,
     MasterProduct,
+    MasterProductImage,
     ProductVariant,
     ShopBrand,
     ShopCategory,
@@ -247,17 +249,60 @@ class ShopCustomAttributeSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class MasterProductImageSerializer(serializers.ModelSerializer):
+    effective_url = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = MasterProductImage
+        fields = [
+            "id",
+            "image",
+            "image_url",
+            "effective_url",
+            "sort_order",
+            "created_at",
+        ]
+        read_only_fields = ["id", "effective_url", "created_at"]
+
+
+class MasterCategorySerializer(serializers.ModelSerializer):
+    """
+    Serializer for platform-level Master Categories.
+    """
+
+    products_count = serializers.IntegerField(source="master_products.count", read_only=True)
+
+    class Meta:
+        model = MasterCategory
+        fields = ["id", "name", "slug", "description", "is_active", "products_count", "created_at"]
+        read_only_fields = ["id", "slug", "products_count", "created_at"]
+
+    def create(self, validated_data):
+        name = validated_data["name"].strip()
+        slug = slugify(name) or "cat"
+        validated_data["slug"] = slug
+        return super().create(validated_data)
+
+
 class MasterProductSerializer(serializers.ModelSerializer):
     """
     Serializer for platform-level Master Catalog products managed by Super Admin.
 
     Master Products serve as reusable templates for independent Shop Catalogs.
     They do not belong to any specific Shop and remain strictly independent
-    of Shop Products.
+    of Shop Products. Supports up to 6 photos total per product and auto-downloads
+    external image URLs directly to platform S3/media storage.
     """
 
     category_name = serializers.CharField(source="category.name", read_only=True, default=None)
     effective_image = serializers.SerializerMethodField()
+    gallery_images = MasterProductImageSerializer(many=True, read_only=True)
+    all_images = serializers.SerializerMethodField()
+    images = serializers.ListField(
+        child=serializers.CharField(max_length=2048),
+        required=False,
+        write_only=True,
+    )
     clear_image = serializers.BooleanField(required=False, write_only=True, default=False)
 
     class Meta:
@@ -272,8 +317,12 @@ class MasterProductSerializer(serializers.ModelSerializer):
             "image",
             "image_url",
             "effective_image",
+            "gallery_images",
+            "all_images",
+            "images",
             "clear_image",
             "mrp",
+            "unit",
             "is_active",
             "created_at",
             "updated_at",
@@ -282,6 +331,8 @@ class MasterProductSerializer(serializers.ModelSerializer):
             "id",
             "category_name",
             "effective_image",
+            "gallery_images",
+            "all_images",
             "created_at",
             "updated_at",
         ]
@@ -296,17 +347,143 @@ class MasterProductSerializer(serializers.ModelSerializer):
             return obj.image_url
         return None
 
+    def get_all_images(self, obj) -> list[str]:
+        urls = []
+        eff = self.get_effective_image(obj)
+        if eff:
+            urls.append(eff)
+        request = self.context.get("request")
+        for g_img in obj.gallery_images.all():
+            if g_img.image:
+                url = request.build_absolute_uri(g_img.image.url) if request else g_img.image.url
+            else:
+                url = g_img.image_url
+            if url and url not in urls:
+                urls.append(url)
+        return urls[:6]
+
+    def to_internal_value(self, data):
+        # Resolve category if passed as a string name or category_name
+        if hasattr(data, "_mutable") and not data._mutable:
+            data = data.copy()
+        elif not isinstance(data, dict):
+            try:
+                data = dict(data)
+            except Exception:
+                pass
+
+        if isinstance(data, dict):
+            cat_val = data.get("category")
+            cat_name_val = data.get("category_name")
+            target_name = None
+
+            if isinstance(cat_val, str) and cat_val.strip() and not cat_val.strip().isdigit():
+                target_name = cat_val.strip()
+            elif isinstance(cat_name_val, str) and cat_name_val.strip() and not cat_name_val.strip().isdigit():
+                target_name = cat_name_val.strip()
+
+            if target_name:
+                slug_base = slugify(target_name) or "cat"
+                existing = MasterCategory.objects.filter(name__iexact=target_name).first()
+                if not existing:
+                    existing = MasterCategory.objects.filter(slug=slug_base).first()
+                if not existing:
+                    existing = MasterCategory.objects.create(name=target_name, slug=slug_base)
+                data["category"] = existing.id
+
+        return super().to_internal_value(data)
+
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Name cannot be empty or whitespace only.")
         return value.strip()
 
+    def validate_images(self, value):
+        if value and len(value) > 6:
+            raise serializers.ValidationError("A master product can have at most 6 photos.")
+        return value
+
+    def _sync_images(self, instance, images_list):
+        """
+        Processes a list of image URLs (up to 6), downloading external URLs to platform storage
+        and attaching the 1st as primary and up to 5 additional as gallery images.
+        """
+        if images_list is None:
+            return
+
+        # Up to 6 images total
+        images_to_process = images_list[:6]
+        if not images_to_process:
+            return
+
+        # If primary image is not already an uploaded file on instance, use first url
+        first_url = images_to_process[0]
+        if not instance.image and first_url:
+            downloaded = download_external_image_to_storage(first_url, filename_prefix=f"master_{instance.id}")
+            if downloaded:
+                instance.image.save(downloaded.name, downloaded, save=True)
+            else:
+                instance.image_url = first_url
+                instance.save(update_fields=["image_url"])
+
+        # Sync gallery images (indices 1 to 5)
+        instance.gallery_images.all().delete()
+        for idx, url_str in enumerate(images_to_process[1:], start=1):
+            if not url_str or not isinstance(url_str, str):
+                continue
+            clean_url = url_str.strip()
+            downloaded = download_external_image_to_storage(clean_url, filename_prefix=f"master_{instance.id}_g{idx}")
+            if downloaded:
+                MasterProductImage.objects.create(
+                    master_product=instance,
+                    image=downloaded,
+                    image_url=clean_url,
+                    sort_order=idx,
+                )
+            else:
+                MasterProductImage.objects.create(
+                    master_product=instance,
+                    image_url=clean_url,
+                    sort_order=idx,
+                )
+
+    def create(self, validated_data):
+        images_list = validated_data.pop("images", None)
+        validated_data.pop("clear_image", None)
+        instance = super().create(validated_data)
+
+        # Auto-download primary image_url if provided and image file was not uploaded
+        if not instance.image and instance.image_url:
+            downloaded = download_external_image_to_storage(instance.image_url, filename_prefix=f"master_{instance.id}")
+            if downloaded:
+                instance.image.save(downloaded.name, downloaded, save=True)
+
+        if images_list is not None:
+            self._sync_images(instance, images_list)
+
+        return instance
+
     def update(self, instance, validated_data):
         clear_image = validated_data.pop("clear_image", False)
+        images_list = validated_data.pop("images", None)
+
         if clear_image:
             instance.image = None
             instance.image_url = ""
-        return super().update(instance, validated_data)
+            instance.gallery_images.all().delete()
+
+        instance = super().update(instance, validated_data)
+
+        # Auto-download primary image_url if updated and image file was not uploaded
+        if not clear_image and not instance.image and instance.image_url:
+            downloaded = download_external_image_to_storage(instance.image_url, filename_prefix=f"master_{instance.id}")
+            if downloaded:
+                instance.image.save(downloaded.name, downloaded, save=True)
+
+        if images_list is not None:
+            self._sync_images(instance, images_list)
+
+        return instance
 
 
 class PromoteShopProductSerializer(serializers.Serializer):
@@ -366,6 +543,7 @@ class ShopProductSerializer(serializers.ModelSerializer):
             "image",
             "price",
             "sku",
+            "unit",
             "attributes",
             "is_visible",
             "is_available",
@@ -415,6 +593,8 @@ class ShopProductSerializer(serializers.ModelSerializer):
                 attrs["description"] = master_product.description
             if "brand" not in attrs:
                 attrs["brand"] = master_product.brand
+            if "unit" not in attrs and master_product.unit:
+                attrs["unit"] = master_product.unit
             if "image" not in attrs and bool(master_product.image):
                 attrs["image"] = master_product.image
 
@@ -564,6 +744,7 @@ class PublicShopProductSerializer(serializers.ModelSerializer):
             "image",
             "price",
             "sku",
+            "unit",
             "attributes",
             "categories",
             "is_available",
