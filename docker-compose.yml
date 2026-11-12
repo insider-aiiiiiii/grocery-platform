@@ -1,23 +1,4 @@
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-grocery_platform}
-      POSTGRES_USER: ${POSTGRES_USER:-grocery_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   web:
     build:
       context: .
@@ -26,7 +7,7 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_HOST: ${POSTGRES_HOST:-}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       DATABASE_URL: ${DATABASE_URL:-}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
@@ -37,9 +18,6 @@ services:
       - 1.1.1.1
     volumes:
       - ./backend:/app
-    depends_on:
-      db:
-        condition: service_healthy
 
   frontend:
     build:
@@ -64,6 +42,5 @@ services:
       - web
 
 volumes:
-  postgres_data:
   frontend_node_modules:
   frontend_next:
