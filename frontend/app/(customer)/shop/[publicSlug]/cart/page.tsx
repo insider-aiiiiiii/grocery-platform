@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   MessageCircle,
 } from "lucide-react";
+import { formatPrice } from "@/lib/format";
 import {
   customerApi,
   PublicShopInfo,
@@ -43,7 +44,7 @@ export default function CustomerCartCheckoutPage() {
   const [customerName, setCustomerName] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [addressLine, setAddressLine] = useState("");
-  const [consentChecked, setConsentChecked] = useState(true);
+  const [consentChecked, setConsentChecked] = useState(false);
 
   // Load Shop & Cart Data
   useEffect(() => {
@@ -252,7 +253,7 @@ export default function CustomerCartCheckoutPage() {
             <div className="divide-y divide-[#eee9df]">
               {cart.items.map((item) => {
                 const unitPrice = parseFloat(item.unit_price || "0");
-                const itemTotal = (unitPrice * item.quantity).toFixed(0);
+                const itemTotal = formatPrice(unitPrice * item.quantity);
                 return (
                   <div key={item.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -260,7 +261,7 @@ export default function CustomerCartCheckoutPage() {
                         {item.product.name}
                       </p>
                       <p className="text-[11px] text-[#7e857f] mt-0.5">
-                        {item.quantity} × ₹{unitPrice.toFixed(0)}
+                        {item.quantity} × ₹{formatPrice(unitPrice)}
                       </p>
                     </div>
 
@@ -298,7 +299,7 @@ export default function CustomerCartCheckoutPage() {
               <div className="pt-3.5 space-y-1.5 text-xs">
                 <div className="flex justify-between text-[#6d756f]">
                   <span>Items Subtotal</span>
-                  <span>₹{itemsSubtotal.toFixed(0)}</span>
+                  <span>₹{formatPrice(itemsSubtotal)}</span>
                 </div>
                 {fulfillmentType === "HOME_DELIVERY" && (
                   <div className="flex justify-between text-[#6d756f]">
@@ -308,14 +309,14 @@ export default function CustomerCartCheckoutPage() {
                         ? "To be confirmed on WhatsApp"
                         : deliveryCharge === 0
                         ? "Free"
-                        : `₹${deliveryCharge.toFixed(0)}`}
+                        : `₹${formatPrice(deliveryCharge)}`}
                     </span>
                   </div>
                 )}
                 <div className="pt-2 border-t border-[#eee9df] flex justify-between items-baseline font-bold">
                   <span className="text-sm font-body text-[#17251e]">Total Bill</span>
                   <span className="font-display font-bold text-2xl text-[#1F5D42]">
-                    ₹{grandTotal.toFixed(0)}
+                    ₹{formatPrice(grandTotal)}
                   </span>
                 </div>
               </div>
@@ -435,7 +436,7 @@ export default function CustomerCartCheckoutPage() {
                 ) : (
                   <>
                     <ShoppingBag className="w-5 h-5 text-emerald-300" />
-                    <span>Place Order · ₹{grandTotal.toFixed(0)}</span>
+                    <span>Place Order · ₹{formatPrice(grandTotal)}</span>
                   </>
                 )}
               </button>

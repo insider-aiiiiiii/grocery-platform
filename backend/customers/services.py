@@ -7,6 +7,7 @@ Enforces the approved global identity boundary and strict tenant isolation.
 from typing import Any, Optional, Tuple
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 
 from .models import Customer, normalize_whatsapp_number
 
@@ -63,9 +64,21 @@ def create_or_recognize_customer(
             whatsapp_number=normalized,
             name=name.strip() if name else "",
         )
-        customer.full_clean()
-        customer.save()
-        created = True
+        try:
+            # Savepoint so a concurrent request winning the unique constraint
+            # does not poison an outer transaction.
+            with transaction.atomic():
+                customer.full_clean()
+                customer.save()
+            created = True
+        except (IntegrityError, ValidationError):
+            # Another request created the same Shop customer concurrently: recognize it.
+            customer = Customer.objects.filter(shop=shop, whatsapp_number=normalized).first()
+            if customer is None:
+                raise
+            if name and name.strip() and not customer.name:
+                customer.name = name.strip()
+                customer.save(update_fields=["name", "updated_at"])
 
     # Associate with Cart if provided
     if cart is not None:

@@ -15,7 +15,25 @@ class DatabaseSettingsTests(unittest.TestCase):
         self.assertEqual(settings["ENGINE"], "django.db.backends.postgresql")
         self.assertEqual(settings["NAME"], "app")
         self.assertEqual(settings["OPTIONS"], {"sslmode": "require"})
-        self.assertEqual(settings["CONN_MAX_AGE"], 0)
+        self.assertEqual(settings["CONN_MAX_AGE"], 60)
+        self.assertTrue(settings["CONN_HEALTH_CHECKS"])
+        self.assertNotIn("DISABLE_SERVER_SIDE_CURSORS", settings)
+
+    def test_pooler_host_disables_server_side_cursors(self):
+        settings = database_settings({
+            "DATABASE_URL": "postgresql://u:p@ep-x-pooler.example.test/app?sslmode=require",
+        })["default"]
+
+        self.assertTrue(settings["DISABLE_SERVER_SIDE_CURSORS"])
+
+    def test_serverless_and_override_connection_age(self):
+        url = "postgresql://u:p@db.example.test/app"
+        self.assertEqual(
+            database_settings({"DATABASE_URL": url, "VERCEL": "1"})["default"]["CONN_MAX_AGE"], 0
+        )
+        self.assertEqual(
+            database_settings({"DATABASE_URL": url, "DB_CONN_MAX_AGE": "0"})["default"]["CONN_MAX_AGE"], 0
+        )
 
     def test_postgres_fields_remain_supported(self):
         settings = database_settings({

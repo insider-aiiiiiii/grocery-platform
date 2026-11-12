@@ -10,7 +10,23 @@ from django.core.exceptions import ImproperlyConfigured
 _TRUE_VALUES = {"true", "1", "yes"}
 
 
-def _postgres_from_url(database_url):
+def _connection_tuning(env, host):
+    """Reuse connections across requests; opening a TLS connection to a remote
+    PostgreSQL per request dominates latency (~2-3 s to a remote Neon host)."""
+    # Serverless (Vercel) instances are short-lived: keep per-request connections there.
+    default_age = "0" if env.get("VERCEL") else "60"
+    try:
+        max_age = int(env.get("DB_CONN_MAX_AGE", default_age))
+    except ValueError:
+        raise ImproperlyConfigured("DB_CONN_MAX_AGE must be an integer number of seconds.") from None
+    tuning = {"CONN_MAX_AGE": max(max_age, 0), "CONN_HEALTH_CHECKS": max_age > 0}
+    if "-pooler" in (host or ""):
+        # Transaction-pooled endpoints (PgBouncer): no server-side cursors.
+        tuning["DISABLE_SERVER_SIDE_CURSORS"] = True
+    return tuning
+
+
+def _postgres_from_url(database_url, env=None):
     try:
         parsed = urlsplit(database_url)
         if parsed.scheme not in {"postgres", "postgresql"}:
@@ -36,7 +52,7 @@ def _postgres_from_url(database_url):
         "HOST": host,
         "PORT": str(port),
         "OPTIONS": options,
-        "CONN_MAX_AGE": 0,
+        **_connection_tuning(env or {}, host),
     }
 
 
@@ -54,7 +70,7 @@ def _postgres_from_fields(env):
         "PASSWORD": env["POSTGRES_PASSWORD"],
         "HOST": env["POSTGRES_HOST"],
         "PORT": env.get("POSTGRES_PORT", "5432"),
-        "CONN_MAX_AGE": 0,
+        **_connection_tuning(env, env["POSTGRES_HOST"]),
     }
 
 
@@ -79,7 +95,7 @@ def database_settings(env=None, base_dir=None):
 
     database_url = env.get("DATABASE_URL")
     if database_url:
-        return {"default": _postgres_from_url(database_url)}
+        return {"default": _postgres_from_url(database_url, env)}
 
     if env.get("POSTGRES_DB") and not (use_sqlite and not is_production):
         return {"default": _postgres_from_fields(env)}

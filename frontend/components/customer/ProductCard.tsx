@@ -3,6 +3,7 @@
 import React from "react";
 import { Plus, Minus } from "lucide-react";
 import { PublicProduct } from "@/lib/api/customer";
+import { formatPrice } from "@/lib/format";
 
 interface ProductCardProps {
   product: PublicProduct;
@@ -35,7 +36,7 @@ export function ProductCard({
   language = "en",
 }: ProductCardProps) {
   const isHindi = language === "hi";
-  const isOutOfStock = product.is_out_of_stock || !product.is_orderable;
+  const stockOut = product.is_out_of_stock || !product.is_orderable;
   const activeVariant = product.variants?.[0];
 
   const sellPrice = product.price
@@ -44,12 +45,11 @@ export function ProductCard({
     ? parseFloat(activeVariant.price)
     : null;
 
-  // Prioritize real MRP if set by SuperAdmin/Shop, fallback to visual markup
-  const mrpPrice = product.mrp
-    ? parseFloat(product.mrp)
-    : sellPrice !== null
-    ? Math.round(sellPrice * 1.08)
-    : null;
+  const priceNotSet = sellPrice === null || sellPrice <= 0;
+  const isOutOfStock = stockOut || priceNotSet;
+
+  // Only show an MRP when one was actually set; never invent a fake discount.
+  const mrpPrice = product.mrp ? parseFloat(product.mrp) : null;
 
   const packSize =
     activeVariant?.name ||
@@ -80,7 +80,7 @@ export function ProductCard({
         )}
 
         {/* Out of Stock overlay */}
-        {isOutOfStock && (
+        {stockOut && (
           <div className="absolute inset-0 bg-[#123324]/75 backdrop-blur-[1px] flex items-center justify-center p-1 text-center">
             <span className="px-1.5 py-0.5 bg-white text-[#123324] text-[9px] font-bold rounded uppercase tracking-wider">
               {isHindi ? "स्टॉक खत्म" : "Sold Out"}
@@ -116,11 +116,11 @@ export function ProductCard({
         <div className="flex items-center justify-between gap-2 mt-2 pt-1">
           <div className="flex items-baseline gap-1.5 flex-wrap">
             <span className="font-display font-bold text-lg sm:text-xl text-[#1F5D42]">
-              {sellPrice !== null ? `₹${sellPrice.toFixed(0)}` : "—"}
+              {priceNotSet ? (isHindi ? "कीमत तय नहीं" : "Price not set") : `₹${formatPrice(sellPrice)}`}
             </span>
             {mrpPrice && mrpPrice > (sellPrice ?? 0) && (
               <span className="font-body text-xs text-[#9b9e99] line-through">
-                ₹{mrpPrice}
+                ₹{formatPrice(mrpPrice)}
               </span>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ArrowRight, ShoppingBag } from "lucide-react";
+import { formatPrice } from "@/lib/format";
 
 interface CartBottomBarProps {
   itemCount: number;
@@ -21,8 +22,8 @@ export function CartBottomBar({
   const isHindi = language === "hi";
   const formattedAmount =
     typeof totalAmount === "number"
-      ? totalAmount.toFixed(0)
-      : parseFloat(totalAmount || "0").toFixed(0);
+      ? formatPrice(totalAmount)
+      : formatPrice(totalAmount);
 
   return (
     <div className="fixed bottom-4 left-0 right-0 z-40 px-4 max-w-xl mx-auto animate-in slide-in-from-bottom-4 duration-200">

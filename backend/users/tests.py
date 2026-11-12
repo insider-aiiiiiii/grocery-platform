@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_backends
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
@@ -162,6 +163,7 @@ class SuperAdminMerchantCreationAPITests(TestCase):
 
 class MerchantAuthenticationAPITests(TestCase):
     def setUp(self):
+        cache.clear()  # login throttle counters must not leak between tests
         self.client = APIClient()
         self.user = User.objects.create_user(
             username="merchant-auth", mobile_number="+911234567890",
@@ -587,6 +589,7 @@ class MerchantAuthenticationAPITests(TestCase):
 
 class SuperAdminAuthenticationAPITests(TestCase):
     def setUp(self):
+        cache.clear()  # login throttle counters must not leak between tests
         self.client = APIClient()
         self.super_admin = User.objects.create_user(
             username="super-admin-auth",
