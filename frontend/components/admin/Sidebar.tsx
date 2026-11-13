@@ -119,7 +119,7 @@ export function Sidebar({
             <button
               onClick={onCloseMobile}
               className="lg:hidden text-[#a2b5a8] hover:text-white p-1 rounded-lg"
-              aria-label="Close menu"
+              aria-label={lang === "hi" ? "मेन्यू बंद करें" : "Close menu"}
             >
               <X size={20} />
             </button>

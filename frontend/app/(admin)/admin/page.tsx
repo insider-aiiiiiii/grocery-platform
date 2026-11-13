@@ -59,6 +59,8 @@ export default function SuperAdminDashboard() {
   // Admin username detection
   const [adminUsername, setAdminUsername] = useState<string>("Super Admin");
   const [lang, setLang] = useState<"en" | "hi">("en");
+  const hi = lang === "hi";
+  const numLocale = hi ? "hi-IN" : "en-IN";
 
   useEffect(() => {
     const saved = localStorage.getItem("super_admin_language") as "en" | "hi" | null;
@@ -187,19 +189,31 @@ export default function SuperAdminDashboard() {
 
   // Formatted Metric Values
   const periodLabels: Record<string, string> = {
-    today: "Today",
-    yesterday: "Yesterday",
-    this_week: "This Week",
-    this_month: "This Month",
-    custom: "Custom Range",
+    today: hi ? "आज" : "Today",
+    yesterday: hi ? "कल" : "Yesterday",
+    this_week: hi ? "इस हफ्ते" : "This Week",
+    this_month: hi ? "इस महीने" : "This Month",
+    custom: hi ? "अपनी तारीख़ें" : "Custom Range",
   };
+  const tabLabels: Record<string, string> = {
+    overview: hi ? "अवलोकन" : "overview",
+    merchants: hi ? "दुकानदार" : "merchants",
+    catalog: hi ? "कैटलॉग" : "catalog",
+    campaigns: hi ? "अभियान" : "campaigns",
+    analytics: hi ? "विश्लेषण" : "analytics",
+    settings: hi ? "सेटिंग्स" : "settings",
+  };
+  const statusLabel = (s: string) =>
+    hi
+      ? ({ ACTIVE: "सक्रिय", PENDING_PASSWORD_CHANGE: "पासवर्ड बाकी", SUSPENDED: "निलंबित", DEACTIVATED: "निलंबित" } as Record<string, string>)[s] ?? s
+      : s;
   const activePeriodLabel = periodLabels[selectedPeriod] || selectedPeriod;
 
   const currentFilteredShop = merchants.find((m) => m.shopId === selectedShopId);
-  const scopePrefix = currentFilteredShop ? currentFilteredShop.shopName : "Platform";
+  const scopePrefix = currentFilteredShop ? currentFilteredShop.shopName : hi ? "प्लेटफॉर्म" : "Platform";
 
   const realizedSales = analytics?.sales?.realized_sales
-    ? `₹${parseFloat(analytics.sales.realized_sales).toLocaleString("en-IN")}`
+    ? `₹${parseFloat(analytics.sales.realized_sales).toLocaleString(numLocale)}`
     : "₹0";
   const activeShops = analytics?.shops?.active_shops ?? merchants.length;
   const totalShops = analytics?.shops?.total_shops ?? merchants.length;
@@ -207,8 +221,8 @@ export default function SuperAdminDashboard() {
   const orderingCustomers = analytics?.customers?.ordering_customers ?? 0;
   const outOfStock = analytics?.inventory?.out_of_stock_items_count ?? 0;
   const avgOrderText = analytics?.sales?.average_order_value
-    ? `Avg Order ₹${parseFloat(analytics.sales.average_order_value).toLocaleString("en-IN")}`
-    : "Avg Order ₹0";
+    ? `${hi ? "औसत ऑर्डर" : "Avg Order"} ₹${parseFloat(analytics.sales.average_order_value).toLocaleString(numLocale)}`
+    : `${hi ? "औसत ऑर्डर" : "Avg Order"} ₹0`;
 
   return (
     <div className="bg-[#F6F0E6] min-h-screen text-[#17251e] font-sans antialiased">
@@ -232,13 +246,13 @@ export default function SuperAdminDashboard() {
             <button
               className="rounded-lg p-2 text-[#5e665f] hover:bg-[#eee9df] lg:hidden"
               onClick={() => setMobileOpen(true)}
-              aria-label="Open menu"
+              aria-label={hi ? "मेन्यू खोलें" : "Open menu"}
             >
               <Menu size={20} />
             </button>
             <div>
               <h2 className="font-display font-bold text-lg md:text-xl text-[#123324] leading-tight">
-                Dukandaar Super Admin Console
+                {hi ? "Dukandaar सुपर एडमिन कंसोल" : "Dukandaar Super Admin Console"}
               </h2>
               <p className="text-[11px] text-[#6d756f]">
                 {lang === "hi" ? "प्लेटफॉर्म नेटवर्क • सभी दुकानदार" : "Platform Network • All Tenants"}
@@ -318,7 +332,7 @@ export default function SuperAdminDashboard() {
                     {lang === "hi" ? "प्लेटफॉर्म गवर्नेंस मैट्रिक्स" : "Platform Governance Matrix"}
                   </h1>
                   <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-[#e7f2eb] text-[#1F5D42] tracking-wider uppercase border border-[#cbe1d5]">
-                    {activeTab}
+                    {tabLabels[activeTab] ?? activeTab}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
@@ -355,30 +369,30 @@ export default function SuperAdminDashboard() {
                 {/* KPI Metric Cards (2-column on mobile, 4-column on desktop) */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                   <MetricCard
-                    title={`${scopePrefix} Sales`}
+                    title={`${scopePrefix} ${hi ? "बिक्री" : "Sales"}`}
                     value={realizedSales}
                     contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
                   <MetricCard
-                    title="Active Shops"
+                    title={hi ? "चालू दुकानें" : "Active Shops"}
                     value={`${activeShops} / ${totalShops}`}
-                    contextText="Network Health"
+                    contextText={hi ? "नेटवर्क की सेहत" : "Network Health"}
                     icon={Store}
                     accentColor="emerald"
                   />
                   <MetricCard
-                    title={`Total Orders (${activePeriodLabel})`}
-                    value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={`${analytics?.orders?.completed_orders ?? 0} done`}
+                    title={`${hi ? "कुल ऑर्डर" : "Total Orders"} (${activePeriodLabel})`}
+                    value={ordersTotal.toLocaleString(numLocale)}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} ${hi ? "पूरे" : "done"}`}
                     icon={Receipt}
                     accentColor="slate"
                   />
                   <MetricCard
-                    title="Stock-Out Alerts"
-                    value={`${outOfStock} SKUs`}
-                    contextText="Zero Stock"
+                    title={hi ? "स्टॉक खत्म अलर्ट" : "Stock-Out Alerts"}
+                    value={`${outOfStock} ${hi ? "SKU" : "SKUs"}`}
+                    contextText={hi ? "स्टॉक शून्य" : "Zero Stock"}
                     icon={AlertTriangle}
                     accentColor="amber"
                   />
@@ -391,19 +405,19 @@ export default function SuperAdminDashboard() {
                     <div className="flex items-center justify-between pb-3 border-b border-[#eee9df]">
                       <div className="flex items-center gap-2">
                         <Store className="w-4 h-4 text-[#1F5D42]" />
-                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">Tenant Directory Snapshot</h3>
+                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">{hi ? "दुकानदार डायरेक्टरी झलक" : "Tenant Directory Snapshot"}</h3>
                       </div>
                       <button
                         onClick={() => setActiveTab("merchants")}
                         className="text-xs font-semibold text-[#1F5D42] hover:underline"
                       >
-                        View All {merchants.length} Tenants →
+                        {hi ? `सभी ${merchants.length} दुकानदार देखें →` : `View All ${merchants.length} Tenants →`}
                       </button>
                     </div>
                     <div className="mt-3.5 space-y-2">
                       {merchants.length === 0 ? (
                         <div className="py-6 text-center text-xs text-[#869088]">
-                          No merchants onboarded yet. Use the Onboard button above to add one.
+                          {hi ? "अभी तक कोई मर्चेंट नहीं जुड़ा। जोड़ने के लिए ऊपर का बटन दबाएं।" : "No merchants onboarded yet. Use the Onboard button above to add one."}
                         </div>
                       ) : (
                         merchants.slice(0, 4).map((m) => (
@@ -414,7 +428,7 @@ export default function SuperAdminDashboard() {
                             <div>
                               <div className="text-xs font-bold text-[#123324]">{m.shopName || m.merchantName}</div>
                               <div className="text-[11px] text-[#6d756f] font-mono">
-                                Mobile: {m.mobileNumber} | {m.city || "Urban Node"}
+                                {hi ? "मोबाइल" : "Mobile"}: {m.mobileNumber} | {m.city || (hi ? "शहरी केंद्र" : "Urban Node")}
                               </div>
                             </div>
                             <span
@@ -423,7 +437,7 @@ export default function SuperAdminDashboard() {
                                 : "bg-amber-100 text-amber-800 border border-amber-200"
                                 }`}
                             >
-                              {m.status}
+                              {statusLabel(m.status)}
                             </span>
                           </div>
                         ))
@@ -436,19 +450,19 @@ export default function SuperAdminDashboard() {
                     <div className="flex items-center justify-between pb-3 border-b border-[#eee9df]">
                       <div className="flex items-center gap-2">
                         <Boxes className="w-4 h-4 text-[#1F5D42]" />
-                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">Master Catalog Snapshot</h3>
+                        <h3 className="text-xs sm:text-sm font-bold text-[#123324]">{hi ? "मास्टर कैटलॉग झलक" : "Master Catalog Snapshot"}</h3>
                       </div>
                       <button
                         onClick={() => setActiveTab("catalog")}
                         className="text-xs font-semibold text-[#1F5D42] hover:underline"
                       >
-                        View All {masterProducts.length} SKUs →
+                        {hi ? `सभी ${masterProducts.length} SKU देखें →` : `View All ${masterProducts.length} SKUs →`}
                       </button>
                     </div>
                     <div className="mt-3.5 space-y-2">
                       {masterProducts.length === 0 ? (
                         <div className="py-6 text-center text-xs text-[#869088]">
-                          No master catalog products found.
+                          {hi ? "कोई मास्टर कैटलॉग प्रोडक्ट नहीं मिला।" : "No master catalog products found."}
                         </div>
                       ) : (
                         masterProducts.slice(0, 4).map((p) => (
@@ -459,11 +473,11 @@ export default function SuperAdminDashboard() {
                             <div>
                               <div className="text-xs font-bold text-[#123324]">{p.name}</div>
                               <div className="text-[11px] text-[#6d756f]">
-                                Brand: {p.brand || "Generic"} | {p.category_name || "General"}
+                                {hi ? "ब्रांड" : "Brand"}: {p.brand || (hi ? "सामान्य" : "Generic")} | {p.category_name || (hi ? "सामान्य" : "General")}
                               </div>
                             </div>
                             <div className="text-right text-xs font-semibold text-[#1F5D42]">
-                              {p.is_verified ? "Verified SKU" : "Standard"}
+                              {p.is_verified ? (hi ? "सत्यापित SKU" : "Verified SKU") : (hi ? "सामान्य" : "Standard")}
                             </div>
                           </div>
                         ))
@@ -481,12 +495,12 @@ export default function SuperAdminDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <Store className="w-5 h-5 text-[#1F5D42]" />
                       <span className="text-xs font-bold text-slate-400 group-hover:text-[#1F5D42]">
-                        {merchants.length} Shops →
+                        {merchants.length} {hi ? "दुकानें" : "Shops"} →
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-slate-900">Tenant Directory</h4>
+                    <h4 className="text-xs font-bold text-slate-900">{hi ? "दुकानदार डायरेक्टरी" : "Tenant Directory"}</h4>
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Manage tenant credentials, activate/deactivate shops, and view store configs.
+                      {hi ? "दुकानदार के लॉगिन संभालें, दुकानें चालू/बंद करें और दुकान की सेटिंग देखें।" : "Manage tenant credentials, activate/deactivate shops, and view store configs."}
                     </p>
                   </div>
 
@@ -497,12 +511,12 @@ export default function SuperAdminDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <Boxes className="w-5 h-5 text-[#1F5D42]" />
                       <span className="text-xs font-bold text-[#869088] group-hover:text-[#1F5D42]">
-                        {masterProducts.length} Items →
+                        {masterProducts.length} {hi ? "आइटम" : "Items"} →
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-[#123324]">Master Catalog</h4>
+                    <h4 className="text-xs font-bold text-[#123324]">{hi ? "मास्टर कैटलॉग" : "Master Catalog"}</h4>
                     <p className="text-[11px] text-[#6d756f] mt-1">
-                      Universal barcode registry and categories.
+                      {hi ? "सभी प्रोडक्ट का बारकोड रजिस्टर और कैटेगरी।" : "Universal barcode registry and categories."}
                     </p>
                   </div>
 
@@ -513,12 +527,12 @@ export default function SuperAdminDashboard() {
                     <div className="flex items-center justify-between mb-2">
                       <Megaphone className="w-5 h-5 text-[#1F5D42]" />
                       <span className="text-xs font-bold text-[#869088] group-hover:text-[#1F5D42]">
-                        {campaigns.length} Active →
+                        {campaigns.length} {hi ? "चालू" : "Active"} →
                       </span>
                     </div>
-                    <h4 className="text-xs font-bold text-[#123324]">Marketing Campaigns</h4>
+                    <h4 className="text-xs font-bold text-[#123324]">{hi ? "मार्केटिंग अभियान" : "Marketing Campaigns"}</h4>
                     <p className="text-[11px] text-[#6d756f] mt-1">
-                      Launch platform-wide banners, announcements, and storefront campaigns.
+                      {hi ? "पूरे प्लेटफॉर्म के बैनर, घोषणाएं और स्टोरफ्रंट अभियान शुरू करें।" : "Launch platform-wide banners, announcements, and storefront campaigns."}
                     </p>
                   </div>
                 </div>
@@ -570,38 +584,38 @@ export default function SuperAdminDashboard() {
                 {/* 5 KPI Metric Cards (2-column on mobile, 5-column on desktop) */}
                 <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 sm:gap-4">
                   <MetricCard
-                    title={`${scopePrefix} Sales`}
+                    title={`${scopePrefix} ${hi ? "बिक्री" : "Sales"}`}
                     value={realizedSales}
                     contextText={avgOrderText}
                     icon={IndianRupee}
                     accentColor="green"
                   />
                   <MetricCard
-                    title={currentFilteredShop ? "Tenant Status" : "Active Nodes"}
-                    value={currentFilteredShop ? currentFilteredShop.status : `${activeShops} / ${totalShops}`}
-                    contextText={currentFilteredShop ? (currentFilteredShop.city || "Single Tenant") : "Platform Coverage"}
+                    title={currentFilteredShop ? (hi ? "दुकान की स्थिति" : "Tenant Status") : (hi ? "चालू दुकानें" : "Active Nodes")}
+                    value={currentFilteredShop ? statusLabel(currentFilteredShop.status) : `${activeShops} / ${totalShops}`}
+                    contextText={currentFilteredShop ? (currentFilteredShop.city || (hi ? "एक दुकान" : "Single Tenant")) : (hi ? "प्लेटफॉर्म कवरेज" : "Platform Coverage")}
                     icon={Store}
                     accentColor="emerald"
                   />
                   <MetricCard
-                    title={`Orders (${activePeriodLabel})`}
-                    value={ordersTotal.toLocaleString("en-IN")}
-                    contextText={`${analytics?.orders?.completed_orders ?? 0} done`}
+                    title={`${hi ? "ऑर्डर" : "Orders"} (${activePeriodLabel})`}
+                    value={ordersTotal.toLocaleString(numLocale)}
+                    contextText={`${analytics?.orders?.completed_orders ?? 0} ${hi ? "पूरे" : "done"}`}
                     icon={Receipt}
                     accentColor="slate"
                   />
                   <MetricCard
-                    title="Unique Buyers"
-                    value={orderingCustomers.toLocaleString("en-IN")}
-                    contextText="Active in period"
+                    title={hi ? "अलग-अलग खरीदार" : "Unique Buyers"}
+                    value={orderingCustomers.toLocaleString(numLocale)}
+                    contextText={hi ? "इस अवधि में सक्रिय" : "Active in period"}
                     icon={Users}
                     accentColor="blue"
                   />
                   <div className="col-span-2 lg:col-span-1">
                     <MetricCard
-                      title="Stock-Out Alerts"
-                      value={`${outOfStock} SKUs`}
-                      contextText="Zero Available Stock"
+                      title={hi ? "स्टॉक खत्म अलर्ट" : "Stock-Out Alerts"}
+                      value={`${outOfStock} ${hi ? "SKU" : "SKUs"}`}
+                      contextText={hi ? "उपलब्ध स्टॉक शून्य" : "Zero Available Stock"}
                       icon={AlertTriangle}
                       accentColor="amber"
                     />
@@ -623,15 +637,15 @@ export default function SuperAdminDashboard() {
                         <div className="flex items-center gap-2">
                           <Trophy className="w-4 h-4 text-amber-500" />
                           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                            Top Performing Shops
+                            {hi ? "सबसे अच्छी दुकानें" : "Top Performing Shops"}
                           </h3>
                         </div>
-                        <span className="text-[11px] text-slate-400">Ranked by Sales</span>
+                        <span className="text-[11px] text-slate-400">{hi ? "बिक्री के अनुसार रैंक" : "Ranked by Sales"}</span>
                       </div>
                       <div className="space-y-2.5">
                         {!analytics?.top_shops || analytics.top_shops.length === 0 ? (
                           <div className="p-8 text-center text-xs text-slate-400">
-                            No merchant order history recorded for this period.
+                            {hi ? "इस अवधि में कोई मर्चेंट ऑर्डर इतिहास दर्ज नहीं है।" : "No merchant order history recorded for this period."}
                           </div>
                         ) : (
                           analytics.top_shops.slice(0, 5).map((s, idx) => (
@@ -643,13 +657,13 @@ export default function SuperAdminDashboard() {
                                 }`}
                             >
                               <div>
-                                <div className="text-[10px] font-bold text-slate-400">RANK #{idx + 1}</div>
+                                <div className="text-[10px] font-bold text-slate-400">{hi ? "रैंक" : "RANK"} #{idx + 1}</div>
                                 <div className="text-xs font-bold text-slate-900">{s.shop_name}</div>
-                                <div className="text-[11px] text-slate-500">{s.completed_orders} orders completed</div>
+                                <div className="text-[11px] text-slate-500">{s.completed_orders} {hi ? "ऑर्डर पूरे हुए" : "orders completed"}</div>
                               </div>
                               <div className="text-right">
                                 <div className="text-xs font-mono font-bold text-[#1F5D42]">
-                                  ₹{parseFloat(s.realized_sales).toLocaleString("en-IN")}
+                                  ₹{parseFloat(s.realized_sales).toLocaleString(numLocale)}
                                 </div>
                               </div>
                             </div>
@@ -669,23 +683,23 @@ export default function SuperAdminDashboard() {
             {activeTab === "settings" && (
               <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm space-y-6">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">Platform Console Settings</h3>
-                  <p className="text-xs text-slate-500 mt-1">Super Admin runtime session configuration and environment telemetry.</p>
+                  <h3 className="text-sm font-bold text-slate-900">{hi ? "प्लेटफॉर्म कंसोल सेटिंग्स" : "Platform Console Settings"}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{hi ? "सुपर एडमिन सेशन की सेटिंग और सिस्टम की जानकारी।" : "Super Admin runtime session configuration and environment telemetry."}</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                    <div className="font-semibold text-slate-800">Authenticated Super Admin</div>
-                    <div className="text-slate-600">Identifier: <span className="font-mono text-slate-900 font-bold">{adminUsername}</span></div>
-                    <div className="text-slate-600">Role: <span className="font-semibold text-emerald-700">SUPER_ADMIN</span></div>
-                    <div className="text-slate-600">Permissions: <span className="font-mono text-slate-700">Global Read/Write/Elevated</span></div>
+                    <div className="font-semibold text-slate-800">{hi ? "लॉगिन किया हुआ सुपर एडमिन" : "Authenticated Super Admin"}</div>
+                    <div className="text-slate-600">{hi ? "पहचान" : "Identifier"}: <span className="font-mono text-slate-900 font-bold">{adminUsername}</span></div>
+                    <div className="text-slate-600">{hi ? "भूमिका" : "Role"}: <span className="font-semibold text-emerald-700">SUPER_ADMIN</span></div>
+                    <div className="text-slate-600">{hi ? "अनुमतियां" : "Permissions"}: <span className="font-mono text-slate-700">{hi ? "पूरा पढ़ना/लिखना/उच्च अधिकार" : "Global Read/Write/Elevated"}</span></div>
                   </div>
 
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                    <div className="font-semibold text-slate-800">API Service Node</div>
-                    <div className="text-slate-600">Backend Endpoint: <span className="font-mono text-slate-900">http://localhost:8000/api/v1/</span></div>
-                    <div className="text-slate-600">Auth Gateway: <span className="font-mono text-slate-900">/api/v1/auth/super-admin/</span></div>
-                    <div className="text-slate-600">Status: <span className="text-emerald-700 font-semibold">Connected (PostgreSQL Neon Active)</span></div>
+                    <div className="font-semibold text-slate-800">{hi ? "API सर्विस नोड" : "API Service Node"}</div>
+                    <div className="text-slate-600">{hi ? "बैकएंड एंडपॉइंट" : "Backend Endpoint"}: <span className="font-mono text-slate-900">http://localhost:8000/api/v1/</span></div>
+                    <div className="text-slate-600">{hi ? "ऑथ गेटवे" : "Auth Gateway"}: <span className="font-mono text-slate-900">/api/v1/auth/super-admin/</span></div>
+                    <div className="text-slate-600">{hi ? "स्थिति" : "Status"}: <span className="text-emerald-700 font-semibold">{hi ? "जुड़ा हुआ (PostgreSQL Neon चालू)" : "Connected (PostgreSQL Neon Active)"}</span></div>
                   </div>
                 </div>
               </div>
@@ -727,6 +741,7 @@ export default function SuperAdminDashboard() {
               <button
                 type="button"
                 onClick={() => setShowGovernanceModal(false)}
+                aria-label={hi ? "बंद करें" : "Close"}
                 className="w-8 h-8 rounded-lg flex items-center justify-center text-[#6d756f] hover:bg-[#FAF8F3] hover:text-[#123324] transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />

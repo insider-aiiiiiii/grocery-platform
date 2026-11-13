@@ -14,6 +14,7 @@ import {
   Building2,
   Package,
 } from "lucide-react";
+import { useAdminLang } from "./useAdminLang";
 import { adminApi } from "@/lib/api/admin";
 
 export interface ShopProductPromotionTarget {
@@ -41,6 +42,7 @@ export function ProductPromotionModal({
   product,
   onSuccess,
 }: ProductPromotionModalProps) {
+  const hi = useAdminLang() === "hi";
   const [productIdInput, setProductIdInput] = useState<string>("");
   const [name, setName] = useState<string>("");
   const [brand, setBrand] = useState<string>("");
@@ -87,7 +89,7 @@ export function ProductPromotionModal({
 
     const targetId = Number(productIdInput);
     if (!targetId || isNaN(targetId)) {
-      setErrorMessage("Please specify a valid numeric Shop Product ID.");
+      setErrorMessage(hi ? "कृपया सही संख्या वाली शॉप प्रोडक्ट ID दर्ज करें।" : "Please specify a valid numeric Shop Product ID.");
       setLoading(false);
       return;
     }
@@ -108,7 +110,9 @@ export function ProductPromotionModal({
 
       const result = await adminApi.promoteShopProduct(targetId, payload);
       setSuccessMessage(
-        `Successfully promoted to Master SKU #${result.master_product?.id || result.id || targetId}! Live sync broadcast sent.`
+        hi
+          ? `मास्टर SKU #${result.master_product?.id || result.id || targetId} में सफलतापूर्वक जोड़ दिया गया! लाइव अपडेट भेज दिया गया है।`
+          : `Successfully promoted to Master SKU #${result.master_product?.id || result.id || targetId}! Live sync broadcast sent.`
       );
       onSuccess?.(result);
       setTimeout(() => {
@@ -118,7 +122,9 @@ export function ProductPromotionModal({
       const detail =
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
-        "Failed to promote shop product to master catalog. Verify product exists.";
+        (hi
+          ? "शॉप प्रोडक्ट को मास्टर कैटलॉग में जोड़ने में विफल। जाँचें कि प्रोडक्ट मौजूद है।"
+          : "Failed to promote shop product to master catalog. Verify product exists.");
       setErrorMessage(typeof detail === "string" ? detail : JSON.stringify(detail));
     } finally {
       setLoading(false);
@@ -136,16 +142,16 @@ export function ProductPromotionModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-white leading-tight">
-                Promote Product to Global Master Catalog
+                {hi ? "प्रोडक्ट को ग्लोबल मास्टर कैटलॉग में जोड़ें" : "Promote Product to Global Master Catalog"}
               </h2>
               <p className="text-[11px] text-slate-400 font-normal leading-tight mt-0.5">
-                Review and approve merchant shop product for network-wide master listing
+                {hi ? "मर्चेंट के प्रोडक्ट को देखकर पूरे नेटवर्क की मास्टर लिस्ट के लिए मंज़ूर करें" : "Review and approve merchant shop product for network-wide master listing"}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close modal"
+            aria-label={hi ? "बंद करें" : "Close modal"}
             className="text-slate-400 hover:text-white transition-colors p-1 rounded hover:bg-slate-800"
           >
             <X className="w-5 h-5" />
@@ -157,16 +163,16 @@ export function ProductPromotionModal({
           <div className="flex items-center gap-2 text-[#78350F]">
             <Building2 className="w-4 h-4 text-amber-700 shrink-0" />
             <span>
-              Origin:{" "}
+              {hi ? "स्रोत" : "Origin"}:{" "}
               <strong className="font-semibold text-slate-800">
-                {product?.shopName || "Merchant Store (Direct Ingestion)"}
+                {product?.shopName || (hi ? "मर्चेंट स्टोर (सीधे जोड़ा गया)" : "Merchant Store (Direct Ingestion)")}
               </strong>{" "}
-              {product?.id ? `• Shop Product #${product.id}` : ""}
+              {product?.id ? `• ${hi ? "शॉप प्रोडक्ट" : "Shop Product"} #${product.id}` : ""}
             </span>
           </div>
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 tracking-wider uppercase border border-emerald-300 self-start sm:self-auto">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-            Verified Catalog Lock
+            {hi ? "सत्यापित कैटलॉग लॉक" : "Verified Catalog Lock"}
           </span>
         </div>
 
@@ -190,7 +196,7 @@ export function ProductPromotionModal({
             {/* Target Shop Product ID */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Shop Product ID *
+                {hi ? "शॉप प्रोडक्ट ID *" : "Shop Product ID *"}
               </label>
               <div className="relative flex items-center">
                 <Package className="w-4 h-4 absolute left-3 text-slate-400" />
@@ -199,7 +205,7 @@ export function ProductPromotionModal({
                   required
                   value={productIdInput}
                   onChange={(e) => setProductIdInput(e.target.value)}
-                  placeholder="e.g. 104"
+                  placeholder={hi ? "जैसे 104" : "e.g. 104"}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] font-mono text-slate-900"
                 />
               </div>
@@ -208,7 +214,7 @@ export function ProductPromotionModal({
             {/* Barcode / EAN */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Barcode / EAN-13
+                {hi ? "बारकोड / EAN-13" : "Barcode / EAN-13"}
               </label>
               <div className="relative flex items-center">
                 <Barcode className="w-4 h-4 absolute left-3 text-slate-400" />
@@ -216,7 +222,7 @@ export function ProductPromotionModal({
                   type="text"
                   value={barcode}
                   onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="e.g. 8901262010052"
+                  placeholder={hi ? "जैसे 8901262010052" : "e.g. 8901262010052"}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] font-mono text-slate-900"
                 />
               </div>
@@ -225,14 +231,14 @@ export function ProductPromotionModal({
             {/* Product Name */}
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Master Product Name *
+                {hi ? "मास्टर प्रोडक्ट का नाम *" : "Master Product Name *"}
               </label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Amul Taaza Homogenised Toned Milk 1L"
+                placeholder={hi ? "जैसे Amul Taaza Homogenised Toned Milk 1L" : "e.g. Amul Taaza Homogenised Toned Milk 1L"}
                 className="w-full px-3 py-1.5 text-xs font-semibold text-slate-900 bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42]"
               />
             </div>
@@ -240,14 +246,14 @@ export function ProductPromotionModal({
             {/* Brand */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Brand / FMCG Principal *
+                {hi ? "ब्रांड / FMCG कंपनी *" : "Brand / FMCG Principal *"}
               </label>
               <input
                 type="text"
                 required
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
-                placeholder="e.g. Amul / GCMMF"
+                placeholder={hi ? "जैसे Amul / GCMMF" : "e.g. Amul / GCMMF"}
                 className="w-full px-3 py-1.5 text-xs text-slate-900 bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42]"
               />
             </div>
@@ -255,33 +261,33 @@ export function ProductPromotionModal({
             {/* Category ID / Hierarchy */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Category (Master ID) *
+                {hi ? "कैटेगरी (मास्टर ID) *" : "Category (Master ID) *"}
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="w-full px-3 py-1.5 text-xs text-slate-900 bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42]"
               >
-                <option value="1">1 — Dairy & Cold Chain (Milk, Curd, Butter)</option>
-                <option value="2">2 — Staples & Flours (Atta, Rice, Pulses)</option>
-                <option value="3">3 — Edible Oils & Ghee</option>
-                <option value="4">4 — Packaged & Instant Foods</option>
-                <option value="5">5 — Beverages & Tea/Coffee</option>
-                <option value="6">6 — Personal Care & Hygiene</option>
-                <option value="7">7 — Household Cleaning & Essentials</option>
+                <option value="1">1 — {hi ? "डेयरी और कोल्ड चेन (दूध, दही, मक्खन)" : "Dairy & Cold Chain (Milk, Curd, Butter)"}</option>
+                <option value="2">2 — {hi ? "राशन और आटा (आटा, चावल, दालें)" : "Staples & Flours (Atta, Rice, Pulses)"}</option>
+                <option value="3">3 — {hi ? "खाने के तेल और घी" : "Edible Oils & Ghee"}</option>
+                <option value="4">4 — {hi ? "पैकेट और इंस्टेंट फूड" : "Packaged & Instant Foods"}</option>
+                <option value="5">5 — {hi ? "पेय और चाय/कॉफ़ी" : "Beverages & Tea/Coffee"}</option>
+                <option value="6">6 — {hi ? "पर्सनल केयर और स्वच्छता" : "Personal Care & Hygiene"}</option>
+                <option value="7">7 — {hi ? "घर की सफ़ाई और ज़रूरी सामान" : "Household Cleaning & Essentials"}</option>
               </select>
             </div>
 
             {/* Description */}
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Master Description & Packaging
+                {hi ? "मास्टर विवरण और पैकेजिंग" : "Master Description & Packaging"}
               </label>
               <textarea
                 rows={2}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="High quality standard retail SKU with standardized packaging attributes."
+                placeholder={hi ? "मानक पैकेजिंग वाला अच्छी क्वालिटी का रिटेल SKU।" : "High quality standard retail SKU with standardized packaging attributes."}
                 className="w-full px-3 py-1.5 text-xs text-slate-900 bg-slate-50 border border-slate-300 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42]"
               />
             </div>
@@ -289,7 +295,7 @@ export function ProductPromotionModal({
             {/* Unit Price */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Verified MRP / Benchmark (₹)
+                {hi ? "सत्यापित MRP / बेंचमार्क (₹)" : "Verified MRP / Benchmark (₹)"}
               </label>
               <div className="relative flex items-center">
                 <IndianRupee className="w-3.5 h-3.5 absolute left-3 text-slate-400" />
@@ -305,15 +311,15 @@ export function ProductPromotionModal({
 
             {/* Pricing guardrail guidance */}
             <div className="flex flex-col justify-center text-[11px] text-slate-500 bg-slate-50 p-2 rounded border border-slate-200">
-              <span className="font-semibold text-slate-700">Anti-Gouging Ceiling Lock</span>
-              <span>Protects local dukandaars while guaranteeing verified standard margins.</span>
+              <span className="font-semibold text-slate-700">{hi ? "मनमाने दाम पर रोक (अधिकतम सीमा)" : "Anti-Gouging Ceiling Lock"}</span>
+              <span>{hi ? "स्थानीय दुकानदारों की सुरक्षा करता है और तय मार्जिन पक्का रखता है।" : "Protects local dukandaars while guaranteeing verified standard margins."}</span>
             </div>
           </div>
 
           {/* Governance Checklist */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-xs">
             <div className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-              Governance & Distribution Controls
+              {hi ? "नियंत्रण और वितरण सेटिंग्स" : "Governance & Distribution Controls"}
             </div>
             <label className="flex items-start gap-2 cursor-pointer text-slate-700">
               <input
@@ -323,7 +329,7 @@ export function ProductPromotionModal({
                 className="mt-0.5 rounded border-slate-300 text-[#1F5D42] focus:ring-[#1F5D42]"
               />
               <span className="leading-snug">
-                <strong>Enforce MRP Price Ceiling</strong> across all connected tenant shops.
+                <strong>{hi ? "MRP की अधिकतम सीमा लागू करें" : "Enforce MRP Price Ceiling"}</strong> {hi ? "सभी जुड़ी दुकानों पर।" : "across all connected tenant shops."}
               </span>
             </label>
             <label className="flex items-start gap-2 cursor-pointer text-slate-700">
@@ -334,7 +340,7 @@ export function ProductPromotionModal({
                 className="mt-0.5 rounded border-slate-300 text-[#1F5D42] focus:ring-[#1F5D42]"
               />
               <span className="leading-snug">
-                <strong>Broadcast live master update</strong> to merchant network via WhatsApp Sync Engine.
+                <strong>{hi ? "लाइव मास्टर अपडेट भेजें" : "Broadcast live master update"}</strong> {hi ? "मर्चेंट नेटवर्क को व्हाट्सऐप सिंक इंजन से।" : "to merchant network via WhatsApp Sync Engine."}
               </span>
             </label>
           </div>
@@ -346,7 +352,7 @@ export function ProductPromotionModal({
               onClick={onClose}
               className="px-3 py-2 border border-slate-300 text-slate-700 text-xs font-semibold rounded hover:bg-slate-100 transition-colors"
             >
-              Dismiss
+              {hi ? "बंद करें" : "Dismiss"}
             </button>
             <button
               type="submit"
@@ -356,12 +362,12 @@ export function ProductPromotionModal({
               {loading ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Promoting to Master SKU...</span>
+                  <span>{hi ? "मास्टर SKU में जोड़ा जा रहा है..." : "Promoting to Master SKU..."}</span>
                 </>
               ) : (
                 <>
                   <CloudUpload className="w-3.5 h-3.5" />
-                  <span>Promote to Master SKU</span>
+                  <span>{hi ? "मास्टर SKU में जोड़ें" : "Promote to Master SKU"}</span>
                 </>
               )}
             </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -24,6 +24,29 @@ import {
 import { customerApi, PublicShopInfo } from "@/lib/api/customer";
 import { formatPrice } from "@/lib/format";
 
+
+// Shared language preference (localStorage "dukandaar_lang"), same value on storefront, cart and order pages
+const LANG_KEY = "dukandaar_lang";
+const LANG_EVENT = "dukandaar-lang-change";
+function subscribeLang(cb: () => void) {
+  window.addEventListener("storage", cb);
+  window.addEventListener(LANG_EVENT, cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener(LANG_EVENT, cb);
+  };
+}
+function getLangSnapshot(): "en" | "hi" {
+  try {
+    return localStorage.getItem(LANG_KEY) === "hi" ? "hi" : "en";
+  } catch {
+    return "en";
+  }
+}
+function getLangServerSnapshot(): "en" | "hi" {
+  return "en";
+}
+
 export default function OrderConfirmationPage() {
   const params = useParams();
   const publicSlug = Array.isArray(params?.publicSlug)
@@ -35,6 +58,20 @@ export default function OrderConfirmationPage() {
 
   const [shop, setShop] = useState<PublicShopInfo | null>(null);
   const [orderData, setOrderData] = useState<any>(null);
+
+  const language = useSyncExternalStore(subscribeLang, getLangSnapshot, getLangServerSnapshot);
+  const isHindi = language === "hi";
+
+  // Translate common backend error messages (falls back to the original text)
+  const tr = (msg: string): string => {
+    if (!isHindi) return msg;
+    const m = msg.toLowerCase();
+    if (m.includes("accepted") || m.includes("cannot be cancelled") || m.includes("can not be cancelled"))
+      return "ऑर्डर रद्द नहीं हो सकता। दुकानदार इसे स्वीकार कर चुके हो सकते हैं।";
+    if (m.includes("already") && m.includes("cancel")) return "यह ऑर्डर पहले ही रद्द हो चुका है।";
+    if (m.includes("not found")) return "ऑर्डर नहीं मिला।";
+    return msg;
+  };
   const [copied, setCopied] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
@@ -114,7 +151,10 @@ export default function OrderConfirmationPage() {
       } catch {}
     } catch (err: any) {
       setCancelError(
-        err.response?.data?.detail || "Order could not be cancelled. It may have already been accepted by the shopkeeper."
+        tr(err.response?.data?.detail || "") ||
+          (isHindi
+            ? "ऑर्डर रद्द नहीं हो सका। हो सकता है दुकानदार इसे स्वीकार कर चुके हों।"
+            : "Order could not be cancelled. It may have already been accepted by the shopkeeper.")
       );
     } finally {
       setCancelling(false);
@@ -132,34 +172,47 @@ export default function OrderConfirmationPage() {
   const serverWaLink = orderData?.whatsapp_notification_links?.hinglish || orderData?.whatsapp_notification_links?.en;
 
   const shopDisplayName = orderData?.shop_name || shop?.name || "Dukandaar";
-  const customerName = orderData?.customer_name || "Customer";
+  const customerName = orderData?.customer_name || (isHindi ? "ग्राहक" : "Customer");
   const customerPhone = orderData?.customer_phone || "";
   const fulfillmentType = orderData?.fulfillment_type || "HOME_DELIVERY";
-  const fulfillmentStr = fulfillmentType === "PICKUP" ? "Store Pickup (दुकान से पिकअप)" : "Home Delivery (घर पर डिलीवरी)";
+  const fulfillmentStr = isHindi
+    ? fulfillmentType === "PICKUP"
+      ? "दुकान से पिकअप"
+      : "घर पर डिलीवरी"
+    : fulfillmentType === "PICKUP"
+    ? "Store Pickup (दुकान से पिकअप)"
+    : "Home Delivery (घर पर डिलीवरी)";
   const addr = orderData?.delivery_address;
   const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
 
   const itemsLines = (orderData?.items || []).map(
     (item: any) => `• ${item.product_name}${item.variant_name ? ` (${item.variant_name})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${formatPrice(item.line_total || "0")}`
   );
-  const itemsText = itemsLines.length > 0 ? itemsLines.join("\n") : "• Items from store";
+  const itemsText =
+    itemsLines.length > 0
+      ? itemsLines.join("\n")
+      : isHindi
+      ? "• दुकान से सामान"
+      : "• Items from store";
 
   const messageLines = [
-    `🛍️ *Order #SK-${orderId}*`,
-    `Dukaan: *${shopDisplayName}*`,
+    isHindi ? `🛍️ *ऑर्डर #SK-${orderId}*` : `🛍️ *Order #SK-${orderId}*`,
+    isHindi ? `दुकान: *${shopDisplayName}*` : `Dukaan: *${shopDisplayName}*`,
     ``,
-    `👤 Customer: ${customerName}${customerPhone ? ` (${customerPhone})` : ""}`,
-    `🚚 Fulfillment: ${fulfillmentStr}${addrText ? `\n📍 Address: ${addrText}` : ""}`,
+    `👤 ${isHindi ? "ग्राहक" : "Customer"}: ${customerName}${customerPhone ? ` (${customerPhone})` : ""}`,
+    `🚚 ${isHindi ? "डिलीवरी का तरीका" : "Fulfillment"}: ${fulfillmentStr}${addrText ? `\n📍 ${isHindi ? "पता" : "Address"}: ${addrText}` : ""}`,
     ``,
-    `📦 *Items Ordered:*`,
+    isHindi ? `📦 *ऑर्डर किया हुआ सामान:*` : `📦 *Items Ordered:*`,
     itemsText,
     ``,
-    `💰 *Bill Details:*`,
-    orderData?.items_subtotal ? `• Items Total: ₹${formatPrice(orderData.items_subtotal)}` : null,
-    orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• Delivery Fee: ₹${formatPrice(orderData.delivery_charge)}` : null,
-    `• *Total Payable: ₹${orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}*`,
+    isHindi ? `💰 *बिल का ब्यौरा:*` : `💰 *Bill Details:*`,
+    orderData?.items_subtotal ? `• ${isHindi ? "सामान का कुल" : "Items Total"}: ₹${formatPrice(orderData.items_subtotal)}` : null,
+    orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• ${isHindi ? "डिलीवरी शुल्क" : "Delivery Fee"}: ₹${formatPrice(orderData.delivery_charge)}` : null,
+    `• *${isHindi ? "कुल देय" : "Total Payable"}: ₹${orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}*`,
     ``,
-    `Namaste ${shopDisplayName}! Maine dukaan se order place kiya hai. Please check karke confirm karein! 🙏`,
+    isHindi
+      ? `नमस्ते ${shopDisplayName}! मैंने दुकान से ऑर्डर किया है। कृपया देखकर कन्फर्म करें! 🙏`
+      : `Namaste ${shopDisplayName}! Maine dukaan se order place kiya hai. Please check karke confirm karein! 🙏`,
   ].filter((line) => line !== null);
 
   const fullMessage = messageLines.join("\n");
@@ -168,7 +221,7 @@ export default function OrderConfirmationPage() {
     ? `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(fullMessage)}`
     : (serverWaLink || "");
 
-  const currentTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const currentTime = new Date().toLocaleTimeString(isHindi ? "hi-IN" : [], { hour: "2-digit", minute: "2-digit" });
 
   return (
     <div className="min-h-screen bg-[#F6F0E6] text-[#17251e] font-sans pb-16">
@@ -180,11 +233,11 @@ export default function OrderConfirmationPage() {
             className="flex items-center gap-2 text-[#17251e] hover:text-[#1F5D42] transition-colors"
           >
             <ArrowLeft className="w-4 h-4 text-[#1F5D42]" />
-            <span className="text-xs font-bold font-display tracking-tight text-[#1F5D42]">{shop?.name || "Shop"}</span>
+            <span className="text-xs font-bold font-display tracking-tight text-[#1F5D42]">{shop?.name || (isHindi ? "दुकान" : "Shop")}</span>
           </Link>
           <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#1F5D42] bg-[#e7f2eb] px-2.5 py-0.5 rounded-full border border-[#cde0d5]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#1F5D42] animate-ping" />
-            Live Storefront Order
+            {isHindi ? "लाइव दुकान ऑर्डर" : "Live Storefront Order"}
           </span>
         </div>
       </header>
@@ -199,25 +252,42 @@ export default function OrderConfirmationPage() {
           <div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase mb-2 bg-[#e7f2eb] text-[#1F5D42] border border-[#cde0d5]">
               {cancelled ? (
-                <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded-full">Order Cancelled / रद्द किया गया</span>
+                <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded-full">{isHindi ? "ऑर्डर रद्द हुआ" : "Order Cancelled / रद्द किया गया"}</span>
               ) : (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-[#1F5D42]" />
-                  <span>Order Placed Successfully · ऑर्डर दर्ज हुआ</span>
+                  <span>{isHindi ? "ऑर्डर दर्ज हो गया" : "Order Placed Successfully · ऑर्डर दर्ज हुआ"}</span>
                 </>
               )}
             </div>
 
             <h1 className="font-display font-bold text-2xl sm:text-3xl text-[#123324] leading-tight">
-              {cancelled ? "Order has been cancelled" : "Your order is confirmed!"}
+              {cancelled
+                ? isHindi
+                  ? "ऑर्डर रद्द कर दिया गया है"
+                  : "Order has been cancelled"
+                : isHindi
+                ? "आपका ऑर्डर पक्का हो गया!"
+                : "Your order is confirmed!"}
             </h1>
             <p className="text-xs text-[#5e665f] mt-1 max-w-sm mx-auto leading-relaxed">
               {cancelled ? (
-                "This order was cancelled by customer request. Reserved items have been returned to the store shelf."
+                isHindi
+                  ? "यह ऑर्डर ग्राहक के कहने पर रद्द किया गया। रखा हुआ सामान वापस दुकान की शेल्फ में रख दिया गया है।"
+                  : "This order was cancelled by customer request. Reserved items have been returned to the store shelf."
               ) : (
                 <>
-                  <strong className="text-[#123324] font-semibold">{shop?.name || "Shop"}</strong> has received your order{" "}
-                  <b className="text-[#1F5D42]">#SK-{orderId}</b>.
+                  {isHindi ? (
+                    <>
+                      <strong className="text-[#123324] font-semibold">{shop?.name || "दुकान"}</strong> को आपका ऑर्डर{" "}
+                      <b className="text-[#1F5D42]">#SK-{orderId}</b> मिल गया है।
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-[#123324] font-semibold">{shop?.name || "Shop"}</strong> has received your order{" "}
+                      <b className="text-[#1F5D42]">#SK-{orderId}</b>.
+                    </>
+                  )}
                 </>
               )}
             </p>
@@ -229,7 +299,7 @@ export default function OrderConfirmationPage() {
             <button
               onClick={handleCopyOrderId}
               className="text-[#6d756f] hover:text-[#123324] transition-colors cursor-pointer"
-              title="Copy Order ID"
+              title={isHindi ? "ऑर्डर नंबर कॉपी करें" : "Copy Order ID"}
             >
               {copied ? <Check className="w-3.5 h-3.5 text-[#1F5D42]" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
@@ -246,14 +316,22 @@ export default function OrderConfirmationPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <h3 className="font-display font-bold text-sm text-[#123324]">
-                    Send Details to Merchant via WhatsApp
+                    {isHindi ? "व्हाट्सएप पर दुकानदार को ऑर्डर भेजें" : "Send Details to Merchant via WhatsApp"}
                   </h3>
                   <span className="text-[9px] font-bold bg-[#25D366] text-white px-2 py-0.5 rounded-full">
-                    Recommended
+                    {isHindi ? "सुझाया गया" : "Recommended"}
                   </span>
                 </div>
                 <p className="text-xs text-[#5e665f] mt-0.5 leading-snug">
-                  व्यापारी <b>{shopDisplayName}</b> को तुरंत व्हाट्सएप पर ऑर्डर भेजें ताकि वो सामान पैक करके जल्दी भेज सकें।
+                  {isHindi ? (
+                    <>
+                      व्यापारी <b>{shopDisplayName}</b> को तुरंत व्हाट्सएप पर ऑर्डर भेजें ताकि वो सामान पैक करके जल्दी भेज सकें।
+                    </>
+                  ) : (
+                    <>
+                      Send the order to <b>{shopDisplayName}</b> on WhatsApp right away so they can pack and dispatch it quickly.
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -266,12 +344,14 @@ export default function OrderConfirmationPage() {
                 className="w-full py-4 px-5 bg-gradient-to-r from-[#25D366] via-[#1eb858] to-[#128C7E] hover:brightness-105 active:scale-[0.99] text-white font-body font-bold text-sm sm:text-base rounded-2xl shadow-[0_8px_20px_rgba(37,211,102,0.35)] transition flex items-center justify-center gap-2.5 cursor-pointer"
               >
                 <MessageCircle className="w-5 h-5 fill-white" />
-                <span>Send Order on WhatsApp · व्हाट्सएप पर भेजें</span>
+                <span>{isHindi ? "व्हाट्सएप पर ऑर्डर भेजें" : "Send Order on WhatsApp · व्हाट्सएप पर भेजें"}</span>
                 <ExternalLink className="w-4 h-4 opacity-90" />
               </a>
             ) : (
               <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200">
-                Shopkeeper contact number is not available for WhatsApp. The order is recorded in their live dashboard.
+                {isHindi
+                  ? "दुकानदार का व्हाट्सएप नंबर उपलब्ध नहीं है। आपका ऑर्डर उनके लाइव डैशबोर्ड में दर्ज है।"
+                  : "Shopkeeper contact number is not available for WhatsApp. The order is recorded in their live dashboard."}
               </p>
             )}
 
@@ -284,11 +364,11 @@ export default function OrderConfirmationPage() {
                   </div>
                   <div>
                     <h4 className="text-[11px] font-bold leading-tight">{shopDisplayName}</h4>
-                    <p className="text-[8px] text-white/80">pre-filled message preview</p>
+                    <p className="text-[8px] text-white/80">{isHindi ? "पहले से भरे संदेश का प्रीव्यू" : "pre-filled message preview"}</p>
                   </div>
                 </div>
                 <span className="text-[9px] font-semibold bg-white/20 px-2 py-0.5 rounded text-white/90">
-                  Ready to send
+                  {isHindi ? "भेजने के लिए तैयार" : "Ready to send"}
                 </span>
               </div>
 
@@ -321,7 +401,7 @@ export default function OrderConfirmationPage() {
           <div className="flex items-center justify-between pb-2 border-b border-[#eee8dc]">
             <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] flex items-center gap-1.5">
               <ShoppingBag className="w-4 h-4 text-[#1F5D42]" />
-              <span>Items Breakdown ({orderData?.items?.length || 0} items)</span>
+              <span>{isHindi ? `सामान का ब्यौरा (${orderData?.items?.length || 0} सामान)` : `Items Breakdown (${orderData?.items?.length || 0} items)`}</span>
             </h3>
             <span className="text-xs font-bold text-[#1F5D42]">
               ₹{orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}
@@ -352,17 +432,17 @@ export default function OrderConfirmationPage() {
           {/* Pricing Totals */}
           <div className="pt-2 border-t border-[#eee8dc] space-y-1.5 text-xs text-[#5e665f]">
             <div className="flex justify-between">
-              <span>Items Subtotal</span>
+              <span>{isHindi ? "सामान का कुल" : "Items Subtotal"}</span>
               <span>₹{orderData?.items_subtotal ? formatPrice(orderData.items_subtotal) : "0"}</span>
             </div>
             {orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 && (
               <div className="flex justify-between">
-                <span>Delivery Charge</span>
+                <span>{isHindi ? "डिलीवरी शुल्क" : "Delivery Charge"}</span>
                 <span>₹{formatPrice(orderData.delivery_charge)}</span>
               </div>
             )}
             <div className="flex justify-between pt-1 border-t border-[#eee8dc] text-sm font-bold text-[#123324]">
-              <span>Grand Total</span>
+              <span>{isHindi ? "कुल बिल" : "Grand Total"}</span>
               <span className="text-[#1F5D42]">
                 ₹{orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}
               </span>
@@ -373,7 +453,7 @@ export default function OrderConfirmationPage() {
         {/* 4. Delivery & Customer Information Card */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-5 shadow-sm space-y-3">
           <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] pb-2 border-b border-[#eee8dc]">
-            Fulfillment & Customer Details
+            {isHindi ? "डिलीवरी और ग्राहक की जानकारी" : "Fulfillment & Customer Details"}
           </h3>
           <div className="space-y-2 text-xs">
             <div className="flex items-start gap-2 text-[#17251e]">
@@ -401,7 +481,7 @@ export default function OrderConfirmationPage() {
         {/* 5. 4-Stage Live Order Status Timeline */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-5 shadow-sm space-y-4">
           <h3 className="font-display font-bold text-xs uppercase tracking-wider text-[#123324] pb-2 border-b border-[#eee8dc]">
-            Live Order Progress
+            {isHindi ? "ऑर्डर की लाइव स्थिति" : "Live Order Progress"}
           </h3>
 
           <div className="space-y-4 relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-[#ddd6ca]">
@@ -411,8 +491,8 @@ export default function OrderConfirmationPage() {
                 {cancelled ? <XCircle className="w-3 h-3" /> : <Check className="w-3 h-3" />}
               </span>
               <div>
-                <h4 className="text-xs font-bold text-[#123324]">Order Placed</h4>
-                <p className="text-[11px] text-[#6d756f]">Received in shopkeeper's order desk.</p>
+                <h4 className="text-xs font-bold text-[#123324]">{isHindi ? "ऑर्डर दर्ज हुआ" : "Order Placed"}</h4>
+                <p className="text-[11px] text-[#6d756f]">{isHindi ? "दुकानदार के ऑर्डर डेस्क पर पहुंच गया।" : "Received in shopkeeper's order desk."}</p>
               </div>
             </div>
 
@@ -422,8 +502,8 @@ export default function OrderConfirmationPage() {
                 <Store className="w-3 h-3" />
               </span>
               <div>
-                <h4 className="text-xs font-bold text-[#123324]">Awaiting Dukandaar Confirmation</h4>
-                <p className="text-[11px] text-[#6d756f]">Shopkeeper verifies live stock on shelves.</p>
+                <h4 className="text-xs font-bold text-[#123324]">{isHindi ? "दुकानदार की पुष्टि का इंतज़ार" : "Awaiting Dukandaar Confirmation"}</h4>
+                <p className="text-[11px] text-[#6d756f]">{isHindi ? "दुकानदार शेल्फ पर सामान चेक करते हैं।" : "Shopkeeper verifies live stock on shelves."}</p>
               </div>
             </div>
 
@@ -433,8 +513,8 @@ export default function OrderConfirmationPage() {
                 <Clock className="w-3 h-3" />
               </span>
               <div>
-                <h4 className="text-xs font-bold text-[#6d756f]">Packing Items</h4>
-                <p className="text-[11px] text-[#8e9690]">Fresh products packed for you.</p>
+                <h4 className="text-xs font-bold text-[#6d756f]">{isHindi ? "सामान की पैकिंग" : "Packing Items"}</h4>
+                <p className="text-[11px] text-[#8e9690]">{isHindi ? "आपके लिए ताज़ा सामान पैक हो रहा है।" : "Fresh products packed for you."}</p>
               </div>
             </div>
 
@@ -444,8 +524,8 @@ export default function OrderConfirmationPage() {
                 <Bike className="w-3 h-3" />
               </span>
               <div>
-                <h4 className="text-xs font-bold text-[#6d756f]">Out for Delivery / Ready for Pickup</h4>
-                <p className="text-[11px] text-[#8e9690]">Dispatched to your doorstep.</p>
+                <h4 className="text-xs font-bold text-[#6d756f]">{isHindi ? "डिलीवरी के लिए निकला / पिकअप के लिए तैयार" : "Out for Delivery / Ready for Pickup"}</h4>
+                <p className="text-[11px] text-[#8e9690]">{isHindi ? "आपके दरवाज़े तक भेजा जा रहा है।" : "Dispatched to your doorstep."}</p>
               </div>
             </div>
           </div>
@@ -456,15 +536,17 @@ export default function OrderConfirmationPage() {
           {cancelled ? (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
               <XCircle className="w-4 h-4 shrink-0" />
-              <span>Order has been successfully cancelled. Reserved items were released back to the store shelf.</span>
+              <span>{isHindi ? "ऑर्डर रद्द हो गया है। रखा हुआ सामान वापस दुकान की शेल्फ में रख दिया गया है।" : "Order has been successfully cancelled. Reserved items were released back to the store shelf."}</span>
             </div>
           ) : (
             <div>
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-[#123324]">Need to cancel?</h4>
+                  <h4 className="text-xs font-bold text-[#123324]">{isHindi ? "ऑर्डर रद्द करना है?" : "Need to cancel?"}</h4>
                   <p className="text-[11px] text-[#6d756f]">
-                    You can cancel your order within {timeFormatted} minutes before packing begins.
+                    {isHindi
+                      ? `पैकिंग शुरू होने से पहले आप ${timeFormatted} मिनट के अंदर ऑर्डर रद्द कर सकते हैं।`
+                      : `You can cancel your order within ${timeFormatted} minutes before packing begins.`}
                   </p>
                 </div>
               </div>
@@ -485,12 +567,12 @@ export default function OrderConfirmationPage() {
                   {cancelling ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Cancelling order…</span>
+                      <span>{isHindi ? "ऑर्डर रद्द हो रहा है…" : "Cancelling order…"}</span>
                     </>
                   ) : (
                     <>
                       <XCircle className="w-3.5 h-3.5" />
-                      <span>Cancel Order ({timeFormatted} remaining)</span>
+                      <span>{isHindi ? `ऑर्डर रद्द करें (${timeFormatted} बाकी)` : `Cancel Order (${timeFormatted} remaining)`}</span>
                     </>
                   )}
                 </button>
@@ -505,7 +587,7 @@ export default function OrderConfirmationPage() {
             href={`/shop/${publicSlug}`}
             className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-[#123324] hover:bg-[#1F5D42] text-white text-xs font-bold font-display shadow-sm transition-all"
           >
-            <span>Done · Return to {shop?.name || "Shop"}</span>
+            <span>{isHindi ? `हो गया · ${shop?.name || "दुकान"} पर वापस जाएं` : `Done · Return to ${shop?.name || "Shop"}`}</span>
           </Link>
         </div>
       </main>

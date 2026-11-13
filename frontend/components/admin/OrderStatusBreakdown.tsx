@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useAdminLang } from "./useAdminLang";
 import { Activity, Clock, CheckCircle2, XCircle, PackageCheck, Truck } from "lucide-react";
 
 interface OrderStatusDistribution {
@@ -21,10 +22,11 @@ export function OrderStatusBreakdown({
   distribution,
   totalOrders = 0,
 }: OrderStatusBreakdownProps) {
+  const hi = useAdminLang() === "hi";
   const statuses = [
     {
       key: "PENDING" as const,
-      label: "Pending Acceptance",
+      label: hi ? "स्वीकृति का इंतज़ार" : "Pending Acceptance",
       color: "bg-amber-500",
       lightBg: "bg-amber-50 text-amber-700 border-amber-200",
       icon: Clock,
@@ -32,7 +34,7 @@ export function OrderStatusBreakdown({
     },
     {
       key: "ACCEPTED" as const,
-      label: "Accepted in Queue",
+      label: hi ? "कतार में स्वीकार किए" : "Accepted in Queue",
       color: "bg-sky-500",
       lightBg: "bg-sky-50 text-sky-700 border-sky-200",
       icon: Activity,
@@ -40,7 +42,7 @@ export function OrderStatusBreakdown({
     },
     {
       key: "PREPARING" as const,
-      label: "Packaging in Progress",
+      label: hi ? "पैकिंग जारी है" : "Packaging in Progress",
       color: "bg-indigo-500",
       lightBg: "bg-indigo-50 text-indigo-700 border-indigo-200",
       icon: Activity,
@@ -48,7 +50,7 @@ export function OrderStatusBreakdown({
     },
     {
       key: "READY" as const,
-      label: "Ready for Pickup",
+      label: hi ? "पिकअप के लिए तैयार" : "Ready for Pickup",
       color: "bg-purple-500",
       lightBg: "bg-purple-50 text-purple-700 border-purple-200",
       icon: PackageCheck,
@@ -56,7 +58,7 @@ export function OrderStatusBreakdown({
     },
     {
       key: "COMPLETED" as const,
-      label: "Completed & Fulfilled",
+      label: hi ? "पूरे हुए और डिलीवर" : "Completed & Fulfilled",
       color: "bg-emerald-500",
       lightBg: "bg-emerald-50 text-emerald-700 border-emerald-200",
       icon: CheckCircle2,
@@ -64,7 +66,7 @@ export function OrderStatusBreakdown({
     },
     {
       key: "REJECTED" as const,
-      label: "Rejected / Declined",
+      label: hi ? "अस्वीकृत / रद्द" : "Rejected / Declined",
       color: "bg-rose-500",
       lightBg: "bg-rose-50 text-rose-700 border-rose-200",
       icon: XCircle,
@@ -78,11 +80,11 @@ export function OrderStatusBreakdown({
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-emerald-600" />
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Order Fulfillment Pipeline
+            {hi ? "ऑर्डर पूर्ति की स्थिति" : "Order Fulfillment Pipeline"}
           </h3>
         </div>
         <span className="text-[11px] text-slate-500">
-          Total: <span className="font-bold text-slate-700 font-mono">{totalOrders}</span> orders
+          {hi ? "कुल" : "Total"}: <span className="font-bold text-slate-700 font-mono">{totalOrders}</span> {hi ? "ऑर्डर" : "orders"}
         </span>
       </div>
 

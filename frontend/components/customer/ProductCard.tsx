@@ -139,7 +139,7 @@ export function ProductCard({
                 <button
                   onClick={() => onUpdateQuantity(product, -1)}
                   className="w-7 h-7 flex items-center justify-center hover:bg-[#123324] rounded-lg transition-colors font-bold text-sm active:scale-90"
-                  title="Remove one"
+                  title={isHindi ? "एक कम करें" : "Remove one"}
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
@@ -149,7 +149,7 @@ export function ProductCard({
                 <button
                   onClick={() => onUpdateQuantity(product, 1)}
                   className="w-7 h-7 flex items-center justify-center hover:bg-[#123324] rounded-lg transition-colors font-bold text-sm active:scale-90"
-                  title="Add one more"
+                  title={isHindi ? "एक और जोड़ें" : "Add one more"}
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>

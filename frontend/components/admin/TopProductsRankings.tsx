@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Package, TrendingUp, Sparkles } from "lucide-react";
+import { useAdminLang } from "./useAdminLang";
 
 export interface TopProductItem {
   product_id: number;
@@ -18,6 +19,8 @@ interface TopProductsRankingsProps {
 }
 
 export function TopProductsRankings({ products = [] }: TopProductsRankingsProps) {
+  const lang = useAdminLang();
+  const hi = lang === "hi";
   const displayProducts = products;
 
   return (
@@ -26,16 +29,16 @@ export function TopProductsRankings({ products = [] }: TopProductsRankingsProps)
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-emerald-600" />
           <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-            Network Top Performing SKUs
+            {hi ? "नेटवर्क के टॉप बिकने वाले SKU" : "Network Top Performing SKUs"}
           </h3>
         </div>
-        <span className="text-[11px] text-slate-500">Cross-Tenant Sales Telemetry</span>
+        <span className="text-[11px] text-slate-500">{hi ? "सभी दुकानों का बिक्री डेटा" : "Cross-Tenant Sales Telemetry"}</span>
       </div>
 
       <div className="divide-y divide-slate-100">
         {displayProducts.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-400">
-            No product sales telemetry recorded yet.
+            {hi ? "अभी तक कोई प्रोडक्ट बिक्री डेटा दर्ज नहीं हुआ है।" : "No product sales telemetry recorded yet."}
           </div>
         ) : (
           displayProducts.map((p, idx) => (
@@ -59,11 +62,11 @@ export function TopProductsRankings({ products = [] }: TopProductsRankingsProps)
 
               <div className="text-right">
                 <div className="text-xs font-mono font-bold text-[#1F5D42]">
-                  ₹{parseFloat(p.total_revenue).toLocaleString("en-IN")}
+                  ₹{parseFloat(p.total_revenue).toLocaleString(hi ? "hi-IN" : "en-IN")}
                 </div>
                 <div className="text-[10px] text-slate-500 flex items-center gap-1 justify-end">
                   <TrendingUp className="w-3 h-3 text-emerald-600" />
-                  <span>{p.units_sold} units sold</span>
+                  <span>{hi ? `${p.units_sold} यूनिट बिकीं` : `${p.units_sold} units sold`}</span>
                 </div>
               </div>
             </div>

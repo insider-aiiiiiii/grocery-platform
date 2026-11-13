@@ -139,7 +139,7 @@ export default function MerchantLoginPage() {
 
           <p className="mt-5 max-w-md text-sm leading-relaxed text-[#b9cac0]">
             {lang === "hi"
-              ? "दुकान का इन्वेंटरी स्टॉक, व्हाट्सएप ऑर्डर और मास्टर कैटलॉग संभालें आसान तरीके से — बिना किसी झंझट के।"
+              ? "दुकान का स्टॉक, व्हाट्सएप ऑर्डर और प्रोडक्ट लिस्ट आसान तरीके से संभालें — बिना किसी झंझट के।"
               : "A calm, powerful way to manage inventory, fulfill customer orders, and grow your local retail business."}
           </p>
 
@@ -151,11 +151,11 @@ export default function MerchantLoginPage() {
             </div>
             <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
               <CheckCircle2 size={16} className="text-[#E8A33D] shrink-0" />
-              <span>{lang === "hi" ? "मास्टर कैटलॉग से 1-क्लिक में प्रोडक्ट्स जोड़ें" : "One-click product add from platform Master Catalog"}</span>
+              <span>{lang === "hi" ? "तैयार प्रोडक्ट लिस्ट से 1 क्लिक में प्रोडक्ट जोड़ें" : "Add products in one click from a ready-made catalog"}</span>
             </div>
             <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
               <CheckCircle2 size={16} className="text-[#E8A33D] shrink-0" />
-              <span>{lang === "hi" ? "दुकान का सीधा QR कोड व डिलीवरी नियंत्रण" : "Direct storefront QR code & home delivery controls"}</span>
+              <span>{lang === "hi" ? "अपना दुकान का QR कोड और होम डिलीवरी की सेटिंग" : "Your own shop QR code and home delivery settings"}</span>
             </div>
           </div>
 
@@ -334,8 +334,8 @@ export default function MerchantLoginPage() {
             <div className="mt-7 pt-5 border-t border-[#eee9df] text-center space-y-2.5">
               <p className="text-[10px] text-[#848c85]">
                 {lang === "hi"
-                  ? "सुरक्षित सत्र प्रबंधन व डेटा एन्क्रिप्शन सक्रिय है।"
-                  : "Protected by Dukandaar verified multi-tenant security."}
+                  ? "आपकी दुकान का डेटा सुरक्षित और सिर्फ आपके पास रहता है।"
+                  : "Your shop's data stays safe and private to you."}
               </p>
             </div>
           </div>

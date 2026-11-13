@@ -22,6 +22,7 @@ import {
   AlertCircle,
   Filter,
 } from "lucide-react";
+import { useAdminLang } from "./useAdminLang";
 import { adminApi, MasterProduct } from "@/lib/api/admin";
 
 export const DEFAULT_GROCERY_CATEGORIES = [
@@ -51,6 +52,7 @@ export function MasterCatalogTable({
   onRefresh,
   token,
 }: MasterCatalogTableProps) {
+  const hi = useAdminLang() === "hi";
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<MasterProduct | null>(null);
@@ -193,7 +195,7 @@ export function MasterCatalogTable({
     const trimmed = newImageUrl.trim();
     if (!trimmed) return;
     if (imageUrls.length >= 6) {
-      setError("Maximum 6 images allowed per master product.");
+      setError(hi ? "एक मास्टर प्रोडक्ट के लिए अधिकतम 6 फ़ोटो जोड़ सकते हैं।" : "Maximum 6 images allowed per master product.");
       return;
     }
     setImageUrls([...imageUrls, trimmed]);
@@ -220,7 +222,7 @@ export function MasterCatalogTable({
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("Product Name is required.");
+      setError(hi ? "प्रोडक्ट का नाम ज़रूरी है।" : "Product Name is required.");
       return;
     }
     setLoading(true);
@@ -269,7 +271,7 @@ export function MasterCatalogTable({
     e.preventDefault();
     if (!editingProduct) return;
     if (!name.trim()) {
-      setError("Product Name is required.");
+      setError(hi ? "प्रोडक्ट का नाम ज़रूरी है।" : "Product Name is required.");
       return;
     }
     setLoading(true);
@@ -314,14 +316,14 @@ export function MasterCatalogTable({
   };
 
   const handleDeleteProduct = async (id: number, productName: string) => {
-    if (!window.confirm(`Are you sure you want to delete '${productName}' from Master Catalog?`)) {
+    if (!window.confirm(hi ? `क्या आप '${productName}' को मास्टर कैटलॉग से हटाना चाहते हैं?` : `Are you sure you want to delete '${productName}' from Master Catalog?`)) {
       return;
     }
     try {
       await adminApi.deleteMasterProduct(id, token);
       onRefresh?.();
     } catch (e: any) {
-      alert(`Failed to delete: ${e.response?.data ? JSON.stringify(e.response.data) : e.message}`);
+      alert(`${hi ? "हटाने में विफल" : "Failed to delete"}: ${e.response?.data ? JSON.stringify(e.response.data) : e.message}`);
     }
   };
 
@@ -364,7 +366,7 @@ export function MasterCatalogTable({
     const file = e.target.files?.[0];
     if (!file) return;
     setImportLoading(true);
-    setImportStatus("Reading file...");
+    setImportStatus(hi ? "फ़ाइल पढ़ी जा रही है..." : "Reading file...");
 
     try {
       const text = await file.text();
@@ -377,11 +379,11 @@ export function MasterCatalogTable({
         } else if (parsed && Array.isArray(parsed.results)) {
           importedItems = parsed.results;
         } else {
-          throw new Error("JSON must contain an array of products.");
+          throw new Error(hi ? "JSON में प्रोडक्ट की एक सूची (array) होनी चाहिए।" : "JSON must contain an array of products.");
         }
       } else if (file.name.endsWith(".csv")) {
         const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length <= 1) throw new Error("CSV file has no data rows.");
+        if (lines.length <= 1) throw new Error(hi ? "CSV फ़ाइल में कोई डेटा पंक्ति नहीं है।" : "CSV file has no data rows.");
         // Skip header
         for (let i = 1; i < lines.length; i++) {
           const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
@@ -401,10 +403,10 @@ export function MasterCatalogTable({
           }
         }
       } else {
-        throw new Error("Please select a .json or .csv file.");
+        throw new Error(hi ? "कृपया .json या .csv फ़ाइल चुनें।" : "Please select a .json or .csv file.");
       }
 
-      setImportStatus(`Uploading ${importedItems.length} products to master catalog with S3 auto-sync...`);
+      setImportStatus(hi ? `${importedItems.length} प्रोडक्ट मास्टर कैटलॉग में S3 ऑटो-सिंक के साथ अपलोड हो रहे हैं...` : `Uploading ${importedItems.length} products to master catalog with S3 auto-sync...`);
       
       const payloadItems = importedItems.map((item: any) => {
         const imgList: string[] = [];
@@ -429,7 +431,7 @@ export function MasterCatalogTable({
 
       try {
         const res = await adminApi.bulkUploadMasterProducts({ products: payloadItems }, token);
-        setImportStatus(`Successfully imported ${res.created_count} of ${payloadItems.length} products with photo sync!`);
+        setImportStatus(hi ? `${payloadItems.length} में से ${res.created_count} प्रोडक्ट फ़ोटो सिंक के साथ सफलतापूर्वक इम्पोर्ट हुए!` : `Successfully imported ${res.created_count} of ${payloadItems.length} products with photo sync!`);
       } catch {
         // Fallback to sequential uploads if bulk endpoint encounters individual issue
         let successCount = 0;
@@ -442,7 +444,7 @@ export function MasterCatalogTable({
             // continue
           }
         }
-        setImportStatus(`Imported ${successCount} of ${payloadItems.length} products!`);
+        setImportStatus(hi ? `${payloadItems.length} में से ${successCount} प्रोडक्ट इम्पोर्ट हुए!` : `Imported ${successCount} of ${payloadItems.length} products!`);
       }
 
       setTimeout(() => {
@@ -451,7 +453,7 @@ export function MasterCatalogTable({
         onRefresh?.();
       }, 1500);
     } catch (err: any) {
-      setImportStatus(`Error importing file: ${err.message}`);
+      setImportStatus(`${hi ? "फ़ाइल इम्पोर्ट करने में त्रुटि" : "Error importing file"}: ${err.message}`);
     } finally {
       setImportLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -497,10 +499,10 @@ export function MasterCatalogTable({
       <div className="p-3.5 sm:p-5 border-b border-[#ddd6ca] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#FFFDF8]">
         <div>
           <h2 className="text-base font-bold font-display text-[#123324]">
-            Master Product Catalog ({products.length})
+            {hi ? "मास्टर प्रोडक्ट कैटलॉग" : "Master Product Catalog"} ({products.length})
           </h2>
           <p className="text-xs text-[#6d756f] mt-0.5">
-            Platform-wide verified SKU repository organized A-Z. Merchants can browse and select these templates for their shops.
+            {hi ? "पूरे प्लेटफॉर्म के सत्यापित SKU की A-Z सूची। मर्चेंट इन्हें देखकर अपनी दुकान के लिए चुन सकते हैं।" : "Platform-wide verified SKU repository organized A-Z. Merchants can browse and select these templates for their shops."}
           </p>
         </div>
 
@@ -510,19 +512,19 @@ export function MasterCatalogTable({
           <div className="inline-flex rounded-xl border border-[#ddd6ca] bg-white shadow-2xs overflow-hidden">
             <button
               onClick={handleExportCSV}
-              title="Download CSV for Excel"
+              title={hi ? "एक्सेल के लिए CSV डाउनलोड करें" : "Download CSV for Excel"}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#123324] hover:bg-[#F6F0E6] transition-colors border-r border-[#ddd6ca]"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Export CSV</span>
+              <span>{hi ? "CSV एक्सपोर्ट" : "Export CSV"}</span>
             </button>
             <button
               onClick={handleExportJSON}
-              title="Download JSON format"
+              title={hi ? "JSON फ़ॉर्मैट डाउनलोड करें" : "Download JSON format"}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#123324] hover:bg-[#F6F0E6] transition-colors"
             >
               <FileCode className="w-3.5 h-3.5 text-blue-600" />
-              <span>Export JSON</span>
+              <span>{hi ? "JSON एक्सपोर्ट" : "Export JSON"}</span>
             </button>
           </div>
 
@@ -532,7 +534,7 @@ export function MasterCatalogTable({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#ddd6ca] text-[#123324] text-xs font-semibold rounded-xl hover:bg-[#F6F0E6] shadow-2xs transition-colors"
           >
             <Upload className="w-3.5 h-3.5 text-[#1F5D42]" />
-            <span>Import Catalog</span>
+            <span>{hi ? "कैटलॉग इम्पोर्ट" : "Import Catalog"}</span>
           </button>
 
           {/* Add Product Button */}
@@ -541,7 +543,7 @@ export function MasterCatalogTable({
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#1F5D42] text-white text-xs font-bold rounded-xl hover:bg-[#123324] shadow-xs transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Master Product</span>
+            <span>{hi ? "मास्टर प्रोडक्ट जोड़ें" : "Add Master Product"}</span>
           </button>
         </div>
       </div>
@@ -558,7 +560,7 @@ export function MasterCatalogTable({
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search products by name, brand, or category..."
+              placeholder={hi ? "नाम, ब्रांड या कैटेगरी से प्रोडक्ट खोजें..." : "Search products by name, brand, or category..."}
               className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42]"
             />
           </div>
@@ -573,7 +575,7 @@ export function MasterCatalogTable({
               }}
               className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#ddd6ca] rounded-xl text-xs outline-none focus:border-[#1F5D42] cursor-pointer text-[#123324] font-medium"
             >
-              <option value="">All Categories</option>
+              <option value="">{hi ? "सभी कैटेगरी" : "All Categories"}</option>
               {categoriesList.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
@@ -584,7 +586,7 @@ export function MasterCatalogTable({
         </div>
 
         <div className="text-[11px] font-medium text-[#6d756f] shrink-0">
-          Showing {paginatedProducts.length} of {filteredProducts.length} results (A-Z)
+          {hi ? `${filteredProducts.length} में से ${paginatedProducts.length} नतीजे दिख रहे हैं (A-Z)` : `Showing ${paginatedProducts.length} of ${filteredProducts.length} results (A-Z)`}
         </div>
       </div>
 
@@ -593,9 +595,9 @@ export function MasterCatalogTable({
         {paginatedProducts.length === 0 ? (
           <div className="py-12 text-center text-[#869088] px-4">
             <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
-            <p className="font-semibold text-sm text-[#123324]">No master products found</p>
+            <p className="font-semibold text-sm text-[#123324]">{hi ? "कोई मास्टर प्रोडक्ट नहीं मिला" : "No master products found"}</p>
             <p className="text-xs text-[#6d756f] mt-1">
-              {searchQuery ? "Try a different search term." : "Click 'Add Master Product' or 'Import Catalog'."}
+              {searchQuery ? (hi ? "कोई दूसरा शब्द खोजकर देखें।" : "Try a different search term.") : (hi ? "'मास्टर प्रोडक्ट जोड़ें' या 'कैटलॉग इम्पोर्ट' पर क्लिक करें।" : "Click 'Add Master Product' or 'Import Catalog'.")}
             </p>
           </div>
         ) : (
@@ -624,7 +626,7 @@ export function MasterCatalogTable({
                     <div className="flex items-center gap-1.5 flex-wrap mt-1">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#e7f2eb] text-[#1F5D42]">
                         <Tag className="w-2.5 h-2.5" />
-                        {p.category_name || (p.category ? `Cat #${p.category}` : "General")}
+                        {p.category_name || (p.category ? `${hi ? "कैट" : "Cat"} #${p.category}` : (hi ? "सामान्य" : "General"))}
                       </span>
                       {p.brand && (
                         <span className="text-[11px] font-medium text-[#123324] bg-[#FAF8F3] px-2 py-0.5 rounded border border-[#ddd6ca]">
@@ -652,20 +654,20 @@ export function MasterCatalogTable({
                 <div className="flex items-center justify-between pt-1 border-t border-[#eee9df]/60 text-xs">
                   <div className="flex items-center gap-1.5 text-[11px] text-[#6d756f]">
                     <ImageIcon className="w-3.5 h-3.5 text-[#1F5D42]" />
-                    <span>{photoCount > 0 ? `${photoCount} photo${photoCount > 1 ? "s" : ""}` : "No photos"}</span>
+                    <span>{photoCount > 0 ? (hi ? `${photoCount} फ़ोटो` : `${photoCount} photo${photoCount > 1 ? "s" : ""}`) : (hi ? "कोई फ़ोटो नहीं" : "No photos")}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleOpenEdit(p)}
                       className="px-2.5 py-1 text-xs font-semibold text-[#1F5D42] bg-[#e7f2eb] rounded-lg hover:bg-[#d8ebd0] transition-colors"
                     >
-                      Edit
+                      {hi ? "बदलें" : "Edit"}
                     </button>
                     <button
                       onClick={() => handleDeleteProduct(p.id, p.name)}
                       className="px-2.5 py-1 text-xs font-semibold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
                     >
-                      Delete
+                      {hi ? "हटाएं" : "Delete"}
                     </button>
                   </div>
                 </div>
@@ -680,14 +682,14 @@ export function MasterCatalogTable({
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-[#123324] text-white text-[10px] uppercase font-bold tracking-wider">
-              <th className="py-3 px-4">Product Name</th>
-              <th className="py-3 px-3">Category</th>
-              <th className="py-3 px-3">Brand</th>
-              <th className="py-3 px-3">Unit</th>
-              <th className="py-3 px-3">MRP (₹)</th>
-              <th className="py-3 px-3">Description</th>
-              <th className="py-3 px-3">Photos / S3 Link</th>
-              <th className="py-3 px-3 text-right">Actions</th>
+              <th className="py-3 px-4">{hi ? "प्रोडक्ट का नाम" : "Product Name"}</th>
+              <th className="py-3 px-3">{hi ? "कैटेगरी" : "Category"}</th>
+              <th className="py-3 px-3">{hi ? "ब्रांड" : "Brand"}</th>
+              <th className="py-3 px-3">{hi ? "इकाई" : "Unit"}</th>
+              <th className="py-3 px-3">{hi ? "MRP (₹)" : "MRP (₹)"}</th>
+              <th className="py-3 px-3">{hi ? "विवरण" : "Description"}</th>
+              <th className="py-3 px-3">{hi ? "फ़ोटो / S3 लिंक" : "Photos / S3 Link"}</th>
+              <th className="py-3 px-3 text-right">{hi ? "कार्य" : "Actions"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eee9df]">
@@ -695,9 +697,9 @@ export function MasterCatalogTable({
               <tr>
                 <td colSpan={8} className="py-12 text-center text-[#869088]">
                   <Boxes className="w-8 h-8 mx-auto text-[#b2bcae] mb-2 opacity-50" />
-                  <p className="font-semibold text-sm text-[#123324]">No master products found</p>
+                  <p className="font-semibold text-sm text-[#123324]">{hi ? "कोई मास्टर प्रोडक्ट नहीं मिला" : "No master products found"}</p>
                   <p className="text-xs text-[#6d756f] mt-1">
-                    {searchQuery ? "Try a different search term." : "Click 'Add Master Product' or 'Import Catalog' to curate verified items."}
+                    {searchQuery ? (hi ? "कोई दूसरा शब्द खोजकर देखें।" : "Try a different search term.") : (hi ? "सत्यापित आइटम जोड़ने के लिए 'मास्टर प्रोडक्ट जोड़ें' या 'कैटलॉग इम्पोर्ट' पर क्लिक करें।" : "Click 'Add Master Product' or 'Import Catalog' to curate verified items.")}
                   </p>
                 </td>
               </tr>
@@ -722,14 +724,14 @@ export function MasterCatalogTable({
                         )}
                         <div>
                           <div className="font-bold text-[#123324]">{p.name}</div>
-                          <div className="text-[10px] text-[#869088]">ID: #{p.id}</div>
+                          <div className="text-[10px] text-[#869088]">{hi ? "आईडी" : "ID"}: #{p.id}</div>
                         </div>
                       </div>
                     </td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5]">
                         <Tag className="w-3 h-3 text-[#1F5D42]" />
-                        {p.category_name || (p.category ? `Cat #${p.category}` : "General")}
+                        {p.category_name || (p.category ? `${hi ? "कैट" : "Cat"} #${p.category}` : (hi ? "सामान्य" : "General"))}
                       </span>
                     </td>
                     <td className="py-3 px-3 text-[#123324] font-medium">{p.brand || "—"}</td>
@@ -742,7 +744,7 @@ export function MasterCatalogTable({
                       <div className="flex items-center gap-1.5">
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6d756f]">
                           <ImageIcon className="w-3 h-3 text-[#1F5D42]" />
-                          <span>{displayImg ? "1 photo" : "No photo"}</span>
+                          <span>{displayImg ? (hi ? "1 फ़ोटो" : "1 photo") : (hi ? "फ़ोटो नहीं" : "No photo")}</span>
                         </span>
                         {isS3Link && (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-50 text-blue-700 border border-blue-200">
@@ -756,14 +758,14 @@ export function MasterCatalogTable({
                         <button
                           onClick={() => handleOpenEdit(p)}
                           className="p-1.5 text-[#1F5D42] hover:bg-[#e7f2eb] rounded-lg transition-colors"
-                          title="Edit Master Product"
+                          title={hi ? "मास्टर प्रोडक्ट बदलें" : "Edit Master Product"}
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteProduct(p.id, p.name)}
                           className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete Master Product"
+                          title={hi ? "मास्टर प्रोडक्ट हटाएं" : "Delete Master Product"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -781,7 +783,7 @@ export function MasterCatalogTable({
       {totalPages > 1 && (
         <div className="p-3 bg-[#FFFDF8] border-t border-[#ddd6ca] flex items-center justify-between text-xs">
           <div className="text-[#6d756f] font-medium">
-            Page {currentPage} of {totalPages}
+            {hi ? `पेज ${currentPage} / ${totalPages}` : `Page ${currentPage} of ${totalPages}`}
           </div>
           <div className="inline-flex items-center gap-1">
             <button
@@ -826,7 +828,7 @@ export function MasterCatalogTable({
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-[#eee9df] p-4 sm:p-5 pb-3 shrink-0 bg-[#FFFDF8]">
               <h3 className="text-base font-bold font-display text-[#123324]">
-                {editingProduct ? "Edit Master Product" : "Add Master Product"}
+                {editingProduct ? (hi ? "मास्टर प्रोडक्ट बदलें" : "Edit Master Product") : (hi ? "मास्टर प्रोडक्ट जोड़ें" : "Add Master Product")}
               </h3>
               <button
                 type="button"
@@ -834,6 +836,7 @@ export function MasterCatalogTable({
                   setShowAddModal(false);
                   setEditingProduct(null);
                 }}
+                aria-label={hi ? "बंद करें" : "Close"}
                 className="text-[#6d756f] hover:text-[#123324] p-1.5 rounded-lg hover:bg-[#eee9df] transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -855,14 +858,14 @@ export function MasterCatalogTable({
               >
                 <div>
                   <label className="block font-bold text-[#123324] mb-1">
-                    Product Name <span className="text-red-500">*</span>
+                    {hi ? "प्रोडक्ट का नाम" : "Product Name"} <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Amul Gold Full Cream Milk 1L"
+                    placeholder={hi ? "जैसे Amul Gold Full Cream Milk 1L" : "e.g. Amul Gold Full Cream Milk 1L"}
                     className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
                   />
                 </div>
@@ -871,7 +874,7 @@ export function MasterCatalogTable({
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-[#123324]">
-                      Category (कैटेगरी)
+                      {hi ? "कैटेगरी" : "Category (कैटेगरी)"}
                     </label>
                     <button
                       type="button"
@@ -879,7 +882,7 @@ export function MasterCatalogTable({
                       className="text-[11px] font-bold text-[#1F5D42] hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
-                      <span>{showCustomCatInput ? "Select Existing" : "+ New Category"}</span>
+                      <span>{showCustomCatInput ? (hi ? "मौजूदा चुनें" : "Select Existing") : (hi ? "+ नई कैटेगरी" : "+ New Category")}</span>
                     </button>
                   </div>
 
@@ -895,7 +898,7 @@ export function MasterCatalogTable({
                             handleAddCustomCategory();
                           }
                         }}
-                        placeholder="e.g. Frozen Foods, Chocolates, Pooja..."
+                        placeholder={hi ? "जैसे फ्रोज़न फूड, चॉकलेट, पूजा..." : "e.g. Frozen Foods, Chocolates, Pooja..."}
                         className="flex-1 px-3 py-2 border border-[#1F5D42] rounded-xl outline-none text-xs font-medium bg-[#FAF8F3]"
                         autoFocus
                       />
@@ -904,14 +907,14 @@ export function MasterCatalogTable({
                         onClick={handleAddCustomCategory}
                         className="px-3 py-2 bg-[#1F5D42] text-white rounded-xl text-xs font-bold hover:bg-[#123324] shrink-0 shadow-2xs"
                       >
-                        Add
+                        {hi ? "जोड़ें" : "Add"}
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowCustomCatInput(false)}
                         className="px-2 py-2 text-[#6d756f] hover:text-[#123324] text-xs font-medium shrink-0"
                       >
-                        Cancel
+                        {hi ? "रद्द करें" : "Cancel"}
                       </button>
                     </div>
                   ) : (
@@ -926,13 +929,13 @@ export function MasterCatalogTable({
                       }}
                       className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs bg-white text-[#123324] font-medium cursor-pointer"
                     >
-                      <option value="">-- Choose Category --</option>
+                      <option value="">{hi ? "-- कैटेगरी चुनें --" : "-- Choose Category --"}</option>
                       {categoriesList.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
                         </option>
                       ))}
-                      <option value="__new__">+ Add New Custom Category...</option>
+                      <option value="__new__">{hi ? "+ नई कैटेगरी जोड़ें..." : "+ Add New Custom Category..."}</option>
                     </select>
                   )}
 
@@ -968,13 +971,13 @@ export function MasterCatalogTable({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-[#123324] mb-1">
-                      Brand Name
+                      {hi ? "ब्रांड का नाम" : "Brand Name"}
                     </label>
                     <input
                       type="text"
                       value={brand}
                       onChange={(e) => setBrand(e.target.value)}
-                      placeholder="e.g. Amul, Cadbury, Tata"
+                      placeholder={hi ? "जैसे Amul, Cadbury, Tata" : "e.g. Amul, Cadbury, Tata"}
                       className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
                     />
                   </div>
@@ -988,7 +991,7 @@ export function MasterCatalogTable({
                       min="0"
                       value={mrp}
                       onChange={(e) => setMrp(e.target.value)}
-                      placeholder="e.g. 68.00"
+                      placeholder={hi ? "जैसे 68.00" : "e.g. 68.00"}
                       className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-mono font-medium"
                     />
                   </div>
@@ -998,7 +1001,7 @@ export function MasterCatalogTable({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block font-bold text-[#123324]">
-                    Unit / Measurement (इकाई - खुला सामान या पैक्ड)
+                    {hi ? "इकाई - खुला सामान या पैक्ड" : "Unit / Measurement (इकाई - खुला सामान या पैक्ड)"}
                   </label>
                   {selectedUnit && (
                     <button
@@ -1006,7 +1009,7 @@ export function MasterCatalogTable({
                       onClick={() => setSelectedUnit("")}
                       className="text-[10px] text-red-600 hover:underline font-semibold"
                     >
-                      Clear Unit
+                      {hi ? "इकाई हटाएं" : "Clear Unit"}
                     </button>
                   )}
                 </div>
@@ -1014,14 +1017,14 @@ export function MasterCatalogTable({
                   type="text"
                   value={selectedUnit}
                   onChange={(e) => setSelectedUnit(e.target.value)}
-                  placeholder="e.g. kg, g, liter, ml, piece, packet, 1 kg, 500g"
+                  placeholder={hi ? "जैसे kg, g, liter, ml, piece, packet, 1 kg, 500g" : "e.g. kg, g, liter, ml, piece, packet, 1 kg, 500g"}
                   className="w-full px-3 py-2 mb-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs font-medium"
                 />
 
                 <div className="space-y-1.5 bg-[#FAF8F3] p-2.5 rounded-xl border border-[#eee9df]">
                   <div>
                     <span className="text-[10px] font-bold text-[#1F5D42] uppercase tracking-wider block mb-1">
-                      खुला सामान (Loose / Variable Quantity Units)
+                      {hi ? "खुला सामान (कम-ज़्यादा मात्रा वाली इकाइयां)" : "खुला सामान (Loose / Variable Quantity Units)"}
                     </span>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {["kg", "g", "liter", "ml", "piece", "packet", "dozen"].map((u) => (
@@ -1043,7 +1046,7 @@ export function MasterCatalogTable({
 
                   <div className="pt-1.5 border-t border-[#eee9df]">
                     <span className="text-[10px] font-bold text-[#6d756f] uppercase tracking-wider block mb-1">
-                      स्टैंडर्ड पैक (Pre-packaged Quantities)
+                      {hi ? "स्टैंडर्ड पैक (पहले से पैक मात्रा)" : "स्टैंडर्ड पैक (Pre-packaged Quantities)"}
                     </span>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {["1 kg", "500g", "250g", "100g", "1 liter", "500 ml", "1 piece", "1 packet"].map((u) => (
@@ -1067,13 +1070,13 @@ export function MasterCatalogTable({
 
               <div>
                 <label className="block font-bold text-[#123324] mb-1">
-                  Description (Optional)
+                  {hi ? "विवरण (वैकल्पिक)" : "Description (Optional)"}
                 </label>
                 <textarea
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Standard verified package specifications, ingredients or weight details..."
+                  placeholder={hi ? "पैकेज की सत्यापित जानकारी, सामग्री या वज़न का विवरण..." : "Standard verified package specifications, ingredients or weight details..."}
                   className="w-full px-3 py-2 border border-[#ddd6ca] rounded-xl outline-none focus:border-[#1F5D42] text-xs"
                 />
               </div>
@@ -1083,7 +1086,7 @@ export function MasterCatalogTable({
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <label className="font-bold text-[#123324]">
-                      Product Photos / S3 Link
+                      {hi ? "प्रोडक्ट फ़ोटो / S3 लिंक" : "Product Photos / S3 Link"}
                     </label>
                     {imageUrls.length > 0 && (
                       <button
@@ -1091,12 +1094,12 @@ export function MasterCatalogTable({
                         onClick={handleRemoveAllImages}
                         className="text-[10px] text-red-600 hover:underline font-semibold"
                       >
-                        Remove Image
+                        {hi ? "फ़ोटो हटाएं" : "Remove Image"}
                       </button>
                     )}
                   </div>
                   <span className="text-[10px] text-[#6d756f] font-mono">
-                    {imageUrls.length}/6 photos added
+                    {imageUrls.length}/6 {hi ? "फ़ोटो जोड़ी गईं" : "photos added"}
                   </span>
                 </div>
 
@@ -1108,10 +1111,11 @@ export function MasterCatalogTable({
                         key={idx}
                         className="relative w-14 h-14 rounded-xl border border-[#ddd6ca] overflow-hidden bg-slate-50 group"
                       >
-                        <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                        <img src={url} alt={`${hi ? "फ़ोटो" : "Photo"} ${idx + 1}`} className="w-full h-full object-cover" />
                         <button
                           type="button"
                           onClick={() => handleRemoveImageUrl(idx)}
+                          aria-label={hi ? "फ़ोटो हटाएं" : "Remove photo"}
                           className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-80 hover:opacity-100"
                         >
                           <X className="w-2.5 h-2.5" />
@@ -1138,15 +1142,15 @@ export function MasterCatalogTable({
                     >
                       <UploadCloud className="w-5 h-5 text-[#1F5D42] mb-1 group-hover:scale-110 transition-transform" />
                       <span className="text-xs font-bold text-[#1F5D42]">
-                        Upload Pictures from Device
+                        {hi ? "डिवाइस से फ़ोटो अपलोड करें" : "Upload Pictures from Device"}
                       </span>
                       <span className="text-[10px] text-[#6d756f]">
-                        Select image files directly (PNG, JPG, WebP)
+                        {hi ? "इमेज फ़ाइलें सीधे चुनें (PNG, JPG, WebP)" : "Select image files directly (PNG, JPG, WebP)"}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-2 pt-1">
-                      <span className="text-[10px] text-slate-400 font-medium">Or via link:</span>
+                      <span className="text-[10px] text-slate-400 font-medium">{hi ? "या लिंक से:" : "Or via link:"}</span>
                       <input
                         type="url"
                         value={newImageUrl}
@@ -1159,7 +1163,7 @@ export function MasterCatalogTable({
                         onClick={handleAddImageUrl}
                         className="px-2.5 py-1 bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[#1F5D42] text-xs font-semibold rounded-lg"
                       >
-                        Add Link
+                        {hi ? "लिंक जोड़ें" : "Add Link"}
                       </button>
                     </div>
                   </div>
@@ -1175,7 +1179,7 @@ export function MasterCatalogTable({
                   }}
                   className="px-4 py-2 border border-[#ddd6ca] text-[#123324] font-semibold rounded-xl hover:bg-[#FAF8F3]"
                 >
-                  Cancel
+                  {hi ? "रद्द करें" : "Cancel"}
                 </button>
                 <button
                   type="submit"
@@ -1183,10 +1187,10 @@ export function MasterCatalogTable({
                   className="px-5 py-2 bg-[#1F5D42] text-white font-bold rounded-xl hover:bg-[#123324] shadow-xs disabled:opacity-50"
                 >
                   {loading
-                    ? "Saving..."
+                    ? (hi ? "सेव हो रहा है..." : "Saving...")
                     : editingProduct
-                    ? "Update Product"
-                    : "Save Master Product"}
+                    ? (hi ? "प्रोडक्ट अपडेट करें" : "Update Product")
+                    : (hi ? "मास्टर प्रोडक्ट सेव करें" : "Save Master Product")}
                 </button>
               </div>
             </form>
@@ -1201,7 +1205,7 @@ export function MasterCatalogTable({
           <div className="bg-white border border-[#ddd6ca] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
               <h3 className="text-base font-bold font-display text-[#123324]">
-                Bulk Import Master Catalog
+                {hi ? "मास्टर कैटलॉग एक साथ इम्पोर्ट करें" : "Bulk Import Master Catalog"}
               </h3>
               <button
                 type="button"
@@ -1209,6 +1213,7 @@ export function MasterCatalogTable({
                   setShowImportModal(false);
                   setImportStatus(null);
                 }}
+                aria-label={hi ? "बंद करें" : "Close"}
                 className="text-[#6d756f] hover:text-[#123324] p-1 rounded-lg"
               >
                 <X className="w-4 h-4" />
@@ -1216,17 +1221,25 @@ export function MasterCatalogTable({
             </div>
 
             <p className="text-xs text-[#6d756f]">
-              Upload a <strong>JSON (.json)</strong> or <strong>CSV / Excel (.csv)</strong> file with columns:{" "}
+              {hi ? (
+                <>
+                  इन कॉलम वाली <strong>JSON (.json)</strong> या <strong>CSV / एक्सेल (.csv)</strong> फ़ाइल अपलोड करें:{" "}
+                </>
+              ) : (
+                <>
+                  Upload a <strong>JSON (.json)</strong> or <strong>CSV / Excel (.csv)</strong> file with columns:{" "}
+                </>
+              )}
               <code className="text-[#1F5D42] bg-[#e7f2eb] px-1 py-0.5 rounded font-mono">
                 Name, Category, Brand, Description
               </code>
-              . The catalog items will be automatically parsed and added.
+              {hi ? "। कैटलॉग आइटम अपने-आप पढ़कर जोड़ दिए जाएंगे।" : ". The catalog items will be automatically parsed and added."}
             </p>
 
             <div className="border-2 border-dashed border-[#ddd6ca] rounded-2xl p-6 text-center hover:bg-[#FAF8F3] transition cursor-pointer">
               <Upload className="w-8 h-8 text-[#1F5D42] mx-auto mb-2 opacity-70" />
               <label className="cursor-pointer block">
-                <span className="font-bold text-xs text-[#1F5D42]">Select JSON or CSV file</span>
+                <span className="font-bold text-xs text-[#1F5D42]">{hi ? "JSON या CSV फ़ाइल चुनें" : "Select JSON or CSV file"}</span>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1236,7 +1249,7 @@ export function MasterCatalogTable({
                   className="hidden"
                 />
               </label>
-              <p className="text-[10px] text-[#869088] mt-1">Supports UTF-8 CSV from Excel or JSON export</p>
+              <p className="text-[10px] text-[#869088] mt-1">{hi ? "एक्सेल की UTF-8 CSV या JSON एक्सपोर्ट चलेगा" : "Supports UTF-8 CSV from Excel or JSON export"}</p>
             </div>
 
             {importStatus && (
@@ -1254,7 +1267,7 @@ export function MasterCatalogTable({
                 }}
                 className="px-4 py-2 border border-[#ddd6ca] text-[#123324] font-semibold rounded-xl hover:bg-[#FAF8F3] text-xs"
               >
-                Close
+                {hi ? "बंद करें" : "Close"}
               </button>
             </div>
           </div>

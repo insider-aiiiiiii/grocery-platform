@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useSyncExternalStore } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -41,6 +41,28 @@ function getCategoryIcon(name: string): string {
   return "📦";
 }
 
+// Shared language preference (localStorage "dukandaar_lang"), same value on storefront, cart and order pages
+const LANG_KEY = "dukandaar_lang";
+const LANG_EVENT = "dukandaar-lang-change";
+function subscribeLang(cb: () => void) {
+  window.addEventListener("storage", cb);
+  window.addEventListener(LANG_EVENT, cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener(LANG_EVENT, cb);
+  };
+}
+function getLangSnapshot(): "en" | "hi" {
+  try {
+    return localStorage.getItem(LANG_KEY) === "hi" ? "hi" : "en";
+  } catch {
+    return "en";
+  }
+}
+function getLangServerSnapshot(): "en" | "hi" {
+  return "en";
+}
+
 export default function CustomerShopPage() {
   const params = useParams();
   const router = useRouter();
@@ -48,7 +70,27 @@ export default function CustomerShopPage() {
     ? params.publicSlug[0]
     : (params?.publicSlug as string);
 
-  const [language, setLanguage] = useState<"en" | "hi">("en");
+  const language = useSyncExternalStore(subscribeLang, getLangSnapshot, getLangServerSnapshot);
+  const isHindi = language === "hi";
+
+  const toggleLanguage = () => {
+    try {
+      localStorage.setItem(LANG_KEY, language === "en" ? "hi" : "en");
+    } catch {}
+    window.dispatchEvent(new Event(LANG_EVENT));
+  };
+
+  // Translate common backend error messages (falls back to the original text)
+  const tr = (msg: string): string => {
+    if (!isHindi) return msg;
+    const m = msg.toLowerCase();
+    if (m.includes("out of stock")) return "यह सामान स्टॉक में नहीं है।";
+    if (m.includes("stock") || m.includes("available") || m.includes("quantity"))
+      return "स्टॉक में इतना सामान नहीं है।";
+    if (m.includes("not found")) return "सामान नहीं मिला।";
+    if (m.includes("closed") || m.includes("paused")) return "दुकान अभी बंद है।";
+    return msg;
+  };
   const [shop, setShop] = useState<PublicShopInfo | null>(null);
   const [categories, setCategories] = useState<PublicCategory[]>([]);
   const [campaigns, setCampaigns] = useState<PublicCampaign[]>([]);
@@ -89,13 +131,13 @@ export default function CustomerShopPage() {
         setProducts(prodData);
       } catch (err: any) {
         if (!silent) {
-          showCartError("Could not sync live catalog. Retrying shortly.");
+          showCartError(isHindi ? "दुकान का सामान अपडेट नहीं हो पाया। थोड़ी देर में फिर कोशिश होगी।" : "Could not sync live catalog. Retrying shortly.");
         }
       } finally {
         if (!silent) setIsSyncing(false);
       }
     },
-    [publicSlug]
+    [publicSlug, isHindi]
   );
 
   // Fetch Initial Store Data
@@ -136,7 +178,8 @@ export default function CustomerShopPage() {
         }
       } catch (err: any) {
         setError(
-          err.response?.data?.detail || "Could not load the storefront. Please check the link."
+          err.response?.data?.detail ||
+            (isHindi ? "दुकान नहीं खुल पाई। कृपया लिंक जांच लें।" : "Could not load the storefront. Please check the link.")
         );
       } finally {
         setLoading(false);
@@ -256,7 +299,7 @@ export default function CustomerShopPage() {
       groups.push({
         subcategory: {
           id: -1,
-          name: "Other Items",
+          name: isHindi ? "अन्य सामान" : "Other Items",
           slug: "other",
         },
         products: remaining,
@@ -264,7 +307,7 @@ export default function CustomerShopPage() {
     }
 
     return groups;
-  }, [filteredProducts, selectedRootCategory, currentSubcategories, selectedSubcategory]);
+  }, [filteredProducts, selectedRootCategory, currentSubcategories, selectedSubcategory, isHindi]);
 
   // Cart Actions with Instant Optimistic UI Synchronization
   const handleAddToCart = async (product: PublicProduct, variant?: any) => {
@@ -337,8 +380,8 @@ export default function CustomerShopPage() {
       const msg =
         err.response?.data?.detail ||
         err.response?.data?.quantity?.[0] ||
-        "Could not add item. Stock may be limited.";
-      showCartError(String(msg));
+        (isHindi ? "सामान जोड़ा नहीं जा सका। स्टॉक कम हो सकता है।" : "Could not add item. Stock may be limited.");
+      showCartError(tr(String(msg)));
     }
   };
 
@@ -394,12 +437,10 @@ export default function CustomerShopPage() {
       const msg =
         err.response?.data?.detail ||
         err.response?.data?.quantity?.[0] ||
-        "Could not update item. Stock may be limited.";
-      showCartError(String(msg));
+        (isHindi ? "सामान अपडेट नहीं हो सका। स्टॉक कम हो सकता है।" : "Could not update item. Stock may be limited.");
+      showCartError(tr(String(msg)));
     }
   };
-
-  const isHindi = language === "hi";
 
   if (loading) {
     return (
@@ -422,7 +463,7 @@ export default function CustomerShopPage() {
           {isHindi ? "दुकान उपलब्ध नहीं है" : "Store Unavailable"}
         </h2>
         <p className="text-xs text-[#6d756f] max-w-sm mb-4">
-          {error ||
+          {(isHindi && error ? "दुकान नहीं खुल पाई। कृपया लिंक जांच लें।" : error) ||
             (isHindi
               ? "यह दुकान लिंक अमान्य है या अस्थायी रूप से बंद है।"
               : "This store link does not exist or has been paused.")}
@@ -443,7 +484,7 @@ export default function CustomerShopPage() {
       <ShopHeader
         shop={shop}
         language={language}
-        onToggleLanguage={() => setLanguage((prev) => (prev === "en" ? "hi" : "en"))}
+        onToggleLanguage={toggleLanguage}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
@@ -454,6 +495,7 @@ export default function CustomerShopPage() {
           <span>{cartError}</span>
           <button
             onClick={() => setCartError(null)}
+            aria-label={isHindi ? "बंद करें" : "Close"}
             className="ml-2 text-white/80 hover:text-white font-bold"
           >
             ✕
@@ -538,7 +580,7 @@ export default function CustomerShopPage() {
                 ? isHindi
                   ? "सभी श्रेणियां"
                   : "All Categories"
-                : rootCategories.find((c) => c.id === selectedRootCategory)?.name || "Category"}
+                : rootCategories.find((c) => c.id === selectedRootCategory)?.name || (isHindi ? "श्रेणी" : "Category")}
             </span>
             <span className="text-[11px] text-[#6d756f] font-mono">
               ({filteredProducts.length} {isHindi ? "सामान" : "items"})
@@ -550,7 +592,7 @@ export default function CustomerShopPage() {
             onClick={() => syncStorefront(false)}
             disabled={isSyncing}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-white border border-[#ddd6ca] text-[#1F5D42] hover:bg-[#e7f2eb] transition-all shadow-2xs active:scale-95 disabled:opacity-60"
-            title="Click to refresh inventory and products from the store"
+            title={isHindi ? "दुकान से सामान और स्टॉक फिर से लोड करें" : "Click to refresh inventory and products from the store"}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? "bg-amber-500 animate-ping" : "bg-emerald-500"}`} />
             <span>{isSyncing ? (isHindi ? "अपडेट हो रहा है..." : "Syncing...") : (isHindi ? "लाइव सिंक" : "Live Sync")}</span>
@@ -581,7 +623,7 @@ export default function CustomerShopPage() {
                     selectedRootCategory === "all" ? "text-emerald-200" : "text-slate-400"
                   }`}
                 >
-                  {products.length} items
+                  {products.length} {isHindi ? "सामान" : "items"}
                 </span>
               </div>
             </button>
@@ -614,7 +656,7 @@ export default function CustomerShopPage() {
                         isSelected ? "text-emerald-200" : "text-slate-400"
                       }`}
                     >
-                      {catProductCount} items
+                      {catProductCount} {isHindi ? "सामान" : "items"}
                     </span>
                   </div>
                 </button>
@@ -730,6 +772,7 @@ export default function CustomerShopPage() {
         onClose={() => setActiveModalProduct(null)}
         onAdd={handleAddToCart}
         onUpdateQuantity={handleUpdateQuantity}
+        language={language}
       />
 
       {/* 6. Persistent Floating Bottom Cart Bar */}

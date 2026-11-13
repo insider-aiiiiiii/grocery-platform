@@ -153,7 +153,7 @@ export function ShopHeader({
             <button
               onClick={onToggleLanguage}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition shadow-2xs"
-              title="Switch Language / भाषा बदलें"
+              title={isHindi ? "भाषा बदलें" : "Switch Language"}
             >
               <Languages className="w-3.5 h-3.5 text-[#E8A33D]" />
               <span>{isHindi ? "English" : "हिंदी"}</span>
@@ -172,7 +172,7 @@ export function ShopHeader({
           >
             <img
               src={currentPhoto}
-              alt={`${shop.name} photo ${photoIndex + 1}`}
+              alt={`${shop.name} ${isHindi ? "फोटो" : "photo"} ${photoIndex + 1}`}
               className="h-full w-full object-cover transition-opacity duration-200"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30 pointer-events-none" />
@@ -192,7 +192,7 @@ export function ShopHeader({
                   type="button"
                   onClick={handlePrevPhoto}
                   className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
-                  aria-label="Previous storefront photo"
+                  aria-label={isHindi ? "पिछली फोटो" : "Previous storefront photo"}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -200,7 +200,7 @@ export function ShopHeader({
                   type="button"
                   onClick={handleNextPhoto}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 backdrop-blur-xs transition z-20 shadow-md"
-                  aria-label="Next storefront photo"
+                  aria-label={isHindi ? "अगली फोटो" : "Next storefront photo"}
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -262,7 +262,7 @@ export function ShopHeader({
                     : "border-[#e8e2d5] opacity-60 hover:opacity-100"
                 }`}
               >
-                <img src={imgUrl} alt={`Thumbnail ${idx + 1}`} className="h-full w-full object-cover" />
+                <img src={imgUrl} alt={`${isHindi ? "थंबनेल" : "Thumbnail"} ${idx + 1}`} className="h-full w-full object-cover" />
               </button>
             ))}
           </div>
@@ -344,10 +344,10 @@ export function ShopHeader({
                   <span>
                     {isClosed
                       ? isHindi
-                        ? "STORE CLOSED (दुकान अभी बंद है)"
+                        ? "दुकान अभी बंद है"
                         : "STORE CURRENTLY CLOSED"
                       : isHindi
-                      ? "STORE OPEN NOW (दुकान खुली है)"
+                      ? "दुकान अभी खुली है"
                       : "STORE OPEN NOW"}
                   </span>
                 </div>
@@ -408,6 +408,7 @@ export function ShopHeader({
                 {searchQuery && (
                   <button
                     onClick={() => onSearchChange("")}
+                    aria-label={isHindi ? "खोज हटाएं" : "Clear search"}
                     className="absolute right-3.5 top-3 text-xs text-slate-400 hover:text-slate-600 font-bold"
                   >
                     ✕
