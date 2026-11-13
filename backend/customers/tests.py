@@ -1409,15 +1409,19 @@ class CustomerDomainVerificationTests(TestCase):
         self.assertEqual(res_pub2.data["customer"]["id"], c2.id)
         self.assertEqual(res_pub2.data["customer"]["name"], "Shopper at Beta")
 
-    def test_cross_shop_recognition_returns_404_if_not_in_shop(self):
-        """A customer registered only in Shop 1 is NOT recognized in Shop 2."""
+    def test_cross_shop_recognition_returns_not_recognized_if_not_in_shop(self):
+        """A customer registered only in Shop 1 is NOT recognized in Shop 2.
+
+        Since 9396450 the API answers 200 with recognized=False (the storefront reads that flag)
+        instead of a 404; no profile from another shop is ever exposed."""
         Customer.objects.create(shop=self.shop1, name="Alpha Only", whatsapp_number="9823456731")
 
         rec_url = f"/api/v1/shops/public/{self.shop2.public_slug}/customer/recognize/"
         res = self.client.get(rec_url, {"whatsapp_number": "9823456731"})
-        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertFalse(res.data["recognized"])
         self.assertEqual(res.data["code"], "CUSTOMER_NOT_FOUND")
+        self.assertIsNone(res.data["customer"])
 
     def test_cross_shop_cart_binding_rejected_at_service_and_api(self):
         """Binding a Cart belonging to Shop 2 to a customer in Shop 1 is rejected."""
