@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from rest_framework import serializers
 
 from catalog.models import ProductVariant, ShopProduct
@@ -119,8 +121,8 @@ class CartCreateSerializer(serializers.Serializer):
                     whatsapp_number=wa,
                 )
                 attrs["resolved_customer"] = customer
-            except Exception as e:
-                raise serializers.ValidationError({"whatsapp_number": str(e)})
+            except DjangoValidationError as e:
+                raise serializers.ValidationError({"whatsapp_number": e.messages})
         else:
             attrs["resolved_customer"] = None
 

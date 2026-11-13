@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -124,6 +125,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'EXCEPTION_HANDLER': 'users.exceptions.authentication_exception_handler',
 }
+
+# Login attempts allowed per client IP + account (see users/throttles.py).
+# Relaxed under `manage.py test` so suites that log in repeatedly are not throttled.
+LOGIN_THROTTLE_RATE = os.environ.get(
+    'LOGIN_THROTTLE_RATE',
+    '1000/min' if 'test' in sys.argv[1:2] else '10/min',
+)
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),

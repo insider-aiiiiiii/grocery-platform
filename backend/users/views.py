@@ -1,6 +1,6 @@
 from django.contrib.auth import authenticate, password_validation
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -12,6 +12,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 
 from .models import Merchant, User, UserAuthSession
 from .permissions import IsMerchant, IsSuperAdmin
+from .throttles import LoginAttemptThrottle
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -87,6 +88,7 @@ def lock_active_session(session):
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginAttemptThrottle]
 
     def get_authenticate_header(self, request):
         return "Bearer"
@@ -123,6 +125,7 @@ class LoginView(APIView):
 class SuperAdminLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginAttemptThrottle]
 
     def get_authenticate_header(self, request):
         return "Bearer"
@@ -168,7 +171,13 @@ class SuperAdminCreateMerchantView(APIView):
     def post(self, request):
         serializer = SuperAdminCreateMerchantSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        merchant = serializer.save()
+        try:
+            merchant = serializer.save()
+        except IntegrityError:
+            # A concurrent request created the same username, mobile number or email.
+            raise ValidationError(
+                {"detail": "A merchant with this username, mobile number or email already exists."}
+            )
         response_data = SuperAdminCreatedMerchantSerializer(merchant).data
         return Response(response_data, status=status.HTTP_201_CREATED)
 

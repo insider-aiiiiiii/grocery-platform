@@ -52,6 +52,11 @@ def validate_product_orderable_and_available(
     if variant and (not variant.is_available or not product.is_available):
         raise serializers.ValidationError({"variant_id": "Variant is currently unavailable and cannot be ordered."})
 
+    # 4b. Price must be set (a missing or zero price must never be sold for free)
+    unit_price = variant.effective_price if variant else product.price
+    if unit_price is None or Decimal(str(unit_price)) <= Decimal("0.00"):
+        raise serializers.ValidationError({"product_id": "Price is not set for this product."})
+
     # 5. Inventory availability
     if variant:
         inv = InventoryItem.objects.filter(shop=shop, variant=variant).first()

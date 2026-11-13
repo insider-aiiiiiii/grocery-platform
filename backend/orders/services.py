@@ -21,6 +21,19 @@ def _get_idempotent_order(shop, key):
     return Order.objects.filter(shop=shop, idempotency_key=key).first()
 
 
+def _replay_or_conflict(existing, payload, normalized_phone):
+    """Replay an idempotent order only if the new request matches the original."""
+    if (
+        existing.customer_phone_snapshot != normalized_phone
+        or existing.customer_name_snapshot != payload["customer_name"].strip()
+        or existing.fulfillment_type != payload["fulfillment_type"]
+    ):
+        raise ValidationError(
+            {"idempotency_key": "Idempotency-Key was already used with a different request."}
+        )
+    return existing, False
+
+
 def _create_order(shop, payload, idempotency_key):
     try:
         normalized_phone = normalize_whatsapp_number(payload["whatsapp_number"])
@@ -30,12 +43,18 @@ def _create_order(shop, payload, idempotency_key):
     with transaction.atomic():
         existing = _get_idempotent_order(shop, idempotency_key)
         if existing:
-            return existing, False
+            return _replay_or_conflict(existing, payload, normalized_phone)
 
         try:
             cart = Cart.objects.select_for_update().get(pk=payload["cart_id"], shop=shop)
         except Cart.DoesNotExist:
             raise NotFound("Cart was not found for this Shop.")
+
+        # A concurrent request with the same key may have committed while we waited
+        # for the cart lock; replay its order instead of failing on the emptied cart.
+        existing = _get_idempotent_order(shop, idempotency_key)
+        if existing:
+            return _replay_or_conflict(existing, payload, normalized_phone)
 
         if cart.customer_id:
             if cart.customer.whatsapp_number != normalized_phone:

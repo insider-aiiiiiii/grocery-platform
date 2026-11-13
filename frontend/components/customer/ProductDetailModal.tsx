@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X, Plus, Minus, Package, ShieldCheck } from "lucide-react";
 import { PublicProduct, PublicProductVariant } from "@/lib/api/customer";
+import { formatPrice } from "@/lib/format";
 
 interface ProductDetailModalProps {
   product: PublicProduct | null;
@@ -79,10 +80,10 @@ export function ProductDetailModal({
               {product.name}
             </h2>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{price.toFixed(0)}</span>
+              <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{formatPrice(price)}</span>
               {product.mrp && parseFloat(product.mrp) > price && (
                 <span className="text-sm text-[#869088] line-through font-mono">
-                  MRP ₹{parseFloat(product.mrp).toFixed(0)}
+                  MRP ₹{formatPrice(product.mrp)}
                 </span>
               )}
               {product.mrp && parseFloat(product.mrp) > price && (
@@ -116,7 +117,7 @@ export function ProductDetailModal({
                           : "border-[#dcd5c9] text-[#17251e] bg-white hover:bg-[#f6f0e6]"
                       }`}
                     >
-                      {v.name} • ₹{parseFloat(v.price || "0").toFixed(0)}
+                      {v.name} • ₹{formatPrice(v.price)}
                     </button>
                   );
                 })}
@@ -139,7 +140,7 @@ export function ProductDetailModal({
             <div>
               <span className="text-[11px] text-[#6d756f] block">Total Price</span>
               <span className="font-display font-bold text-lg text-[#123324]">
-                ₹{(price * Math.max(1, cartQuantity)).toFixed(0)}
+                ₹{formatPrice(price * Math.max(1, cartQuantity))}
               </span>
             </div>
 

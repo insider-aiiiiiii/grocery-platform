@@ -22,6 +22,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { customerApi, PublicShopInfo } from "@/lib/api/customer";
+import { formatPrice } from "@/lib/format";
 
 export default function OrderConfirmationPage() {
   const params = useParams();
@@ -139,7 +140,7 @@ export default function OrderConfirmationPage() {
   const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
 
   const itemsLines = (orderData?.items || []).map(
-    (item: any) => `• ${item.product_name}${item.variant_name ? ` (${item.variant_name})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${parseFloat(item.line_total || "0").toFixed(0)}`
+    (item: any) => `• ${item.product_name}${item.variant_name ? ` (${item.variant_name})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${formatPrice(item.line_total || "0")}`
   );
   const itemsText = itemsLines.length > 0 ? itemsLines.join("\n") : "• Items from store";
 
@@ -154,9 +155,9 @@ export default function OrderConfirmationPage() {
     itemsText,
     ``,
     `💰 *Bill Details:*`,
-    orderData?.items_subtotal ? `• Items Total: ₹${parseFloat(orderData.items_subtotal).toFixed(0)}` : null,
-    orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• Delivery Fee: ₹${parseFloat(orderData.delivery_charge).toFixed(0)}` : null,
-    `• *Total Payable: ₹${orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}*`,
+    orderData?.items_subtotal ? `• Items Total: ₹${formatPrice(orderData.items_subtotal)}` : null,
+    orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 ? `• Delivery Fee: ₹${formatPrice(orderData.delivery_charge)}` : null,
+    `• *Total Payable: ₹${orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}*`,
     ``,
     `Namaste ${shopDisplayName}! Maine dukaan se order place kiya hai. Please check karke confirm karein! 🙏`,
   ].filter((line) => line !== null);
@@ -323,7 +324,7 @@ export default function OrderConfirmationPage() {
               <span>Items Breakdown ({orderData?.items?.length || 0} items)</span>
             </h3>
             <span className="text-xs font-bold text-[#1F5D42]">
-              ₹{orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}
+              ₹{orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}
             </span>
           </div>
 
@@ -338,11 +339,11 @@ export default function OrderConfirmationPage() {
                     )}
                   </p>
                   <p className="text-[11px] text-[#6d756f]">
-                    ₹{parseFloat(item.unit_price || "0").toFixed(0)} × {parseFloat(item.quantity || "1")}
+                    ₹{formatPrice(item.unit_price || "0")} × {parseFloat(item.quantity || "1")}
                   </p>
                 </div>
                 <span className="font-bold text-[#123324]">
-                  ₹{parseFloat(item.line_total || "0").toFixed(0)}
+                  ₹{formatPrice(item.line_total || "0")}
                 </span>
               </div>
             ))}
@@ -352,18 +353,18 @@ export default function OrderConfirmationPage() {
           <div className="pt-2 border-t border-[#eee8dc] space-y-1.5 text-xs text-[#5e665f]">
             <div className="flex justify-between">
               <span>Items Subtotal</span>
-              <span>₹{orderData?.items_subtotal ? parseFloat(orderData.items_subtotal).toFixed(0) : "0"}</span>
+              <span>₹{orderData?.items_subtotal ? formatPrice(orderData.items_subtotal) : "0"}</span>
             </div>
             {orderData?.delivery_charge && parseFloat(orderData.delivery_charge) > 0 && (
               <div className="flex justify-between">
                 <span>Delivery Charge</span>
-                <span>₹{parseFloat(orderData.delivery_charge).toFixed(0)}</span>
+                <span>₹{formatPrice(orderData.delivery_charge)}</span>
               </div>
             )}
             <div className="flex justify-between pt-1 border-t border-[#eee8dc] text-sm font-bold text-[#123324]">
               <span>Grand Total</span>
               <span className="text-[#1F5D42]">
-                ₹{orderData?.total_amount ? parseFloat(orderData.total_amount).toFixed(0) : "0"}
+                ₹{orderData?.total_amount ? formatPrice(orderData.total_amount) : "0"}
               </span>
             </div>
           </div>
