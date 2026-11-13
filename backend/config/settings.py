@@ -47,11 +47,12 @@ if not SECRET_KEY:
         raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set in the environment.')
 
 _allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
-if _allowed_hosts_env.strip():
-    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(',') if h.strip()]
-else:
-    # No wildcard: a forged Host header is rejected. Set DJANGO_ALLOWED_HOSTS for custom domains.
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'testserver', '.vercel.app']
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(',') if h.strip()]
+# No wildcard: a forged Host header is rejected. The local and Vercel hosts are ALWAYS allowed, so a
+# DJANGO_ALLOWED_HOSTS copied from the local example can never lock the deployed API out.
+for _host in ('localhost', '127.0.0.1', '[::1]', 'testserver', '.vercel.app'):
+    if _host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_host)
 
 if not DEBUG:
     # Browsers are told to use HTTPS only and never to sniff content types.
