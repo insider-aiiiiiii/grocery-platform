@@ -2773,15 +2773,13 @@ function ShopSettings({
       const primaryPhoto = photos.find((p) => p.file || (p.url && p.url.trim() !== ""));
       if (primaryPhoto?.file) {
         const formData = new FormData();
+        // Send empty strings too: omitting a cleared field (description, maps link, opening hours)
+        // meant it silently kept its old value whenever a photo was attached.
         Object.entries(restValues).forEach(([k, v]) => {
-          if (v !== undefined && v !== null && v !== "") {
+          if (v !== undefined && v !== null) {
             formData.append(k, String(v));
           }
         });
-        formData.append("delivery_charge", String(values.delivery_charge));
-        if (values.opening_time) formData.append("opening_time", values.opening_time);
-        if (values.closing_time) formData.append("closing_time", values.closing_time);
-        if (values.google_maps_url) formData.append("google_maps_url", values.google_maps_url);
         formData.append("logo", primaryPhoto.file);
         await merchantApi.updateShop(formData);
       } else {
@@ -2814,10 +2812,20 @@ function ShopSettings({
             processedUrls.push(p.url);
           }
         }
-        if (processedUrls.length > 0) {
-          localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
-        } else {
-          localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+        // This is only a browser-side cache. Large photos exceed the ~5 MB localStorage quota and
+        // setItem throws; that must not turn an already-saved shop into a "failed" save.
+        try {
+          if (processedUrls.length > 0) {
+            localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
+          } else {
+            localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+          }
+        } catch {
+          try {
+            localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+          } catch {
+            /* storage unavailable */
+          }
         }
       }
       setMessage(lang === "hi" ? "दुकान का विवरण सफलतापूर्वक सहेजा गया।" : "Shop details saved successfully.");

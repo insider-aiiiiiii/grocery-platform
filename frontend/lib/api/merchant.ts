@@ -236,8 +236,16 @@ export const merchantApi = {
 
 export function getApiError(error: unknown) {
   if (typeof error === "object" && error !== null && "response" in error) {
-    const response = (error as { response?: { data?: Record<string, unknown> } }).response;
-    const data = response?.data;
+    const response = (error as { response?: { status?: number; data?: unknown } }).response;
+    const raw = response?.data;
+    // A non-JSON body (for example an HTML 500 page) is not a message; indexing into the string
+    // used to produce a one-character error like "<".
+    if (typeof raw === "string") {
+      return (response?.status ?? 0) >= 500
+        ? "The server had a problem saving this. Please try again."
+        : "Something went wrong. Please try again.";
+    }
+    const data = raw as Record<string, unknown> | undefined;
     if (data?.detail) return String(data.detail);
     if (data) {
       const first = Object.values(data)[0];

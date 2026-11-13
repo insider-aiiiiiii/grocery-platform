@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.utils.text import slugify
 from rest_framework import serializers
 
+from config.request_data import shallow_mutable_copy
+
 from .image_utils import download_external_image_to_storage
 from .models import (
     MasterCategory,
@@ -365,7 +367,7 @@ class MasterProductSerializer(serializers.ModelSerializer):
     def to_internal_value(self, data):
         # Resolve category if passed as a string name or category_name
         if hasattr(data, "_mutable") and not data._mutable:
-            data = data.copy()
+            data = shallow_mutable_copy(data)
         elif not isinstance(data, dict):
             try:
                 data = dict(data)
@@ -564,7 +566,7 @@ class ShopProductSerializer(serializers.ModelSerializer):
         ]
 
     def to_internal_value(self, data):
-        data = data.copy() if hasattr(data, "copy") else dict(data)
+        data = shallow_mutable_copy(data)  # .copy() deep-copies uploaded files and fails over 2.5 MB
         if "image" in data and isinstance(data["image"], str):
             if not data["image"] or data["image"].startswith("http") or data["image"].startswith("/"):
                 data.pop("image")

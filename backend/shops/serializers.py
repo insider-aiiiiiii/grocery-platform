@@ -5,6 +5,8 @@ from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
+from config.request_data import shallow_mutable_copy
+
 from .models import Shop
 
 
@@ -216,7 +218,7 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
         }
 
     def to_internal_value(self, data):
-        data = data.copy() if hasattr(data, "copy") else dict(data)
+        data = shallow_mutable_copy(data)  # .copy() deep-copies uploaded files and fails over 2.5 MB
         if "delete_logo" in data and str(data["delete_logo"]).lower() in ("true", "1"):
             data["logo"] = None
         elif "logo" in data:
