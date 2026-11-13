@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { QrCode, RefreshCw, Power, PowerOff, ShieldCheck, Clock, Ban, Trash2, KeyRound, Download, X, CheckCircle2, Edit2, Phone } from "lucide-react";
 import { useAdminLang } from "./useAdminLang";
 import { adminApi } from "@/lib/api/admin";
+import { normalizeIndianMobileInput } from "@/lib/format";
 
 export interface MerchantShopItem {
   id: number;
@@ -747,9 +748,9 @@ export function MerchantTable({ merchants, onRefresh, token }: MerchantTableProp
                     <input
                       type="tel"
                       required
-                      maxLength={10}
+                      
                       value={editMobileDigits}
-                      onChange={(e) => setEditMobileDigits(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      onChange={(e) => setEditMobileDigits(normalizeIndianMobileInput(e.target.value))}
                       placeholder="9876543210"
                       className="w-full px-3 py-2 text-sm font-mono bg-transparent outline-none"
                     />

@@ -57,15 +57,28 @@ urlpatterns = [
     path('api/v1/inventory/', include('inventory.urls')),
     path('api/v1/customers/', include('customers.urls')),
     path('api/v1/customer/orders/<int:order_id>/cancellation/', CustomerOrderCancellationView.as_view(), name='customer-order-cancellation'),
+    # Item/validate/customer routes only; each one requires the cart's secret X-Cart-Token.
     path('api/v1/cart/', include('cart.urls')),
     path('api/v1/', include('orders.urls')),
     path('api/v1/analytics/', include('analytics.urls')),
     path('api/v1/master-products/', include((catalog_direct_router.urls, 'master-products-direct'))),
 ]
 
+import os
+
 from django.conf import settings
-from django.conf.urls.static import static
+from django.urls import re_path
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+from config.media import serve_media
 
+# Uploaded images are served by Django only in debug or when SERVE_MEDIA=True (otherwise they
+# belong on object storage / a separate domain). Always through serve_media: images only, with
+# nosniff and a sandboxing Content-Security-Policy.
+if settings.DEBUG or os.environ.get('SERVE_MEDIA', '').lower() in {'true', '1', 'yes'}:
+    urlpatterns += [
+        re_path(
+            r'^%s(?P<path>.*)$' % settings.MEDIA_URL.lstrip('/'),
+            serve_media,
+            {'document_root': settings.MEDIA_ROOT},
+        )
+    ]

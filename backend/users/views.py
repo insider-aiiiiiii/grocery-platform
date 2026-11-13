@@ -12,7 +12,13 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 
 from .models import Merchant, User, UserAuthSession
 from .permissions import IsMerchant, IsSuperAdmin
-from .throttles import LoginAttemptThrottle
+from .throttles import (
+    LoginAccountThrottle,
+    LoginAttemptThrottle,
+    LoginIPThrottle,
+    SuperAdminLoginAccountThrottle,
+    SuperAdminLoginAttemptThrottle,
+)
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -88,7 +94,7 @@ def lock_active_session(session):
 class LoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    throttle_classes = [LoginAttemptThrottle]
+    throttle_classes = [LoginAttemptThrottle, LoginAccountThrottle, LoginIPThrottle]
 
     def get_authenticate_header(self, request):
         return "Bearer"
@@ -125,7 +131,7 @@ class LoginView(APIView):
 class SuperAdminLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    throttle_classes = [LoginAttemptThrottle]
+    throttle_classes = [SuperAdminLoginAttemptThrottle, SuperAdminLoginAccountThrottle, LoginIPThrottle]
 
     def get_authenticate_header(self, request):
         return "Bearer"

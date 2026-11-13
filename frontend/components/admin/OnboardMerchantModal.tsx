@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { X, UserPlus, RefreshCw, CheckCircle2, AlertCircle, Send } from "lucide-react";
 import { useAdminLang } from "./useAdminLang";
 import { adminApi, ProvisionMerchantPayload } from "@/lib/api/admin";
+import { normalizeIndianMobileInput } from "@/lib/format";
 
 interface OnboardMerchantModalProps {
   isOpen: boolean;
@@ -138,9 +139,9 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
                 <input
                   type="tel"
                   required
-                  maxLength={10}
+                  
                   value={mobileDigits}
-                  onChange={(e) => setMobileDigits(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  onChange={(e) => setMobileDigits(normalizeIndianMobileInput(e.target.value))}
                   placeholder="9876543210"
                   className="w-full px-3 py-1.5 text-xs bg-transparent outline-none font-mono"
                 />

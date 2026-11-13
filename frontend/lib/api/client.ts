@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearQueryCache } from "@/lib/query/client";
 
 const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -14,7 +15,7 @@ export const apiClient = axios.create({
 // Request Interceptor: attach Authorization: Bearer <token>
 apiClient.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("admin_access_token");
+    const token = sessionStorage.getItem("admin_access_token");
     if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -53,10 +54,10 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      const refreshToken = localStorage.getItem("admin_refresh_token");
+      const refreshToken = sessionStorage.getItem("admin_refresh_token");
       if (!refreshToken) {
-        localStorage.removeItem("admin_access_token");
-        localStorage.removeItem("admin_refresh_token");
+        sessionStorage.removeItem("admin_access_token");
+        sessionStorage.removeItem("admin_refresh_token");
         if (window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin/login") {
           window.location.href = "/admin/login";
         }
@@ -82,9 +83,9 @@ apiClient.interceptors.response.use(
           refresh: refreshToken,
         });
         const newAccessToken = refreshResponse.data.access;
-        localStorage.setItem("admin_access_token", newAccessToken);
+        sessionStorage.setItem("admin_access_token", newAccessToken);
         if (refreshResponse.data.refresh) {
-          localStorage.setItem("admin_refresh_token", refreshResponse.data.refresh);
+          sessionStorage.setItem("admin_refresh_token", refreshResponse.data.refresh);
         }
 
         apiClient.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
@@ -93,8 +94,8 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        localStorage.removeItem("admin_access_token");
-        localStorage.removeItem("admin_refresh_token");
+        sessionStorage.removeItem("admin_access_token");
+        sessionStorage.removeItem("admin_refresh_token");
         if (window.location.pathname.startsWith("/admin") && window.location.pathname !== "/admin/login") {
           window.location.href = "/admin/login";
         }
@@ -107,3 +108,20 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * Ends the admin session on the SERVER (revokes the refresh token) and then clears the browser.
+ * Clearing only the browser would leave a copied refresh token valid for 30 days.
+ */
+export async function signOutAdmin(): Promise<void> {
+  const refresh = typeof window !== "undefined" ? sessionStorage.getItem("admin_refresh_token") : null;
+  try {
+    if (refresh) await apiClient.post("/auth/logout/", { refresh });
+  } catch {
+    // Already expired or offline: still sign out locally below.
+  } finally {
+    ["admin_access_token", "admin_refresh_token"].forEach((k) => sessionStorage.removeItem(k));
+    ["admin_user", "admin_remember", "admin_username"].forEach((k) => localStorage.removeItem(k));
+    clearQueryCache();
+  }
+}

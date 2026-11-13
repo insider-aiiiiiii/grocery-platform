@@ -6,7 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIClient
+from config.test_clients import TokenAPIClient as APIClient
 
 from campaigns.models import Campaign
 from campaigns.serializers import CampaignSerializer, PublicCampaignSerializer

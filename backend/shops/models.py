@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from config.uploads import validate_image_upload
 from django.db.models import Q
 
 # A QR display code is the first 8 characters of a shop's public slug.
@@ -33,7 +34,7 @@ class Shop(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
-    logo = models.FileField(upload_to="shops/logos/", blank=True, null=True)
+    logo = models.FileField(upload_to="shops/logos/", validators=[validate_image_upload], blank=True, null=True)
 
     # Structured address required per domain specification
     address_line = models.CharField(max_length=255)

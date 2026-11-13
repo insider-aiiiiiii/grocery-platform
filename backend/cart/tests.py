@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from rest_framework import status
-from rest_framework.test import APIClient
+from config.test_clients import TokenAPIClient as APIClient
 
 from catalog.models import ProductVariant, ShopProduct
 from customers.models import Customer
@@ -733,27 +733,13 @@ class PublicCartAPITests(TestCase):
         response_query = self.client.get(url_query)
         self.assertEqual(response_query.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_public_direct_cart_retrieve(self):
-        """Direct retrieval via /api/v1/cart/<pk>/ returns cart details for active shop."""
+    def test_direct_cart_detail_route_no_longer_exists(self):
+        """GP-QA-5: /api/v1/cart/<pk>/ let anyone read any cart by id; carts are shop-scoped + token-gated now."""
         cart = Cart.objects.create(shop=self.shop1)
         CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
 
-        url = f"/api/v1/cart/{cart.id}/"
-        response = self.client.get(url)
+        response = self.client.get(f"/api/v1/cart/{cart.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        self.assertEqual(data["id"], cart.id)
-        self.assertEqual(data["shop"]["id"], self.shop1.id)
-
-    def test_public_direct_cart_retrieve_inactive_shop_returns_404(self):
-        """Direct cart retrieval returns 404 if the cart's shop is deactivated."""
-        cart = Cart.objects.create(shop=self.shop1)
-        self.shop1.status = Shop.Status.DEACTIVATED
-        self.shop1.save()
-
-        url = f"/api/v1/cart/{cart.id}/"
-        response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_unauthenticated_client_can_perform_all_cart_operations(self):
@@ -770,11 +756,6 @@ class PublicCartAPITests(TestCase):
         get_slug_url = f"/api/v1/shops/public/{self.shop1.public_slug}/cart/{cart_id}/"
         res_get_slug = self.client.get(get_slug_url)
         self.assertEqual(res_get_slug.status_code, status.HTTP_200_OK)
-
-        # 3. Direct retrieval by ID
-        get_direct_url = f"/api/v1/cart/{cart_id}/"
-        res_get_direct = self.client.get(get_direct_url)
-        self.assertEqual(res_get_direct.status_code, status.HTTP_200_OK)
 
 
 class CartItemAPITests(TestCase):

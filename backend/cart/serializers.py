@@ -69,6 +69,7 @@ class PublicCartSerializer(serializers.ModelSerializer):
         model = Cart
         fields = [
             "id",
+            "access_token",
             "shop",
             "customer",
             "items",

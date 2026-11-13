@@ -119,8 +119,10 @@ export function ShopHeader({
     .join("")
     .toUpperCase() || "DU";
 
-  const openTime = shop.opening_time ? shop.opening_time.slice(0, 5) : "07:00 AM";
-  const closeTime = shop.closing_time ? shop.closing_time.slice(0, 5) : "11:00 PM";
+  // Only show hours the merchant actually set; never invent default opening times.
+  const hasHours = Boolean(shop.opening_time && shop.closing_time);
+  const openTime = shop.opening_time ? shop.opening_time.slice(0, 5) : "";
+  const closeTime = shop.closing_time ? shop.closing_time.slice(0, 5) : "";
 
   return (
     <header className="relative w-full z-20 pb-2">
@@ -133,7 +135,7 @@ export function ShopHeader({
           <div>
             <span className="font-display font-bold text-base text-white tracking-tight">Dukandaar</span>
             <span className="ml-2 text-[10px] font-medium text-[#a2b5a8] hidden sm:inline">
-              {isHindi ? "स्थानीय ऑनलाइन दुकान" : "Local Verified Store"}
+              {isHindi ? "स्थानीय ऑनलाइन दुकान" : "Local Store"}
             </span>
           </div>
         </div>
@@ -215,7 +217,7 @@ export function ShopHeader({
             <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center justify-between text-white text-xs z-10 pointer-events-none">
               <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1F5D42]/90 backdrop-blur-md text-white font-bold text-[11px] shadow-sm border border-emerald-400/30">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                <span>{isHindi ? "सत्यापित स्थानीय दुकान" : "Verified Store"}</span>
+                <span>{isHindi ? "स्थानीय दुकान" : "Local Store"}</span>
               </div>
 
               <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md text-white text-[11px] font-medium border border-white/20">
@@ -233,7 +235,7 @@ export function ShopHeader({
               </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold">
                 <CheckCircle2 className="w-3 h-3" />
-                <span>{isHindi ? "सत्यापित दुकान" : "Verified"}</span>
+                <span>{isHindi ? "स्थानीय दुकान" : "Local"}</span>
               </span>
             </div>
             <div>
@@ -281,7 +283,7 @@ export function ShopHeader({
               <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>{isHindi ? "सत्यापित स्थानीय दुकान" : "VERIFIED DUKAAN"}</span>
+                  <span>{isHindi ? "स्थानीय दुकान" : "LOCAL DUKAAN"}</span>
                 </span>
                 <span className="text-[11px] text-[#6d756f]">
                   {shop.city}, {shop.state}
@@ -351,12 +353,14 @@ export function ShopHeader({
                       : "STORE OPEN NOW"}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-emerald-200/90 mt-1">
-                  <Clock className="w-3.5 h-3.5 text-[#E8A33D]" />
-                  <span>
-                    {isHindi ? "आज का समय" : "Today"}: {openTime} - {closeTime}
-                  </span>
-                </div>
+                {hasHours && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-200/90 mt-1">
+                    <Clock className="w-3.5 h-3.5 text-[#E8A33D]" />
+                    <span>
+                      {isHindi ? "आज का समय" : "Today"}: {openTime} - {closeTime}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

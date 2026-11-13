@@ -6,6 +6,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from config.model_validation import full_clean_without_db_lookups
+from config.tokens import TOKEN_MAX_LENGTH, new_access_token
 
 
 class Order(models.Model):
@@ -113,6 +114,10 @@ class Order(models.Model):
     )
 
     # Pending Timeout & Lifecycle Timestamps
+    # Secret link token: the numeric id is guessable, so the public order page, cancel and
+    # status endpoints require this token as well.
+    access_token = models.CharField(max_length=TOKEN_MAX_LENGTH, unique=True, default=new_access_token, editable=False)
+
     expires_at = models.DateTimeField(db_index=True, null=True, blank=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)

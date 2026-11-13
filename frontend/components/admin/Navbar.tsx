@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { signOutAdmin } from "@/lib/api/client";
 import { Store, Search, LogOut, Languages } from "lucide-react";
 
 interface NavbarProps {
@@ -32,11 +33,8 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
     window.dispatchEvent(new Event("admin-lang-changed"));
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_access_token");
-    localStorage.removeItem("admin_refresh_token");
-    localStorage.removeItem("admin_user");
-    localStorage.removeItem("admin_remember");
+  const handleLogout = async () => {
+    await signOutAdmin();
     router.push("/admin/login");
   };
 
@@ -68,7 +66,7 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
       }
     }
 
-    const token = localStorage.getItem("admin_access_token");
+    const token = sessionStorage.getItem("admin_access_token");
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split(".")[1]));

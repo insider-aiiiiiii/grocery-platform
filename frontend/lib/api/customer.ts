@@ -12,6 +12,46 @@ export const customerClient = axios.create({
   },
 });
 
+// Carts and orders are identified by a secret token as well as a numeric id: the id alone is
+// guessable, so every cart/order request must prove it holds the token the server issued.
+// Tokens live in localStorage next to the ids the storefront already keeps there.
+const cartTokenKey = (slug: string, cartId: number | string) => `dukaan_cart_token_${slug}_${cartId}`;
+const orderTokenKey = (slug: string, orderId: number | string) => `dukaan_order_token_${slug}_${orderId}`;
+
+function readToken(key: string): string | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeToken(key: string, token: string | undefined | null) {
+  if (!token) return;
+  try {
+    window.localStorage.setItem(key, token);
+  } catch {
+    /* storage unavailable: the cart simply cannot be resumed after a reload */
+  }
+}
+
+export function getCartToken(slug: string, cartId: number | string): string | null {
+  return readToken(cartTokenKey(slug, cartId));
+}
+
+export function getOrderToken(slug: string, orderId: number | string): string | null {
+  return readToken(orderTokenKey(slug, orderId));
+}
+
+export function rememberOrderToken(slug: string, orderId: number | string, token: string | null | undefined) {
+  writeToken(orderTokenKey(slug, orderId), token);
+}
+
+function cartHeaders(slug: string, cartId: number | string): Record<string, string> {
+  const token = getCartToken(slug, cartId);
+  return token ? { "X-Cart-Token": token } : {};
+}
+
 export interface PublicShopInfo {
   public_slug: string;
   public_url: string;
@@ -110,6 +150,7 @@ export interface PublicCartItem {
 
 export interface PublicCart {
   id: number;
+  access_token?: string;
   shop: number;
   items_count: number;
   total_amount: string;
@@ -154,6 +195,8 @@ export interface CheckoutPayload {
 
 export interface CheckoutResponse {
   id: number;
+  /** Secret order link token; only present in the response to the checkout request. */
+  access_token?: string;
   status: "PENDING" | "ACCEPTED" | "PREPARING" | "READY" | "COMPLETED" | "REJECTED";
   payment_status: string;
   fulfillment_type: "HOME_DELIVERY" | "PICKUP";
@@ -289,12 +332,14 @@ export const customerApi = {
   // Cart Operations
   createCart: async (publicSlug: string): Promise<PublicCart> => {
     const res = await customerClient.post<PublicCart>(`/shops/public/${publicSlug}/cart/`, {});
+    writeToken(cartTokenKey(publicSlug, res.data.id), res.data.access_token);
     return normalizeCart(res.data);
   },
 
   getCart: async (publicSlug: string, cartId: number): Promise<PublicCart> => {
     const res = await customerClient.get<PublicCart>(`/shops/public/${publicSlug}/cart/`, {
       params: { cart_id: cartId },
+      headers: cartHeaders(publicSlug, cartId),
     });
     return normalizeCart(res.data);
   },
@@ -304,7 +349,9 @@ export const customerApi = {
     cartId: number,
     payload: { product_id: number; variant_id?: number; quantity: number }
   ): Promise<PublicCart> => {
-    await customerClient.post(`/shops/public/${publicSlug}/cart/${cartId}/items/`, payload);
+    await customerClient.post(`/shops/public/${publicSlug}/cart/${cartId}/items/`, payload, {
+      headers: cartHeaders(publicSlug, cartId),
+    });
     return customerApi.getCart(publicSlug, cartId);
   },
 
@@ -314,19 +361,25 @@ export const customerApi = {
     itemId: number,
     quantity: number
   ): Promise<PublicCart> => {
-    await customerClient.patch(`/shops/public/${publicSlug}/cart/${cartId}/items/${itemId}/`, {
-      quantity,
-    });
+    await customerClient.patch(
+      `/shops/public/${publicSlug}/cart/${cartId}/items/${itemId}/`,
+      { quantity },
+      { headers: cartHeaders(publicSlug, cartId) }
+    );
     return customerApi.getCart(publicSlug, cartId);
   },
 
   removeCartItem: async (publicSlug: string, cartId: number, itemId: number): Promise<PublicCart> => {
-    await customerClient.delete(`/shops/public/${publicSlug}/cart/${cartId}/items/${itemId}/`);
+    await customerClient.delete(`/shops/public/${publicSlug}/cart/${cartId}/items/${itemId}/`, {
+      headers: cartHeaders(publicSlug, cartId),
+    });
     return customerApi.getCart(publicSlug, cartId);
   },
 
   validateCart: async (publicSlug: string, cartId: number): Promise<{ is_valid: boolean; errors?: any[] }> => {
-    const res = await customerClient.post(`/shops/public/${publicSlug}/cart/${cartId}/validate/`, {});
+    const res = await customerClient.post(`/shops/public/${publicSlug}/cart/${cartId}/validate/`, {}, {
+      headers: cartHeaders(publicSlug, cartId),
+    });
     return res.data;
   },
 
@@ -357,22 +410,35 @@ export const customerApi = {
       {
         headers: {
           "Idempotency-Key": idempotencyKey,
+          ...cartHeaders(publicSlug, payload.cart_id),
         },
       }
     );
+    rememberOrderToken(publicSlug, res.data.id, res.data.access_token);
     return res.data;
   },
 
-  getOrder: async (publicSlug: string, orderId: number): Promise<CheckoutResponse> => {
+  getOrder: async (publicSlug: string, orderId: number, token?: string | null): Promise<CheckoutResponse> => {
+    const orderToken = token || getOrderToken(publicSlug, orderId);
     const res = await customerClient.get<CheckoutResponse>(
-      `/shops/public/${publicSlug}/orders/${orderId}/`
+      `/shops/public/${publicSlug}/orders/${orderId}/`,
+      { headers: orderToken ? { "X-Order-Token": orderToken } : {} }
     );
     return res.data;
   },
 
   // Order Cancellation
-  cancelOrder: async (publicSlug: string, orderId: number): Promise<{ id: number; status: string }> => {
-    const res = await customerClient.post(`/shops/public/${publicSlug}/orders/${orderId}/cancel/`, {});
+  cancelOrder: async (
+    publicSlug: string,
+    orderId: number,
+    token?: string | null
+  ): Promise<{ id: number; status: string }> => {
+    const orderToken = token || getOrderToken(publicSlug, orderId);
+    const res = await customerClient.post(
+      `/shops/public/${publicSlug}/orders/${orderId}/cancel/`,
+      {},
+      { headers: orderToken ? { "X-Order-Token": orderToken } : {} }
+    );
     return res.data;
   },
 };
