@@ -11,6 +11,7 @@ interface ProductDetailModalProps {
   onClose: () => void;
   onAdd: (product: PublicProduct, variant?: PublicProductVariant) => void;
   onUpdateQuantity: (product: PublicProduct, delta: number) => void;
+  language?: "en" | "hi";
 }
 
 export function ProductDetailModal({
@@ -19,8 +20,11 @@ export function ProductDetailModal({
   onClose,
   onAdd,
   onUpdateQuantity,
+  language = "en",
 }: ProductDetailModalProps) {
   if (!product) return null;
+
+  const isHindi = language === "hi";
 
   const [selectedVariant, setSelectedVariant] = useState<PublicProductVariant | undefined>(
     product.variants?.[0]
@@ -42,10 +46,11 @@ export function ProductDetailModal({
         {/* Header with Close */}
         <div className="sticky top-0 bg-[#FFFDF8]/95 backdrop-blur-sm px-5 py-3.5 border-b border-[#e2ddd4] flex items-center justify-between z-10">
           <span className="text-xs font-bold text-[#6d756f] uppercase tracking-wider">
-            {product.brand || "Product Details"}
+            {product.brand || (isHindi ? "सामान की जानकारी" : "Product Details")}
           </span>
           <button
             onClick={onClose}
+            aria-label={isHindi ? "बंद करें" : "Close"}
             className="p-1 rounded-full text-[#6d756f] hover:text-[#123324] hover:bg-[#eee8dc] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -67,7 +72,7 @@ export function ProductDetailModal({
           {isOutOfStock && (
             <div className="absolute inset-0 bg-[#123324]/75 backdrop-blur-[1px] flex items-center justify-center">
               <span className="px-3 py-1.5 bg-white text-[#123324] text-xs font-bold rounded-lg uppercase tracking-wider">
-                Currently Out of Stock
+                {isHindi ? "अभी स्टॉक में नहीं है" : "Currently Out of Stock"}
               </span>
             </div>
           )}
@@ -83,17 +88,17 @@ export function ProductDetailModal({
               <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{formatPrice(price)}</span>
               {product.mrp && parseFloat(product.mrp) > price && (
                 <span className="text-sm text-[#869088] line-through font-mono">
-                  MRP ₹{formatPrice(product.mrp)}
+                  {isHindi ? "एमआरपी" : "MRP"} ₹{formatPrice(product.mrp)}
                 </span>
               )}
               {product.mrp && parseFloat(product.mrp) > price && (
                 <span className="text-[11px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
-                  {Math.round(((parseFloat(product.mrp) - price) / parseFloat(product.mrp)) * 100)}% OFF
+                  {Math.round(((parseFloat(product.mrp) - price) / parseFloat(product.mrp)) * 100)}% {isHindi ? "छूट" : "OFF"}
                 </span>
               )}
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
                 <ShieldCheck className="w-3 h-3 text-[#1F5D42]" />
-                Fresh Shelf Quality
+                {isHindi ? "ताज़ा और बढ़िया क्वालिटी" : "Fresh Shelf Quality"}
               </span>
             </div>
           </div>
@@ -102,7 +107,7 @@ export function ProductDetailModal({
           {product.variants && product.variants.length > 1 && (
             <div>
               <label className="block text-xs font-bold text-[#17251e] mb-2">
-                Select Pack / Variant
+                {isHindi ? "पैक / वेरिएंट चुनें" : "Select Pack / Variant"}
               </label>
               <div className="flex flex-wrap gap-2">
                 {product.variants.map((v) => {
@@ -128,7 +133,7 @@ export function ProductDetailModal({
           {/* Description */}
           {product.description && (
             <div className="pt-2 border-t border-[#eee8dc]">
-              <h4 className="text-xs font-bold text-[#17251e] mb-1">Description</h4>
+              <h4 className="text-xs font-bold text-[#17251e] mb-1">{isHindi ? "विवरण" : "Description"}</h4>
               <p className="text-xs text-[#5e665f] leading-relaxed whitespace-pre-line">
                 {product.description}
               </p>
@@ -138,7 +143,7 @@ export function ProductDetailModal({
           {/* Action Footer */}
           <div className="pt-4 border-t border-[#eee8dc] flex items-center justify-between gap-3">
             <div>
-              <span className="text-[11px] text-[#6d756f] block">Total Price</span>
+              <span className="text-[11px] text-[#6d756f] block">{isHindi ? "कुल कीमत" : "Total Price"}</span>
               <span className="font-display font-bold text-lg text-[#123324]">
                 ₹{formatPrice(price * Math.max(1, cartQuantity))}
               </span>
@@ -149,12 +154,13 @@ export function ProductDetailModal({
                 disabled
                 className="px-5 py-2.5 bg-gray-100 text-[#8b918d] font-bold text-xs rounded-xl cursor-not-allowed"
               >
-                Out of Stock
+                {isHindi ? "स्टॉक खत्म" : "Out of Stock"}
               </button>
             ) : cartQuantity > 0 ? (
               <div className="flex items-center bg-[#1F5D42] text-white rounded-xl px-2 py-1 shadow-md">
                 <button
                   onClick={() => onUpdateQuantity(product, -1)}
+                  aria-label={isHindi ? "एक कम करें" : "Remove one"}
                   className="p-1.5 hover:bg-[#123324] rounded-lg transition-colors"
                 >
                   <Minus className="w-4 h-4" />
@@ -164,6 +170,7 @@ export function ProductDetailModal({
                 </span>
                 <button
                   onClick={() => onUpdateQuantity(product, 1)}
+                  aria-label={isHindi ? "एक और जोड़ें" : "Add one more"}
                   className="p-1.5 hover:bg-[#123324] rounded-lg transition-colors"
                 >
                   <Plus className="w-4 h-4" />
@@ -177,7 +184,7 @@ export function ProductDetailModal({
                 className="px-6 py-2.5 bg-[#E8A33D] hover:bg-[#D6902B] text-[#123324] font-bold text-xs rounded-xl shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus className="w-4 h-4 stroke-[2.5]" />
-                <span>Add to Basket</span>
+                <span>{isHindi ? "कार्ट में जोड़ें" : "Add to Basket"}</span>
               </button>
             )}
           </div>

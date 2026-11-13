@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { X, UserPlus, RefreshCw, CheckCircle2, AlertCircle, Send } from "lucide-react";
+import { useAdminLang } from "./useAdminLang";
 import { adminApi, ProvisionMerchantPayload } from "@/lib/api/admin";
 
 interface OnboardMerchantModalProps {
@@ -12,6 +13,7 @@ interface OnboardMerchantModalProps {
 }
 
 export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: OnboardMerchantModalProps) {
+  const hi = useAdminLang() === "hi";
   const [username, setUsername] = useState("");
   const [mobileDigits, setMobileDigits] = useState("");
   const [email, setEmail] = useState("");
@@ -34,7 +36,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
 
     const clean10 = mobileDigits.replace(/\D/g, "").slice(-10);
     if (clean10.length !== 10) {
-      setError("Please enter a valid 10-digit mobile number / कृपया 10 अंकों का मोबाइल नंबर दर्ज करें");
+      setError(hi ? "कृपया 10 अंकों का मोबाइल नंबर दर्ज करें" : "Please enter a valid 10-digit mobile number / कृपया 10 अंकों का मोबाइल नंबर दर्ज करें");
       setLoading(false);
       return;
     }
@@ -56,7 +58,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
       }, 1500);
     } catch (err: any) {
       const data = err.response?.data;
-      let msg = "Failed to onboard merchant / व्यापारी ऑनबोर्ड करने में विफल";
+      let msg = hi ? "मर्चेंट ऑनबोर्ड करने में विफल" : "Failed to onboard merchant / व्यापारी ऑनबोर्ड करने में विफल";
       if (typeof data === "string") {
         msg = data;
       } else if (data?.mobile_number) {
@@ -85,9 +87,9 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
         <div className="px-6 py-3.5 bg-[#0F172A] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-sm font-semibold tracking-tight">Onboard New Merchant Tenant</h2>
+            <h2 className="text-sm font-semibold tracking-tight">{hi ? "नया मर्चेंट जोड़ें" : "Onboard New Merchant Tenant"}</h2>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} aria-label={hi ? "बंद करें" : "Close"} className="text-slate-400 hover:text-white transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -104,7 +106,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
           {success && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>Merchant onboarded successfully! Welcome credentials dispatched.</span>
+              <span>{hi ? "मर्चेंट सफलतापूर्वक जुड़ गया! लॉगिन की जानकारी भेज दी गई है।" : "Merchant onboarded successfully! Welcome credentials dispatched."}</span>
             </div>
           )}
 
@@ -112,14 +114,14 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
             {/* Username */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Merchant Username *
+                {hi ? "मर्चेंट यूज़रनेम *" : "Merchant Username *"}
               </label>
               <input
                 type="text"
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. sharma_kirana"
+                placeholder={hi ? "जैसे sharma_kirana" : "e.g. sharma_kirana"}
                 className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] outline-none"
               />
             </div>
@@ -127,7 +129,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
             {/* Mobile Number with fixed +91 */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Mobile Number (10 Digits) *
+                {hi ? "मोबाइल नंबर (10 अंक) *" : "Mobile Number (10 Digits) *"}
               </label>
               <div className="flex items-center rounded border border-slate-200 bg-slate-50 overflow-hidden focus-within:bg-white focus-within:border-[#1F5D42] focus-within:ring-1 focus-within:ring-[#1F5D42]">
                 <span className="px-2.5 py-1.5 bg-slate-100 text-slate-700 font-mono font-bold text-xs border-r border-slate-200 select-none">
@@ -148,13 +150,13 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
             {/* Email */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Official Email (Optional)
+                {hi ? "ईमेल (वैकल्पिक)" : "Official Email (Optional)"}
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="merchant@example.com (optional)"
+                placeholder={hi ? "merchant@example.com (वैकल्पिक)" : "merchant@example.com (optional)"}
                 className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded focus:bg-white focus:border-[#1F5D42] focus:ring-1 focus:ring-[#1F5D42] outline-none"
               />
             </div>
@@ -162,7 +164,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
             {/* Temporary Password */}
             <div>
               <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Initial Temporary Password *
+                {hi ? "शुरुआती अस्थायी पासवर्ड *" : "Initial Temporary Password *"}
               </label>
               <div className="relative">
                 <input
@@ -178,7 +180,7 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
                   className="absolute right-1 top-1 px-1.5 py-0.5 text-[10px] bg-white border border-slate-200 text-slate-600 rounded hover:text-slate-900 flex items-center gap-1"
                 >
                   <RefreshCw className="w-2.5 h-2.5" />
-                  <span>Gen</span>
+                  <span>{hi ? "बनाएं" : "Gen"}</span>
                 </button>
               </div>
             </div>
@@ -188,10 +190,18 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
           <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded flex items-start gap-2.5 text-xs text-emerald-900">
             <Send className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
             <div>
-              <span className="font-semibold">Automated Credential Dispatch:</span>
+              <span className="font-semibold">{hi ? "लॉगिन जानकारी अपने-आप भेजी जाएगी:" : "Automated Credential Dispatch:"}</span>
               <p className="text-slate-600 text-[11px]">
-                Upon creation, the merchant will be flagged with <code>must_change_password=True</code>{" "}
-                and prompted to set their permanent password on first login.
+                {hi ? (
+                  <>
+                    बनाने के बाद मर्चेंट पर <code>must_change_password=True</code> लग जाएगा और पहले लॉगिन पर उससे अपना स्थायी पासवर्ड सेट करने को कहा जाएगा।
+                  </>
+                ) : (
+                  <>
+                    Upon creation, the merchant will be flagged with <code>must_change_password=True</code>{" "}
+                    and prompted to set their permanent password on first login.
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -204,14 +214,14 @@ export function OnboardMerchantModal({ isOpen, onClose, onSuccess, token }: Onbo
               disabled={loading}
               className="px-4 py-2 border border-slate-200 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 transition-colors"
             >
-              Cancel
+              {hi ? "रद्द करें" : "Cancel"}
             </button>
             <button
               type="submit"
               disabled={loading}
               className="px-4 py-2 bg-[#1F5D42] text-white text-xs font-semibold rounded hover:bg-[#164430] shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
             >
-              {loading ? "Provisioning..." : "Provision Merchant"}
+              {loading ? (hi ? "बनाया जा रहा है..." : "Provisioning...") : (hi ? "मर्चेंट बनाएं" : "Provision Merchant")}
             </button>
           </div>
         </form>

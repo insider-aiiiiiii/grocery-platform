@@ -79,9 +79,26 @@ export default function SuperAdminLoginPage() {
         }
         router.push("/admin");
       } else {
-        setErrorMessage("Authentication failed: No access token received from server.");
+        setErrorMessage(
+          lang === "hi"
+            ? "लॉगिन नहीं हो पाया। कृपया दोबारा कोशिश करें।"
+            : "Sign-in failed. Please try again."
+        );
       }
     } catch (err: any) {
+      const status = err?.response?.status;
+      if (lang === "hi" && (status === 401 || status === 403)) {
+        setErrorMessage("अमान्य लॉगिन विवरण, या इस खाते को सुपर एडमिन की अनुमति नहीं है।");
+        return;
+      }
+      if (status === 429) {
+        setErrorMessage(
+          lang === "hi"
+            ? "बहुत ज़्यादा कोशिशें हो गईं। कृपया थोड़ी देर बाद दोबारा कोशिश करें।"
+            : "Too many attempts. Please wait a minute and try again."
+        );
+        return;
+      }
       const detail =
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
@@ -127,28 +144,28 @@ export default function SuperAdminLoginPage() {
             <span className="h-2 w-2 rounded-full bg-[#E8A33D] animate-pulse" />
             <span>
               {lang === "hi"
-                ? "प्लेटफॉर्म नेटवर्क गवर्नेंस व कंट्रोल"
-                : "Platform Network Governance & Control"}
+                ? "हर दुकान के लिए आपका कंट्रोल रूम"
+                : "Your control room for every shop"}
             </span>
           </div>
 
           <h1 className="text-4xl font-bold leading-[1.15] tracking-[-.03em] xl:text-[50px] font-display">
             {lang === "hi" ? (
               <>
-                केंद्रीय नियंत्रण समस्त <span className="text-[#E8A33D]">दुकानदार नेटवर्क</span> के लिए।
+                पूरा <span className="text-[#E8A33D]">Dukandaar नेटवर्क</span>, एक ही जगह से।
               </>
             ) : (
               <>
-                Unified control for the <br />
-                <span className="text-[#E8A33D]">Dukandaar network.</span>
+                Run the whole <br />
+                <span className="text-[#E8A33D]">Dukandaar network</span> from one place.
               </>
             )}
           </h1>
 
           <p className="mt-5 max-w-md text-sm leading-relaxed text-[#b9cac0]">
             {lang === "hi"
-              ? "सभी मर्चेंट टैलेंट्स, मास्टर कैटलॉग क्युरेशन, प्रचार अभियान और लाइव सुरक्षा टेलीमेट्री का संपूर्ण प्रशासन।"
-              : "Enterprise governance across all retail tenants, master catalog curation, marketing campaigns, and real-time platform telemetry."}
+              ? "सभी दुकानें, प्रोडक्ट और ऑफ़र संभालें, और पूरे नेटवर्क के ऑर्डर व बिक्री पर नज़र रखें।"
+              : "Look after every shop, product and offer, and keep an eye on orders and sales across the whole network."}
           </p>
 
           {/* Value Highlights */}
@@ -157,24 +174,24 @@ export default function SuperAdminLoginPage() {
               <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
               <span>
                 {lang === "hi"
-                  ? "मल्टी-टेनेंट दुकान डायरेक्टरी और स्टेटस एक्टिवेशन"
-                  : "Multi-tenant shop directory & status activation"}
+                  ? "नई दुकानें जोड़ें और एक क्लिक में चालू या बंद करें"
+                  : "Add new shops and switch them on or off in one click"}
               </span>
             </div>
             <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
               <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
               <span>
                 {lang === "hi"
-                  ? "यूनिवर्सल मास्टर कैटलॉग, JSON/Excel एक्सपोर्ट व बल्क इंपोर्ट"
-                  : "Universal Master Catalog, JSON/Excel bulk import & exports"}
+                  ? "एक प्रोडक्ट कैटलॉग जिसमें से हर दुकान चुन सके, एक्सेल से अपलोड करें"
+                  : "One product catalog every shop can pick from, uploadable from Excel"}
               </span>
             </div>
             <div className="flex items-center gap-3 rounded-xl bg-white/[.05] border border-white/10 px-3.5 py-2.5 text-xs text-[#dce6df]">
               <ShieldCheck size={16} className="text-[#E8A33D] shrink-0" />
               <span>
                 {lang === "hi"
-                  ? "रोल-आधारित ऑथराइजेशन और ऑटोमेटेड सेशन सिक्योरिटी"
-                  : "Role-based token validation & tenant security"}
+                  ? "सभी दुकानों के लिए ऑफ़र और घोषणाएं चलाएं"
+                  : "Run offers and announcements for all your shops"}
               </span>
             </div>
           </div>
@@ -186,8 +203,8 @@ export default function SuperAdminLoginPage() {
             </div>
             <p className="text-xs text-[#b4c3b9]">
               {lang === "hi"
-                ? "256-बिट सुरक्षित एन्क्रिप्शन व सत्र अलगाव सक्रिय।"
-                : "Secured with JWT session validation & tenant isolation."}
+                ? "आपका और हर दुकान का डेटा निजी और सुरक्षित रहता है।"
+                : "Your data and every shop's data stay private and safe."}
             </p>
           </div>
         </div>
@@ -214,7 +231,7 @@ export default function SuperAdminLoginPage() {
                     Dukandaar
                   </p>
                   <p className="text-[9px] uppercase tracking-wider text-[#6d756f] mt-0.5">
-                    Super Admin
+                    {lang === "hi" ? "सुपर एडमिन" : "Super Admin"}
                   </p>
                 </div>
               </div>
@@ -242,8 +259,8 @@ export default function SuperAdminLoginPage() {
               </h2>
               <p className="mt-1.5 text-xs text-[#5e665f] leading-relaxed">
                 {lang === "hi"
-                  ? "सुपर एडमिन क्रेडेंशियल्स दर्ज करके प्लेटफॉर्म कंसोल खोलें।"
-                  : "Enter your Super Admin identifier and password to access console."}
+                  ? "आगे बढ़ने के लिए अपना एडमिन ईमेल या यूज़रनेम और पासवर्ड दर्ज करें।"
+                  : "Enter your admin email or username and password to continue."}
               </p>
             </div>
 
@@ -263,7 +280,7 @@ export default function SuperAdminLoginPage() {
               {/* Field 1: Identifier */}
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold text-[#123324]">
-                  {lang === "hi" ? "एडमिनिस्ट्रेटिव पहचानकर्ता" : "Administrative identifier"}
+                  {lang === "hi" ? "एडमिन ईमेल या यूज़रनेम" : "Admin email or username"}
                 </span>
                 <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
                   <Mail size={16} className="text-[#6d756f] shrink-0" />
@@ -272,7 +289,7 @@ export default function SuperAdminLoginPage() {
                     required
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
-                    placeholder="admin or admin@dukandaar.internal"
+                    placeholder={lang === "hi" ? "एडमिन ईमेल या यूज़रनेम" : "Admin email or username"}
                     className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
                 </span>
@@ -282,7 +299,7 @@ export default function SuperAdminLoginPage() {
               <label className="block">
                 <div className="mb-1.5 flex items-center justify-between text-xs">
                   <span className="font-semibold text-[#123324]">
-                    {lang === "hi" ? "मास्टर पासवर्ड" : "Password"}
+                    {lang === "hi" ? "पासवर्ड" : "Password"}
                   </span>
                 </div>
                 <span className="flex h-12 items-center gap-3 rounded-xl border border-[#ddd6ca] bg-white px-3.5 focus-within:border-[#1F5D42] focus-within:ring-3 focus-within:ring-[#1F5D42]/10 transition shadow-2xs">
@@ -292,13 +309,17 @@ export default function SuperAdminLoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder={lang === "hi" ? "मास्टर पासवर्ड दर्ज करें" : "Enter master password"}
+                    placeholder={lang === "hi" ? "अपना पासवर्ड दर्ज करें" : "Enter your password"}
                     className="w-full bg-transparent text-sm text-[#123324] outline-none placeholder:text-[#a5ada7]"
                   />
                   <button
                     type="button"
                     className="text-[#6d756f] hover:text-[#123324] p-1"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={
+                      showPassword
+                        ? lang === "hi" ? "पासवर्ड छिपाएं" : "Hide password"
+                        : lang === "hi" ? "पासवर्ड दिखाएं" : "Show password"
+                    }
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -316,7 +337,7 @@ export default function SuperAdminLoginPage() {
                     className="w-4 h-4 rounded border-[#ddd6ca] text-[#1F5D42] focus:ring-[#1F5D42]"
                   />
                   <span>
-                    {lang === "hi" ? "30 दिनों के लिए याद रखें" : "Remember workstation for 30 days"}
+                    {lang === "hi" ? "30 दिनों तक साइन इन रखें" : "Keep me signed in for 30 days"}
                   </span>
                 </label>
               </div>
@@ -331,13 +352,13 @@ export default function SuperAdminLoginPage() {
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     <span>
-                      {lang === "hi" ? "सत्यापन हो रहा है…" : "Authenticating Super Admin…"}
+                      {lang === "hi" ? "साइन इन हो रहा है…" : "Signing you in…"}
                     </span>
                   </>
                 ) : (
                   <>
                     <span>
-                      {lang === "hi" ? "एडमिन कंसोल में प्रवेश करें" : "Access Admin Console"}
+                      {lang === "hi" ? "एडमिन कंसोल खोलें" : "Open Admin Console"}
                     </span>
                     <ArrowRight size={16} />
                   </>

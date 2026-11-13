@@ -59,8 +59,8 @@ export default function Home() {
     portalAdminTitle: lang === "hi" ? "सुपर एडमिन कंसोल" : "Super Admin Console",
     portalAdminDesc:
       lang === "hi"
-        ? "मास्टर कैटलॉग, व्यापारी प्रबंधन और समग्र नेटवर्क नियंत्रण"
-        : "Master catalog curation & tenant oversight",
+        ? "सभी दुकानें, प्रोडक्ट लिस्ट और ऑफ़र एक ही जगह से संभालें"
+        : "Manage all shops, the product catalog and offers in one place",
     dailyOpsTitle: lang === "hi" ? "दैनिक संचालन" : "Daily Operations",
     dailyOpsSubtitle: lang === "hi" ? "सब कुछ एक ही जगह पर" : "Everything in one place",
     orderDeskTitle: lang === "hi" ? "ऑर्डर डेस्क" : "Order Desk",

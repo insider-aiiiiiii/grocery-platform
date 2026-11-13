@@ -39,13 +39,52 @@ import {
   Edit3,
   Minus,
 } from "lucide-react";
-import { getApiError, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
+import { getApiError as getApiErrorEn, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
 import { BulkExcelUploadModal } from "./BulkExcelUploadModal";
 import { OrdersHistoryView } from "./OrdersHistoryView";
 import { MerchantProductDetailModal, MerchantProductDetailItem } from "./MerchantProductDetailModal";
 
+type Lang = "en" | "hi";
+
+const currentLang = (): Lang => {
+  try {
+    return localStorage.getItem("portal_language") === "hi" ? "hi" : "en";
+  } catch {
+    return "en";
+  }
+};
+
+function useLang(): Lang {
+  const [l, setL] = useState<Lang>("en");
+  useEffect(() => {
+    const sync = () => setL(currentLang());
+    sync();
+    window.addEventListener("portal-lang-changed", sync);
+    return () => window.removeEventListener("portal-lang-changed", sync);
+  }, []);
+  return l;
+}
+
+const API_ERROR_HI: Record<string, string> = {
+  "Something went wrong. Please try again.": "कुछ गड़बड़ हो गई। कृपया दोबारा कोशिश करें।",
+  "Network Error": "नेटवर्क में समस्या है। इंटरनेट जांचें।",
+  "Authentication credentials were not provided.": "कृपया पहले लॉगिन करें।",
+  "Invalid token.": "सत्र समाप्त हो गया है। कृपया दोबारा लॉगिन करें।",
+  "Not found.": "यह जानकारी नहीं मिली।",
+  "You do not have permission to perform this action.": "आपको यह काम करने की अनुमति नहीं है।",
+  "This field is required.": "यह जानकारी भरना ज़रूरी है।",
+  "This field may not be blank.": "यह जानकारी खाली नहीं हो सकती।",
+  "A valid number is required.": "सही संख्या डालें।",
+  "Enter a valid URL.": "सही लिंक डालें।",
+};
+
+function getApiError(error: unknown) {
+  const message = getApiErrorEn(error);
+  return currentLang() === "hi" ? (API_ERROR_HI[message] ?? message) : message;
+}
+
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
-const dateTime = (value: string) => new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+const dateTime = (value: string, lang: Lang = currentLang()) => new Date(value).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" });
 
 const productSchema = z.object({
   name: z.string().trim().min(1, "Enter a product name"),
@@ -96,15 +135,16 @@ function Title({ eyebrow, title, description, action }: { eyebrow?: string; titl
 }
 
 function Notice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const lang = useLang();
   return (
     <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-[#f0d8d1] bg-[#fff8f5] p-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="text-sm font-semibold text-[#883f2e]">Couldn’t load this information</p>
+        <p className="text-sm font-semibold text-[#883f2e]">{lang === "hi" ? "यह जानकारी लोड नहीं हो सकी" : "Couldn’t load this information"}</p>
         <p className="mt-1 text-xs text-[#9c6555]">{getApiError(error)}</p>
       </div>
       {onRetry && (
         <button onClick={onRetry} className="inline-flex items-center gap-2 self-start rounded-lg border border-[#ead0c8] bg-white px-3 py-2 text-xs font-semibold text-[#734c40]">
-          <RefreshCw size={13} />Try again
+          <RefreshCw size={13} />{lang === "hi" ? "दोबारा कोशिश करें" : "Try again"}
         </button>
       )}
     </div>
@@ -142,7 +182,25 @@ function Metric({ icon: Icon, label, value, note, tint = "green" }: { icon: type
   );
 }
 
+const STATUS_HI: Record<string, string> = {
+  PENDING: "लंबित",
+  ACCEPTED: "स्वीकृत",
+  PREPARING: "तैयार हो रहा है",
+  READY: "तैयार है",
+  OUT_FOR_DELIVERY: "डिलीवरी के लिए निकला",
+  COMPLETED: "पूरा हुआ",
+  REJECTED: "अस्वीकृत",
+  CANCELLED: "रद्द",
+  PICKUP: "दुकान से पिकअप",
+  HOME_DELIVERY: "होम डिलीवरी",
+  PAID: "भुगतान हुआ",
+  UNPAID: "भुगतान बाकी",
+  REFUNDED: "रिफंड हुआ",
+  FAILED: "असफल",
+};
+
 function StatusPill({ status }: { status: string }) {
+  const lang = useLang();
   const color =
     status === "PENDING"
       ? "bg-[#fff1d9] text-[#8c5c1e] border border-[#f3ddb6]"
@@ -151,7 +209,7 @@ function StatusPill({ status }: { status: string }) {
       : status === "COMPLETED"
       ? "bg-[#e4f2e9] text-[#276746] border border-[#c6e6d1]"
       : "bg-[#e7f0ed] text-[#345c47] border border-[#cbe1d5]";
-  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide ${color}`}>{status.replaceAll("_", " ")}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold tracking-wide ${color}`}>{lang === "hi" && STATUS_HI[status] ? STATUS_HI[status] : status.replaceAll("_", " ")}</span>;
 }
 
 export default function MerchantWorkspace() {
@@ -299,7 +357,7 @@ export default function MerchantWorkspace() {
       refresh("inventory");
       refresh("master-catalog");
     } catch (err: any) {
-      setEditPriceError(err.response?.data?.price?.[0] || err.message || "Failed to update price");
+      setEditPriceError(err.response?.data?.price?.[0] || err.message || (lang === "hi" ? "मूल्य अपडेट नहीं हो सका" : "Failed to update price"));
     } finally {
       setEditPriceLoading(false);
     }
@@ -452,7 +510,7 @@ export default function MerchantWorkspace() {
               onChange={(e) => setInventoryCategoryFilter(e.target.value)}
               className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
             >
-              <option value="ALL">{lang === "hi" ? "सभी श्रेणियां (All Categories)" : "All Categories"}</option>
+              <option value="ALL">{lang === "hi" ? "सभी श्रेणियां" : "All Categories"}</option>
               {inventoryCategories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
@@ -465,7 +523,7 @@ export default function MerchantWorkspace() {
               onChange={(e) => setInventoryBrandFilter(e.target.value)}
               className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
             >
-              <option value="ALL">{lang === "hi" ? "सभी ब्रांड (All Brands)" : "All Brands"}</option>
+              <option value="ALL">{lang === "hi" ? "सभी ब्रांड" : "All Brands"}</option>
               {inventoryBrands.map((b) => (
                 <option key={b} value={b}>
                   {b}
@@ -593,13 +651,17 @@ export default function MerchantWorkspace() {
                   onAction={(action) => orderMutation.mutate({ id: order.id, action })}
                   busy={orderMutation.isPending}
                   onItemResolved={(itemName) => {
-                    setNotice(`Item '${itemName}' removed from Order #${order.id}. Total adjusted.`);
+                    setNotice(
+                      lang === "hi"
+                        ? `'${itemName}' ऑर्डर #${order.id} से हटा दिया गया। कुल रकम अपडेट हो गई।`
+                        : `Item '${itemName}' removed from Order #${order.id}. Total adjusted.`
+                    );
                     refresh("orders");
                   }}
                 />
               ))
             ) : (
-              <Empty icon={ClipboardList} title="No incoming orders" text="New orders placed from your QR store will appear here in real time." />
+              <Empty icon={ClipboardList} title={lang === "hi" ? "कोई नया ऑर्डर नहीं" : "No incoming orders"} text={lang === "hi" ? "आपके QR स्टोर से आने वाले नए ऑर्डर यहां तुरंत दिखेंगे।" : "New orders placed from your QR store will appear here in real time."} />
             )}
           </div>
         )}
@@ -750,7 +812,7 @@ export default function MerchantWorkspace() {
                         .catch((e) => setNotice(getApiError(e)))
                     }
                     onDelete={() => {
-                      if (window.confirm(`Remove ${item.name} from catalog?`))
+                      if (window.confirm(lang === "hi" ? `${item.name} को कैटलॉग से हटाएं?` : `Remove ${item.name} from catalog?`))
                         merchantApi
                           .deleteProduct(item.id)
                           .then(() => refresh("products"))
@@ -784,7 +846,7 @@ export default function MerchantWorkspace() {
                   onChange={(e) => setMasterCategoryFilter(e.target.value)}
                   className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
                 >
-                  <option value="ALL">{lang === "hi" ? "सभी श्रेणियां (All Categories)" : "All Categories"}</option>
+                  <option value="ALL">{lang === "hi" ? "सभी श्रेणियां" : "All Categories"}</option>
                   {masterCategories.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
@@ -797,7 +859,7 @@ export default function MerchantWorkspace() {
                   onChange={(e) => setMasterBrandFilter(e.target.value)}
                   className="h-9 px-3 rounded-xl border border-[#ddd6ca] bg-white text-xs text-[#123324] font-medium outline-none focus:border-[#1F5D42]"
                 >
-                  <option value="ALL">{lang === "hi" ? "सभी ब्रांड (All Brands)" : "All Brands"}</option>
+                  <option value="ALL">{lang === "hi" ? "सभी ब्रांड" : "All Brands"}</option>
                   {masterBrands.map((b) => (
                     <option key={b} value={b}>
                       {b}
@@ -869,7 +931,7 @@ export default function MerchantWorkspace() {
                                 </span>
                               )}
                               <span className="text-[10px] font-medium text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full border border-[#cbe1d5]">
-                                {item.category_name || "Grocery"}
+                                {item.category_name || (lang === "hi" ? "किराना" : "Grocery")}
                               </span>
                               {item.unit && (
                                 <span className="text-[10px] font-semibold text-[#1F5D42] bg-[#FAF8F3] px-2 py-0.5 rounded-full border border-[#ddd6ca]">
@@ -969,8 +1031,8 @@ export default function MerchantWorkspace() {
 
   return (
     <div className="rounded-2xl border border-[#ddd6ca] bg-white p-8">
-      <h1 className="text-xl font-semibold">This page isn’t available</h1>
-      <p className="mt-2 text-sm text-[#78867c]">Choose a section from the navigation.</p>
+      <h1 className="text-xl font-semibold">{lang === "hi" ? "यह पेज उपलब्ध नहीं है" : "This page isn’t available"}</h1>
+      <p className="mt-2 text-sm text-[#78867c]">{lang === "hi" ? "मेन्यू से कोई सेक्शन चुनें।" : "Choose a section from the navigation."}</p>
     </div>
   );
 }
@@ -1015,7 +1077,7 @@ function MyQrHomePage({
     printWindow.document.write(`
       <html>
         <head>
-          <title>${shop?.name || "Shop"} - QR Sticker</title>
+          <title>${shop?.name || (lang === "hi" ? "दुकान" : "Shop")} - ${lang === "hi" ? "QR स्टिकर" : "QR Sticker"}</title>
           <style>
             body { font-family: Inter, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; margin: 0; background: #faf8f5; }
             .sticker { border: 4px solid #1F5D42; border-radius: 28px; padding: 36px 32px; text-align: center; max-width: 380px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
@@ -1029,10 +1091,10 @@ function MyQrHomePage({
         <body>
           <div class="sticker">
             <h1>${shop?.name || "Sharma Kirana"}</h1>
-            <p>Scan with phone camera to order fresh essentials directly on WhatsApp</p>
-            <img src="${qrApiUrl}" alt="Shop QR Code" />
+            <p>${lang === "hi" ? "ताज़ा किराना सामान सीधे व्हाट्सएप पर ऑर्डर करने के लिए फ़ोन कैमरे से स्कैन करें" : "Scan with phone camera to order fresh essentials directly on WhatsApp"}</p>
+            <img src="${qrApiUrl}" alt="${lang === "hi" ? "दुकान का QR कोड" : "Shop QR Code"}" />
             <div class="url">${publicStoreUrl}</div>
-            <div><span class="badge">No Mobile App Required</span></div>
+            <div><span class="badge">${lang === "hi" ? "मोबाइल ऐप की ज़रूरत नहीं" : "No Mobile App Required"}</span></div>
           </div>
           <script>window.onload = () => { window.print(); }</script>
         </body>
@@ -1044,14 +1106,14 @@ function MyQrHomePage({
   return (
     <div className="space-y-6">
       <Title
-        eyebrow="My Store Hub"
+        eyebrow={lang === "hi" ? "मेरी दुकान" : "My Store Hub"}
         title={shop?.name ?? "Sharma Kirana"}
-        description={`My shop · ${shop?.city ?? "Jaipur"} · Scan to shop on WhatsApp`}
+        description={lang === "hi" ? `मेरी दुकान · ${shop?.city ?? "Jaipur"} · व्हाट्सएप पर खरीदारी के लिए स्कैन करें` : `My shop · ${shop?.city ?? "Jaipur"} · Scan to shop on WhatsApp`}
         action={
           <div className="flex gap-2">
             <button onClick={handlePrint} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-[#ddd6ca] bg-white px-3.5 text-xs font-semibold text-[#123324] hover:bg-[#F6F0E6]">
               <Printer size={15} />
-              <span>Print Sticker</span>
+              <span>{lang === "hi" ? "स्टिकर प्रिंट करें" : "Print Sticker"}</span>
             </button>
             <PeriodSelect value={period} onChange={setPeriod} />
           </div>
@@ -1079,8 +1141,8 @@ function MyQrHomePage({
               }`}
             >
               {!shop?.is_temporarily_closed
-                ? (lang === "hi" ? "दुकान खुली है (Store Open)" : "Store is OPEN · Accepting Orders")
-                : (lang === "hi" ? "दुकान अस्थायी रूप से बंद है (Store Closed)" : "Store is CLOSED · Orders Paused")}
+                ? (lang === "hi" ? "दुकान खुली है" : "Store is OPEN · Accepting Orders")
+                : (lang === "hi" ? "दुकान अस्थायी रूप से बंद है" : "Store is CLOSED · Orders Paused")}
             </h3>
             <p className="text-xs text-[#6d756f] mt-0.5">
               {!shop?.is_temporarily_closed
@@ -1118,21 +1180,21 @@ function MyQrHomePage({
         <div className="grid gap-8 lg:grid-cols-[1.1fr_1.4fr] items-center">
           {/* QR Display */}
           <div className="flex flex-col items-center justify-center p-6 bg-white rounded-2xl border border-[#ddd6ca] text-center shadow-xs">
-            <h4 className="font-display font-bold text-base text-[#123324] mb-1">Scan to shop</h4>
-            <p className="text-[11px] text-[#6d756f] mb-4">Place on store counter, bags & stickers</p>
+            <h4 className="font-display font-bold text-base text-[#123324] mb-1">{lang === "hi" ? "स्कैन करके खरीदारी करें" : "Scan to shop"}</h4>
+            <p className="text-[11px] text-[#6d756f] mb-4">{lang === "hi" ? "इसे दुकान के काउंटर, थैलों और स्टिकर पर लगाएं" : "Place on store counter, bags & stickers"}</p>
 
             <div className="p-3 bg-[#FFFDF8] border-2 border-[#1F5D42] rounded-2xl shadow-xs">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={qrApiUrl}
-                alt="Store QR Code"
+                alt={lang === "hi" ? "दुकान का QR कोड" : "Store QR Code"}
                 className="w-44 h-44 object-contain rounded-lg"
               />
             </div>
 
             <div className="mt-3 flex items-center gap-1.5 px-3 py-1 bg-[#F6F0E6] rounded-full text-xs font-mono font-bold text-[#1F5D42]">
               <span>{shop?.public_slug ? `${shop.public_slug}.qrlocal` : "sharmakirana.local"}</span>
-              <button onClick={handleCopyLink} title="Copy link" className="text-[#6d756f] hover:text-[#123324]">
+              <button onClick={handleCopyLink} title={lang === "hi" ? "लिंक कॉपी करें" : "Copy link"} className="text-[#6d756f] hover:text-[#123324]">
                 {copied ? <Check size={12} className="text-[#1F5D42]" /> : <Copy size={12} />}
               </button>
             </div>
@@ -1147,14 +1209,14 @@ function MyQrHomePage({
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#E8A33D] hover:bg-[#d6902b] text-[#123324] font-bold text-xs shadow-xs transition"
               >
                 <Download size={13} />
-                <span>Download QR</span>
+                <span>{lang === "hi" ? "QR डाउनलोड करें" : "Download QR"}</span>
               </a>
               <button
                 onClick={handlePrint}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#eee8dc] hover:bg-[#e4dcce] text-[#123324] font-bold text-xs shadow-xs transition"
               >
                 <Printer size={13} />
-                <span>Print sticker</span>
+                <span>{lang === "hi" ? "स्टिकर प्रिंट करें" : "Print sticker"}</span>
               </button>
               {shop?.public_slug && (
                 <Link
@@ -1163,7 +1225,7 @@ function MyQrHomePage({
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#ddd6ca] text-xs font-semibold text-[#1F5D42] hover:bg-[#F6F0E6]"
                 >
                   <ExternalLink size={13} />
-                  <span>Open store</span>
+                  <span>{lang === "hi" ? "दुकान खोलें" : "Open store"}</span>
                 </Link>
               )}
             </div>
@@ -1207,7 +1269,7 @@ function MyQrHomePage({
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border border-[#ddd6ca] bg-white p-4">
                 <span className="text-[11px] font-medium text-[#6d756f]">
-                  {lang === "hi" ? "कुल बिक्री (Sales)" : "Sales realized"}
+                  {lang === "hi" ? "कुल बिक्री" : "Sales realized"}
                 </span>
                 <p className="font-display text-xl font-bold text-[#1F5D42] mt-1">
                   {money(data?.sales.realized_sales)}
@@ -1249,10 +1311,10 @@ function MyQrHomePage({
               <div key={order.id} className="flex items-center justify-between p-4 text-xs">
                 <div>
                   <p className="font-bold text-[#123324]">
-                    #{order.id} · {order.customer_name_snapshot || "Customer"}
+                    #{order.id} · {order.customer_name_snapshot || (lang === "hi" ? "ग्राहक" : "Customer")}
                   </p>
                   <p className="text-[11px] text-[#6d756f] mt-0.5">
-                    {order.items.length} items · {order.fulfillment_type}
+                    {order.items.length} {lang === "hi" ? "सामान" : "items"} · {lang === "hi" ? (STATUS_HI[order.fulfillment_type] ?? order.fulfillment_type) : order.fulfillment_type}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -1263,7 +1325,7 @@ function MyQrHomePage({
             ))}
           </div>
         ) : (
-          <div className="p-8 text-center text-xs text-[#6d756f]">No orders yet. Place your QR code to start receiving orders!</div>
+          <div className="p-8 text-center text-xs text-[#6d756f]">{lang === "hi" ? "अभी तक कोई ऑर्डर नहीं। ऑर्डर पाने के लिए अपना QR कोड लगाएं!" : "No orders yet. Place your QR code to start receiving orders!"}</div>
         )}
       </div>
     </div>
@@ -1310,7 +1372,7 @@ function InventoryTickRow({
           type="button"
           onClick={handleToggleStock}
           disabled={busy}
-          title={isOutOfStock ? "Click to mark as In Stock" : "Click to mark as Out of Stock"}
+          title={isOutOfStock ? (lang === "hi" ? "स्टॉक में दिखाने के लिए क्लिक करें" : "Click to mark as In Stock") : (lang === "hi" ? "स्टॉक ख़त्म दिखाने के लिए क्लिक करें" : "Click to mark as Out of Stock")}
           className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs ${
             !isOutOfStock
               ? "bg-[#e7f2eb] text-[#1F5D42] border border-[#cbe1d5] hover:bg-[#d8ebd2]"
@@ -1389,7 +1451,7 @@ function InventoryTickRow({
           type="button"
           onClick={onEditPrice}
           className="inline-flex items-center gap-1 text-[11px] font-bold text-[#1F5D42] hover:text-[#123324] bg-white hover:bg-[#e7f2eb] px-2.5 py-1 rounded-lg border border-[#cbe1d5] shadow-2xs transition cursor-pointer"
-          title="Edit Selling Price & MRP directly"
+          title={lang === "hi" ? "विक्रय मूल्य व MRP सीधे बदलें" : "Edit Selling Price & MRP directly"}
         >
           <Edit3 size={11} />
           <span>{lang === "hi" ? "बदलें" : "Edit"}</span>
@@ -1403,7 +1465,7 @@ function InventoryTickRow({
           disabled={busy || Number(item.available_quantity) <= 0}
           onClick={() => onSave("subtract-stock", "1")}
           className="w-8 h-8 rounded-xl bg-white border border-[#ddd6ca] text-[#123324] hover:bg-[#f6f0e6] font-bold text-base shadow-xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition active:scale-95"
-          title="Decrease stock by 1"
+          title={lang === "hi" ? "स्टॉक 1 घटाएं" : "Decrease stock by 1"}
         >
           <Minus size={14} />
         </button>
@@ -1422,7 +1484,7 @@ function InventoryTickRow({
           disabled={busy}
           onClick={() => onSave("add-stock", "1")}
           className="w-8 h-8 rounded-xl bg-[#1F5D42] text-white hover:bg-[#123324] font-bold text-base shadow-xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition active:scale-95"
-          title="Increase stock by 1"
+          title={lang === "hi" ? "स्टॉक 1 बढ़ाएं" : "Increase stock by 1"}
         >
           <Plus size={14} />
         </button>
@@ -1440,7 +1502,7 @@ function getMerchantWhatsAppUrl(
   const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
   if (!phoneWithCountry) return "";
 
-  const customerName = order.customer_name_snapshot || "Customer";
+  const customerName = order.customer_name_snapshot || (lang === "hi" ? "ग्राहक" : "Customer");
   const shortId = `#SK-${order.id}`;
   const total = parseFloat(order.total_amount || "0").toFixed(0);
 
@@ -1452,7 +1514,7 @@ function getMerchantWhatsAppUrl(
     const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
 
     const billMsg = [
-      `🛍️ *Order ${shortId} Bill Summary / बिल सारांश*`,
+      lang === "hi" ? `🛍️ *ऑर्डर ${shortId} बिल सारांश*` : `🛍️ *Order ${shortId} Bill Summary*`,
       ``,
       lang === "hi"
         ? `नमस्ते ${customerName} जी! आपके ऑर्डर का पक्का बिल विवरण:`
@@ -1463,7 +1525,7 @@ function getMerchantWhatsAppUrl(
       order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0
         ? `${lang === "hi" ? "डिलीवरी शुल्क" : "Delivery Charge"}: ₹${parseFloat(order.delivery_charge_snapshot).toFixed(0)}`
         : null,
-      `*${lang === "hi" ? "कुल देय राशि" : "Total Payable"}: ₹${total}* (${order.payment_status === "PAID" ? "PAID Online" : "Payment Pending / Cash on Delivery"})`,
+      `*${lang === "hi" ? "कुल देय राशि" : "Total Payable"}: ₹${total}* (${order.payment_status === "PAID" ? (lang === "hi" ? "ऑनलाइन भुगतान हो गया" : "PAID Online") : (lang === "hi" ? "भुगतान बाकी / डिलीवरी पर कैश" : "Payment Pending / Cash on Delivery")})`,
       order.fulfillment_type === "HOME_DELIVERY" && addrText ? `📍 ${lang === "hi" ? "डिलीवरी पता" : "Delivering to"}: ${addrText}` : null,
       ``,
       lang === "hi" ? `हमारी दुकान से ख़रीदारी के लिए धन्यवाद! 🙏` : `Thank you for ordering with us! 🙏`,
@@ -1535,7 +1597,9 @@ function getMerchantWhatsAppUrl(
         : `Namaste ${customerName}, we are unable to accept order ${shortId} at this time. Sorry for the inconvenience!`;
       break;
     default:
-      statusMsg = `Namaste ${customerName}! Regarding your order ${shortId}: Total ₹${total}.`;
+      statusMsg = lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपके ऑर्डर ${shortId} के बारे में: कुल राशि ₹${total}।`
+        : `Namaste ${customerName}! Regarding your order ${shortId}: Total ₹${total}.`;
   }
 
   return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(statusMsg)}`;
@@ -1561,8 +1625,8 @@ function VisualOrderCard({
 
   const transitions: Record<string, Array<[string, string]>> = {
     PENDING: [
-      ["accept", lang === "hi" ? "स्वीकार करें (Accept)" : "Accept"],
-      ["reject", lang === "hi" ? "रद्द करें (Reject)" : "Reject"],
+      ["accept", lang === "hi" ? "स्वीकार करें" : "Accept"],
+      ["reject", lang === "hi" ? "अस्वीकार करें" : "Reject"],
     ],
     ACCEPTED: [["prepare", lang === "hi" ? "पैकिंग शुरू करें" : "Start packing"]],
     PREPARING: [["ready", lang === "hi" ? "पैक हो गया / तैयार" : "Packed / Done"]],
@@ -1581,11 +1645,11 @@ function VisualOrderCard({
         <div>
           <div className="flex items-center gap-2">
             <span className="font-display font-bold text-sm text-[#123324]">#{order.id}</span>
-            <span className="text-xs font-bold text-[#123324]">· {order.customer_name_snapshot || "Customer"}</span>
+            <span className="text-xs font-bold text-[#123324]">· {order.customer_name_snapshot || (lang === "hi" ? "ग्राहक" : "Customer")}</span>
           </div>
           <p className="text-[11px] text-[#6d756f] mt-0.5">
-            {dateTime(order.created_at)} · {order.customer_phone_snapshot} ·{" "}
-            <span className="font-semibold text-[#1F5D42]">{order.fulfillment_type === "PICKUP" ? "Store Pickup" : "Home Delivery"}</span>
+            {dateTime(order.created_at, lang)} · {order.customer_phone_snapshot} ·{" "}
+            <span className="font-semibold text-[#1F5D42]">{order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "दुकान से पिकअप" : "Store Pickup") : (lang === "hi" ? "होम डिलीवरी" : "Home Delivery")}</span>
           </p>
           {order.fulfillment_type === "HOME_DELIVERY" && order.delivery_address && (
             <p className="text-[11px] text-[#5e665f] mt-1 bg-[#f7f3eb] px-2.5 py-1 rounded-lg border border-[#e8e2d5] inline-flex items-center gap-1.5">
@@ -1615,7 +1679,7 @@ function VisualOrderCard({
                 {item.variant_name_snapshot && <span className="text-[10px] text-[#7d857e]"> · {item.variant_name_snapshot}</span>}
                 {isItemFlagged && (
                   <span className="ml-2 inline-block text-[9px] font-bold bg-[#fde8de] text-[#9a4d2a] px-2 py-0.5 rounded-full">
-                    Not in inventory / Out of stock
+                    {lang === "hi" ? "इन्वेंट्री में नहीं / स्टॉक ख़त्म" : "Not in inventory / Out of stock"}
                   </span>
                 )}
               </div>
@@ -1626,9 +1690,9 @@ function VisualOrderCard({
                   <button
                     onClick={() => setMissingItem(item.product_name_snapshot)}
                     className="text-[10px] text-[#9a4d2a] hover:underline"
-                    title="Flag item as missing"
+                    title={lang === "hi" ? "सामान को उपलब्ध नहीं के रूप में चिह्नित करें" : "Flag item as missing"}
                   >
-                    Flag missing
+                    {lang === "hi" ? "उपलब्ध नहीं" : "Flag missing"}
                   </button>
                 )}
               </div>
@@ -1640,22 +1704,24 @@ function VisualOrderCard({
       {/* Visual Board Frame 3: Per-Item Resolve Missing Item Banner */}
       {missingItem && (
         <div className="rounded-xl border border-[#f7cdbb] bg-[#fdf2ec] p-3 text-xs">
-          <p className="font-bold text-[#803f24] mb-1">Resolve missing item: {missingItem}</p>
+          <p className="font-bold text-[#803f24] mb-1">{lang === "hi" ? "अनुपलब्ध सामान सुलझाएं:" : "Resolve missing item:"} {missingItem}</p>
           <p className="text-[11px] text-[#803f24]/80 mb-2">
-            You can remove this single item to keep the rest of the order moving, or add it to inventory now.
+            {lang === "hi"
+              ? "बाकी ऑर्डर चालू रखने के लिए आप यह एक सामान हटा सकते हैं, या अभी इसे इन्वेंट्री में जोड़ सकते हैं।"
+              : "You can remove this single item to keep the rest of the order moving, or add it to inventory now."}
           </p>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => handleRemoveMissingItem(missingItem)}
               className="px-3 py-1.5 rounded-lg bg-[#f7d7ca] hover:bg-[#f1c3b1] text-[#803f24] font-bold text-xs transition"
             >
-              Remove this item & adjust total
+              {lang === "hi" ? "यह सामान हटाएं और कुल रकम ठीक करें" : "Remove this item & adjust total"}
             </button>
             <button
               onClick={() => setMissingItem(null)}
               className="px-3 py-1.5 rounded-lg bg-[#1F5D42] hover:bg-[#123324] text-white font-bold text-xs transition"
             >
-              Add to my inventory now
+              {lang === "hi" ? "अभी मेरी इन्वेंट्री में जोड़ें" : "Add to my inventory now"}
             </button>
           </div>
         </div>
@@ -1680,7 +1746,7 @@ function VisualOrderCard({
               {label}
             </button>
           ))}
-          {!transitions[order.status] && <span className="text-xs text-[#89958c]">Order {order.status.toLowerCase()}</span>}
+          {!transitions[order.status] && <span className="text-xs text-[#89958c]">{lang === "hi" ? `ऑर्डर ${STATUS_HI[order.status] ?? order.status.toLowerCase()}` : `Order ${order.status.toLowerCase()}`}</span>}
         </div>
 
         {/* 1-Click WhatsApp Actions for Merchant */}
@@ -1691,7 +1757,7 @@ function VisualOrderCard({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title="Message customer on WhatsApp with current status"
+              title={lang === "hi" ? "ग्राहक को व्हाट्सएप पर मौजूदा स्थिति भेजें" : "Message customer on WhatsApp with current status"}
             >
               <MessageCircle className="w-3.5 h-3.5 fill-white" />
               <span>{lang === "hi" ? "व्हाट्सएप चैट" : "WhatsApp"}</span>
@@ -1702,7 +1768,7 @@ function VisualOrderCard({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title="Send Pack Ho Gaya notification"
+              title={lang === "hi" ? "पैक हो गया संदेश भेजें" : "Send Pack Ho Gaya notification"}
             >
               <span>{lang === "hi" ? "पैक हो गया 📦" : "Pack Done 📦"}</span>
             </a>
@@ -1712,7 +1778,7 @@ function VisualOrderCard({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title={order.fulfillment_type === "PICKUP" ? "Send Ready for Pickup notification" : "Send Out for Delivery notification"}
+              title={order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप के लिए तैयार संदेश भेजें" : "Send Ready for Pickup notification") : (lang === "hi" ? "डिलीवरी रवाना संदेश भेजें" : "Send Out for Delivery notification")}
             >
               <span>{order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप तैयार 🛍️" : "Pickup Ready 🛍️") : (lang === "hi" ? "डिलीवरी रवाना 🛵" : "Out for Delivery 🛵")}</span>
             </a>
@@ -1722,7 +1788,7 @@ function VisualOrderCard({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title="Share pre-filled itemized bill with customer on WhatsApp"
+              title={lang === "hi" ? "ग्राहक को व्हाट्सएप पर सामान सहित बिल भेजें" : "Share pre-filled itemized bill with customer on WhatsApp"}
             >
               <Receipt className="w-3 h-3" />
               <span>{lang === "hi" ? "पक्का बिल 🧾" : "Share Bill 🧾"}</span>
@@ -1862,7 +1928,7 @@ function VisualAnalyticsPanel({
         <Metric
           icon={AlertTriangle}
           label={lang === "hi" ? "स्टॉक-आउट अलर्ट" : "Stock-Out Alerts"}
-          value={`${outOfStockCount} SKUs`}
+          value={`${outOfStockCount} ${lang === "hi" ? "आइटम" : "SKUs"}`}
           note={
             outOfStockCount > 0
               ? (lang === "hi" ? "शून्य उपलब्ध मात्रा · नया स्टॉक जोड़ें" : "Zero available stock · Restock item")
@@ -1971,7 +2037,7 @@ function VisualAnalyticsPanel({
                       <p className="font-semibold text-xs text-[#123324]">{item.product_name}</p>
                       <p className="text-[10px] text-[#6d756f] mt-0.5">
                         {item.variant_name && <span>{item.variant_name} · </span>}
-                        {item.sku ? <span className="font-mono">SKU: {item.sku}</span> : "Standard"}
+                        {item.sku ? <span className="font-mono">SKU: {item.sku}</span> : (lang === "hi" ? "सामान्य" : "Standard")}
                       </p>
                     </div>
                   </div>
@@ -2045,7 +2111,7 @@ function EditPriceModal({
             </h3>
             <p className="text-xs text-[#6d756f] mt-0.5 line-clamp-1">{item.name}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
+          <button type="button" onClick={onClose} aria-label={lang === "hi" ? "बंद करें" : "Close"} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
             <X size={16} />
           </button>
         </div>
@@ -2059,7 +2125,7 @@ function EditPriceModal({
         <div className="space-y-3 text-xs">
           <div>
             <label className="block font-bold text-[#123324] mb-1">
-              {lang === "hi" ? "दुकान विक्रय मूल्य (Selling Price ₹) *" : "Shop Selling Price (₹) *"}
+              {lang === "hi" ? "दुकान का विक्रय मूल्य (₹) *" : "Shop Selling Price (₹) *"}
             </label>
             <input
               type="number"
@@ -2078,7 +2144,7 @@ function EditPriceModal({
 
           <div>
             <label className="block font-bold text-[#123324] mb-1">
-              {lang === "hi" ? "प्रिंटेड एमआरपी (MRP ₹ - वैकल्पिक)" : "Printed MRP (₹ - Optional)"}
+              {lang === "hi" ? "प्रिंटेड MRP (₹ - वैकल्पिक)" : "Printed MRP (₹ - Optional)"}
             </label>
             <input
               type="number"
@@ -2160,7 +2226,7 @@ function ProductRow({
             {product.name}
           </p>
           <p className="mt-0.5 truncate text-[10px] text-[#7d857e]">
-            {product.brand || "Local"}{product.sku ? ` · ${product.sku}` : ""}
+            {product.brand || (lang === "hi" ? "स्थानीय" : "Local")}{product.sku ? ` · ${product.sku}` : ""}
           </p>
         </div>
       </div>
@@ -2187,7 +2253,7 @@ function ProductRow({
           {product.is_visible ? (lang === "hi" ? "छिपाएं" : "Hide") : (lang === "hi" ? "दिखाएं" : "Show")}
         </button>
         <button
-          aria-label={`Delete ${product.name}`}
+          aria-label={lang === "hi" ? `${product.name} हटाएं` : `Delete ${product.name}`}
           onClick={onDelete}
           className="rounded-lg p-1.5 text-[#9a4d2a] hover:bg-[#ffece6] cursor-pointer"
         >
@@ -2259,7 +2325,7 @@ function ProductModal({
           <h2 className="font-display font-bold text-base text-[#123324]">
             {lang === "hi" ? "नया प्रोडक्ट जोड़ें" : "Add New Product"}
           </h2>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
+          <button type="button" onClick={onClose} aria-label={lang === "hi" ? "बंद करें" : "Close"} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
             <X size={16} />
           </button>
         </div>
@@ -2307,7 +2373,7 @@ function ProductModal({
             <div className="space-y-1.5 bg-[#FAF8F3] p-2 rounded-xl border border-[#eee9df]">
               <div>
                 <span className="text-[9px] font-bold text-[#1F5D42] uppercase tracking-wider block mb-1">
-                  {lang === "hi" ? "खुला सामान (Loose Units)" : "Loose Units"}
+                  {lang === "hi" ? "खुला सामान" : "Loose Units"}
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {["kg", "g", "liter", "ml", "piece", "packet", "dozen"].map((u) => (
@@ -2328,7 +2394,7 @@ function ProductModal({
               </div>
               <div className="pt-1.5 border-t border-[#eee9df]">
                 <span className="text-[9px] font-bold text-[#6d756f] uppercase tracking-wider block mb-1">
-                  {lang === "hi" ? "स्टैंडर्ड पैक (Packaged)" : "Packaged Quantities"}
+                  {lang === "hi" ? "पैक्ड मात्रा" : "Packaged Quantities"}
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {["1 kg", "500g", "250g", "100g", "1 liter", "500 ml", "1 piece", "1 packet"].map((u) => (
@@ -2364,10 +2430,11 @@ function ProductModal({
             <div className="grid grid-cols-4 gap-2">
               {previews.map((src, idx) => (
                 <div key={idx} className="relative aspect-square rounded-xl border border-[#ddd6ca] overflow-hidden bg-[#FAF8F3]">
-                  <img src={src} alt={`Product thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
+                  <img src={src} alt={lang === "hi" ? `प्रोडक्ट फोटो ${idx + 1}` : `Product thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
                   <button
                     type="button"
                     onClick={() => removeImage(idx)}
+                    aria-label={lang === "hi" ? "फोटो हटाएं" : "Remove photo"}
                     className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 shadow-sm"
                   >
                     <X size={10} />
@@ -2767,7 +2834,7 @@ function ShopSettings({
               >
                 {!watched.is_temporarily_closed
                   ? lang === "hi"
-                    ? "दुकान खुली है (Store Open)"
+                    ? "दुकान खुली है"
                     : "Store is OPEN"
                   : lang === "hi"
                   ? "दुकान अस्थायी रूप से बंद है"
@@ -2911,7 +2978,7 @@ function ShopSettings({
             />
             <span className="mt-1 block text-[10px] text-[#869088]">
               {lang === "hi"
-                ? "ग्राहक आपकी दुकान के पते पर क्लिक करके सीधे गूगल मैप्स पर दिशा-निर्देश (directions) प्राप्त कर सकेंगे।"
+                ? "ग्राहक आपकी दुकान के पते पर क्लिक करके सीधे गूगल मैप्स पर दिशा-निर्देश प्राप्त कर सकेंगे।"
                 : "Customers can click your shop address on the storefront to open turn-by-turn directions on Google Maps."}
             </span>
           </label>
@@ -2919,7 +2986,7 @@ function ShopSettings({
           {/* Description */}
           <label className="sm:col-span-2">
             <span className="mb-1 block font-bold text-[#123324]">
-              {lang === "hi" ? "दुकान का विवरण (About / Description)" : "About / Description"}
+              {lang === "hi" ? "दुकान के बारे में / विवरण" : "About / Description"}
             </span>
             <textarea
               {...register("description")}
@@ -2939,7 +3006,7 @@ function ShopSettings({
           <div className="grid gap-4 sm:grid-cols-2 text-xs">
             <label>
               <span className="mb-1 block font-bold text-[#123324]">
-                {lang === "hi" ? "दुकान खुलने का समय (Opening Time)" : "Opening Time (e.g. 07:00 AM)"}
+                {lang === "hi" ? "दुकान खुलने का समय" : "Opening Time (e.g. 07:00 AM)"}
               </span>
               <input
                 {...register("opening_time")}
@@ -2949,7 +3016,7 @@ function ShopSettings({
             </label>
             <label>
               <span className="mb-1 block font-bold text-[#123324]">
-                {lang === "hi" ? "दुकान बंद होने का समय (Closing Time)" : "Closing Time (e.g. 11:00 PM)"}
+                {lang === "hi" ? "दुकान बंद होने का समय" : "Closing Time (e.g. 11:00 PM)"}
               </span>
               <input
                 {...register("closing_time")}
@@ -2959,7 +3026,7 @@ function ShopSettings({
             </label>
             <div className="sm:col-span-2 flex flex-wrap items-center gap-2 pt-1">
               <span className="text-[11px] text-[#6d756f] font-medium mr-1">
-                {lang === "hi" ? "त्वरित विकल्प (Presets):" : "Quick Presets:"}
+                {lang === "hi" ? "जल्दी चुनें:" : "Quick Presets:"}
               </span>
               <button
                 type="button"
@@ -2969,7 +3036,7 @@ function ShopSettings({
                 }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
-                7:00 AM – 11:00 PM
+                {lang === "hi" ? "सुबह 7:00 – रात 11:00" : "7:00 AM – 11:00 PM"}
               </button>
               <button
                 type="button"
@@ -2979,7 +3046,7 @@ function ShopSettings({
                 }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
-                8:00 AM – 10:00 PM
+                {lang === "hi" ? "सुबह 8:00 – रात 10:00" : "8:00 AM – 10:00 PM"}
               </button>
               <button
                 type="button"
@@ -2989,7 +3056,7 @@ function ShopSettings({
                 }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
-                9:00 AM – 9:00 PM
+                {lang === "hi" ? "सुबह 9:00 – रात 9:00" : "9:00 AM – 9:00 PM"}
               </button>
               <button
                 type="button"
@@ -2999,7 +3066,7 @@ function ShopSettings({
                 }}
                 className="px-2.5 py-1 rounded-lg bg-[#FAF8F3] hover:bg-[#e7f2eb] border border-[#ddd6ca] text-[11px] font-semibold text-[#123324] transition shadow-2xs"
               >
-                24 Hours Open (24x7)
+                {lang === "hi" ? "24 घंटे खुली (24x7)" : "24 Hours Open (24x7)"}
               </button>
             </div>
           </div>
@@ -3025,7 +3092,7 @@ function ShopSettings({
               />
               <span className="mt-1 block text-[10px] text-[#869088]">
                 {lang === "hi"
-                  ? "0 = मुफ्त डिलीवरी (Free Delivery)। कोई राशि डालने पर वह ग्राहक के ऑर्डर बिल में जुड़ेगी।"
+                  ? "0 = मुफ्त डिलीवरी। कोई राशि डालने पर वह ग्राहक के ऑर्डर बिल में जुड़ेगी।"
                   : "0 = Free Delivery. Any amount set will be added to customer's order total."}
               </span>
             </label>
@@ -3038,8 +3105,8 @@ function ShopSettings({
                 {...register("delivery_fee_type")}
                 className="h-9 w-full rounded-xl border border-[#ddd6ca] bg-white px-3 outline-none focus:border-[#1F5D42]"
               >
-                <option value="FIXED">{lang === "hi" ? "निर्धारित शुल्क (Fixed Amount)" : "Fixed Amount"}</option>
-                <option value="CONFIRMED_ON_WHATSAPP">{lang === "hi" ? "व्हाट्सएप पर पुष्टि (Confirm on WhatsApp)" : "Confirm on WhatsApp"}</option>
+                <option value="FIXED">{lang === "hi" ? "निर्धारित शुल्क" : "Fixed Amount"}</option>
+                <option value="CONFIRMED_ON_WHATSAPP">{lang === "hi" ? "व्हाट्सएप पर पुष्टि" : "Confirm on WhatsApp"}</option>
               </select>
             </label>
 
@@ -3161,14 +3228,15 @@ function ShopSettings({
 }
 
 function PeriodSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const lang = useLang();
   return (
     <label className="flex h-10 items-center gap-2 rounded-xl border border-[#ddd6ca] bg-white px-3 text-xs text-[#5e665f]">
       <Clock3 size={14} />
       <select value={value} onChange={(e) => onChange(e.target.value)} className="bg-transparent font-bold outline-none">
-        <option value="today">Today</option>
-        <option value="yesterday">Yesterday</option>
-        <option value="this_week">This week</option>
-        <option value="this_month">This month</option>
+        <option value="today">{lang === "hi" ? "आज" : "Today"}</option>
+        <option value="yesterday">{lang === "hi" ? "कल" : "Yesterday"}</option>
+        <option value="this_week">{lang === "hi" ? "इस सप्ताह" : "This week"}</option>
+        <option value="this_month">{lang === "hi" ? "इस माह" : "This month"}</option>
       </select>
     </label>
   );
@@ -3187,11 +3255,12 @@ function Empty({ icon: Icon, title, text }: { icon: typeof Activity; title: stri
 }
 
 function Toast({ text, onClose }: { text: string; onClose: () => void }) {
+  const lang = useLang();
   return (
     <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-xl bg-[#123324] px-4 py-3 text-xs text-white shadow-xl">
       <Check size={15} className="text-[#E8A33D]" />
       <span>{text}</span>
-      <button onClick={onClose} aria-label="Dismiss" className="ml-2 text-white/70 hover:text-white">
+      <button onClick={onClose} aria-label={lang === "hi" ? "बंद करें" : "Dismiss"} className="ml-2 text-white/70 hover:text-white">
         <X size={14} />
       </button>
     </div>

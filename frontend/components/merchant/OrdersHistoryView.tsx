@@ -21,11 +21,21 @@ import {
 } from "lucide-react";
 import { MerchantOrder } from "@/lib/api/merchant";
 
-const money = (value?: string | number | null) =>
-  `₹${Number(value ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+const money = (value?: string | number | null, hi = false) =>
+  `₹${Number(value ?? 0).toLocaleString(hi ? "hi-IN" : "en-IN", { maximumFractionDigits: 2 })}`;
 
-const dateTime = (value: string) =>
-  new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+const dateTime = (value: string, hi = false) =>
+  new Date(value).toLocaleString(hi ? "hi-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" });
+
+const STATUS_HI: Record<string, string> = {
+  PENDING: "नया",
+  ACCEPTED: "स्वीकार किया",
+  PREPARING: "पैक हो रहा है",
+  READY: "तैयार",
+  COMPLETED: "पूरा हुआ",
+  REJECTED: "अस्वीकार",
+};
+const statusLabel = (status: string, hi: boolean) => (hi ? STATUS_HI[status] ?? status : status);
 
 interface OrdersHistoryViewProps {
   orders: MerchantOrder[];
@@ -179,10 +189,10 @@ export function OrdersHistoryView({
 
         <div className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-4 shadow-2xs">
           <span className="text-[11px] font-semibold text-[#6d756f]">
-            {isHi ? "कुल बिल राशि (Sales)" : "Filtered Sales"}
+            {isHi ? "कुल बिक्री" : "Filtered Sales"}
           </span>
           <p className="font-display text-2xl font-bold text-[#1F5D42] mt-1">
-            {money(metrics.totalAmount)}
+            {money(metrics.totalAmount, isHi)}
           </p>
           <span className="text-[10px] text-[#869088] mt-0.5 block">
             {isHi ? "सभी ऑर्डर्स का योग" : "Gross order value"}
@@ -240,9 +250,9 @@ export function OrdersHistoryView({
               onChange={(e) => setFulfillmentFilter(e.target.value as any)}
               className="h-10 rounded-xl border border-[#ddd6ca] bg-white px-3 text-xs font-semibold text-[#123324] outline-none"
             >
-              <option value="ALL">{isHi ? "सभी माध्यम (All Modes)" : "All Fulfillment"}</option>
-              <option value="HOME_DELIVERY">{isHi ? "घर पर डिलीवरी (Delivery)" : "Home Delivery"}</option>
-              <option value="PICKUP">{isHi ? "दुकान से पिकअप (Pickup)" : "Store Pickup"}</option>
+              <option value="ALL">{isHi ? "सभी तरीके" : "All Fulfillment"}</option>
+              <option value="HOME_DELIVERY">{isHi ? "घर पर डिलीवरी" : "Home Delivery"}</option>
+              <option value="PICKUP">{isHi ? "दुकान से पिकअप" : "Store Pickup"}</option>
             </select>
           </div>
         </div>
@@ -251,7 +261,7 @@ export function OrdersHistoryView({
         <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-[#eee9df]">
           <span className="text-[11px] font-semibold text-[#6d756f] mr-1 flex items-center gap-1">
             <Calendar size={13} className="text-[#1F5D42]" />
-            <span>{isHi ? "अवधि (Date / Day):" : "Time Filter:"}</span>
+            <span>{isHi ? "अवधि:" : "Time Filter:"}</span>
           </span>
 
           {[
@@ -283,7 +293,7 @@ export function OrdersHistoryView({
                 onChange={(e) => setCustomStart(e.target.value)}
                 className="h-8 rounded-lg border border-[#ddd6ca] px-2 text-xs bg-white outline-none"
               />
-              <span className="text-xs text-[#6d756f]">to</span>
+              <span className="text-xs text-[#6d756f]">{isHi ? "से" : "to"}</span>
               <input
                 type="date"
                 value={customEnd}
@@ -319,11 +329,11 @@ export function OrdersHistoryView({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-[#eee9df] bg-[#faf8f3] text-[10px] font-bold uppercase tracking-wider text-[#6d756f]">
-                  <th className="py-3 px-4">Order ID</th>
+                  <th className="py-3 px-4">{isHi ? "ऑर्डर नंबर" : "Order ID"}</th>
                   <th className="py-3 px-4">{isHi ? "तारीख व समय" : "Date & Time"}</th>
                   <th className="py-3 px-4">{isHi ? "ग्राहक" : "Customer"}</th>
                   <th className="py-3 px-4">{isHi ? "डिलीवरी प्रकार" : "Fulfillment"}</th>
-                  <th className="py-3 px-4">{isHi ? "सामान (Items)" : "Items Summary"}</th>
+                  <th className="py-3 px-4">{isHi ? "सामान" : "Items Summary"}</th>
                   <th className="py-3 px-4 text-right">{isHi ? "कुल बिल" : "Total Bill"}</th>
                   <th className="py-3 px-4 text-center">{isHi ? "स्थिति" : "Status"}</th>
                   <th className="py-3 px-4 text-right">{isHi ? "कार्रवाई" : "Action"}</th>
@@ -351,13 +361,13 @@ export function OrdersHistoryView({
 
                       {/* Date & Time */}
                       <td className="py-3 px-4 text-[#5e665f] whitespace-nowrap">
-                        {dateTime(order.created_at)}
+                        {dateTime(order.created_at, isHi)}
                       </td>
 
                       {/* Customer */}
                       <td className="py-3 px-4">
                         <p className="font-bold text-[#123324] leading-tight">
-                          {order.customer_name_snapshot || "Customer"}
+                          {order.customer_name_snapshot || (isHi ? "ग्राहक" : "Customer")}
                         </p>
                         <p className="text-[11px] font-mono text-[#869088] mt-0.5">
                           {order.customer_phone_snapshot}
@@ -380,7 +390,7 @@ export function OrdersHistoryView({
 
                       {/* Items */}
                       <td className="py-3 px-4 max-w-xs">
-                        <span className="font-bold text-[#123324]">{itemsCount} items</span>
+                        <span className="font-bold text-[#123324]">{itemsCount} {isHi ? "सामान" : "items"}</span>
                         <div className="text-[11px] text-[#6d756f] mt-0.5 space-y-0.5">
                           <p className="truncate">{itemPreview}</p>
                           {itemsCount > 2 && (
@@ -412,11 +422,11 @@ export function OrdersHistoryView({
                       {/* Total Bill */}
                       <td className="py-3 px-4 text-right">
                         <span className="font-display font-bold text-sm text-[#123324]">
-                          {money(order.total_amount)}
+                          {money(order.total_amount, isHi)}
                         </span>
                         {order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0 && (
                           <span className="block text-[10px] text-[#869088]">
-                            +{money(order.delivery_charge_snapshot)} fee
+                            +{money(order.delivery_charge_snapshot, isHi)} {isHi ? "शुल्क" : "fee"}
                           </span>
                         )}
                       </td>
@@ -432,7 +442,7 @@ export function OrdersHistoryView({
                               : "bg-amber-50 text-amber-800 border border-amber-200"
                           }`}
                         >
-                          {order.status}
+                          {statusLabel(order.status, isHi)}
                         </span>
                       </td>
 
@@ -443,17 +453,17 @@ export function OrdersHistoryView({
                             <a
                               href={`https://wa.me/${(order.customer_phone_snapshot.replace(/\D/g, "").length === 10 ? `91${order.customer_phone_snapshot.replace(/\D/g, "")}` : order.customer_phone_snapshot.replace(/\D/g, ""))}?text=${encodeURIComponent(
                                 isHi
-                                  ? `नमस्ते ${order.customer_name_snapshot || "Customer"} जी! आपके ऑर्डर #SK-${order.id} (कुल बिल ₹${parseFloat(order.total_amount || "0").toFixed(0)}) के संबंध में। धन्यवाद! 🙏`
+                                  ? `नमस्ते ${order.customer_name_snapshot || "ग्राहक"} जी! आपके ऑर्डर #SK-${order.id} (कुल बिल ₹${parseFloat(order.total_amount || "0").toFixed(0)}) के संबंध में। धन्यवाद! 🙏`
                                   : `Namaste ${order.customer_name_snapshot || "Customer"}! Regarding your order #SK-${order.id} for ₹${parseFloat(order.total_amount || "0").toFixed(0)}. Thank you! 🙏`
                               )}`}
                               target="_blank"
                               rel="noreferrer"
                               onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#25D366]/10 hover:bg-[#25D366] text-[#128C7E] hover:text-white font-bold text-[10px] transition shadow-2xs"
-                              title="Send WhatsApp Message / व्हाट्सएप पर भेजें"
+                              title={isHi ? "व्हाट्सएप पर भेजें" : "Send WhatsApp Message"}
                             >
                               <MessageCircle size={11} />
-                              <span>WhatsApp</span>
+                              <span>{isHi ? "व्हाट्सएप" : "WhatsApp"}</span>
                             </a>
                           )}
                           <button
@@ -526,7 +536,7 @@ function OrderDetailModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-display font-bold text-base text-[#123324]">
-                  {shortId} · {order.customer_name_snapshot || "Customer"}
+                  {shortId} · {order.customer_name_snapshot || (isHi ? "ग्राहक" : "Customer")}
                 </h3>
                 <span
                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -535,11 +545,11 @@ function OrderDetailModal({
                       : "bg-amber-50 text-amber-800"
                   }`}
                 >
-                  {order.status}
+                  {statusLabel(order.status, isHi)}
                 </span>
               </div>
               <p className="text-[11px] text-[#6d756f] mt-0.5">
-                {dateTime(order.created_at)}
+                {dateTime(order.created_at, isHi)}
               </p>
             </div>
           </div>
@@ -548,12 +558,13 @@ function OrderDetailModal({
             <button
               onClick={handlePrint}
               className="p-1.5 rounded-xl border border-[#ddd6ca] text-[#6d756f] hover:text-[#123324] hover:bg-[#faf8f3]"
-              title="Print Receipt"
+              title={isHi ? "रसीद प्रिंट करें" : "Print Receipt"}
             >
               <Printer size={16} />
             </button>
             <button
               onClick={onClose}
+              aria-label={isHi ? "बंद करें" : "Close"}
               className="p-1.5 rounded-xl text-[#6d756f] hover:text-[#123324] hover:bg-[#eee9df]"
             >
               <X size={18} />
@@ -570,7 +581,7 @@ function OrderDetailModal({
                 {isHi ? "ग्राहक संपर्क" : "Customer Contact"}
               </span>
               <p className="font-bold text-sm text-[#123324] mt-1">
-                {order.customer_name_snapshot || "Customer"}
+                {order.customer_name_snapshot || (isHi ? "ग्राहक" : "Customer")}
               </p>
               <p className="font-mono text-xs text-[#1F5D42] mt-0.5 flex items-center gap-1">
                 <Phone size={12} />
@@ -580,7 +591,7 @@ function OrderDetailModal({
 
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#6d756f] block">
-                {isHi ? "पूर्ति माध्यम" : "Fulfillment Mode"}
+                {isHi ? "डिलीवरी का तरीका" : "Fulfillment Mode"}
               </span>
               <div className="flex items-center gap-1.5 mt-1">
                 <span
@@ -616,11 +627,11 @@ function OrderDetailModal({
                       {item.variant_name_snapshot ? ` (${item.variant_name_snapshot})` : ""}
                     </p>
                     <p className="text-[10px] text-[#6d756f] mt-0.5">
-                      {money(item.unit_price_snapshot)} × {item.quantity}
+                      {money(item.unit_price_snapshot, isHi)} × {item.quantity}
                     </p>
                   </div>
                   <span className="font-mono font-bold text-xs text-[#123324]">
-                    {money(item.line_total)}
+                    {money(item.line_total, isHi)}
                   </span>
                 </div>
               ))}
@@ -630,24 +641,24 @@ function OrderDetailModal({
             <div className="bg-[#faf8f3] p-4 border-t border-[#eee9df] space-y-1.5 text-xs">
               <div className="flex justify-between text-[#6d756f]">
                 <span>{isHi ? "सामान का कुल मूल्य" : "Items Subtotal"}</span>
-                <span className="font-mono">{money(order.items_subtotal)}</span>
+                <span className="font-mono">{money(order.items_subtotal, isHi)}</span>
               </div>
 
               {order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0 ? (
                 <div className="flex justify-between text-[#6d756f]">
                   <span>{isHi ? "डिलीवरी शुल्क" : "Delivery Charge"}</span>
-                  <span className="font-mono">{money(order.delivery_charge_snapshot)}</span>
+                  <span className="font-mono">{money(order.delivery_charge_snapshot, isHi)}</span>
                 </div>
               ) : (
                 <div className="flex justify-between text-[#1F5D42]">
                   <span>{isHi ? "डिलीवरी शुल्क" : "Delivery Charge"}</span>
-                  <span className="font-bold">{isHi ? "मुफ्त (Free)" : "FREE"}</span>
+                  <span className="font-bold">{isHi ? "मुफ़्त" : "FREE"}</span>
                 </div>
               )}
 
               <div className="flex justify-between pt-2 border-t border-[#ddd6ca] text-sm font-bold text-[#123324]">
                 <span>{isHi ? "कुल देय राशि" : "Total Bill Amount"}</span>
-                <span className="font-mono text-base text-[#1F5D42]">{money(order.total_amount)}</span>
+                <span className="font-mono text-base text-[#1F5D42]">{money(order.total_amount, isHi)}</span>
               </div>
 
               <div className="pt-1 flex items-center justify-between text-[11px] text-[#6d756f]">
@@ -679,7 +690,9 @@ function OrderDetailModal({
             <div className="flex flex-wrap items-center gap-2">
               <a
                 href={`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(
-                  `Namaste ${order.customer_name_snapshot || "Customer"}! Regarding your order ${shortId} for ₹${total}. Thank you for shopping with us! 🙏`
+                  isHi
+                    ? `नमस्ते ${order.customer_name_snapshot || "ग्राहक"} जी! आपके ऑर्डर ${shortId} (₹${total}) के संबंध में। हमारे यहां खरीदारी के लिए धन्यवाद! 🙏`
+                    : `Namaste ${order.customer_name_snapshot || "Customer"}! Regarding your order ${shortId} for ₹${total}. Thank you for shopping with us! 🙏`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -691,7 +704,9 @@ function OrderDetailModal({
 
               <a
                 href={`https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(
-                  `🛍️ *Order ${shortId} Bill*\nCustomer: ${order.customer_name_snapshot}\nTotal Payable: ₹${total}\nThank you! 🙏`
+                  isHi
+                    ? `🛍️ *ऑर्डर ${shortId} का बिल*\nग्राहक: ${order.customer_name_snapshot}\nकुल देय राशि: ₹${total}\nधन्यवाद! 🙏`
+                    : `🛍️ *Order ${shortId} Bill*\nCustomer: ${order.customer_name_snapshot}\nTotal Payable: ₹${total}\nThank you! 🙏`
                 )}`}
                 target="_blank"
                 rel="noopener noreferrer"

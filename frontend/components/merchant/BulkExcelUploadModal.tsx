@@ -146,7 +146,7 @@ export function BulkExcelUploadModal({
             validationError = isHi ? "नाम आवश्यक है" : "Name required";
           } else if (Number.isNaN(priceNum) || priceNum < 0) {
             isValid = false;
-            validationError = isHi ? "अमान्य मूल्य" : "Invalid price";
+            validationError = isHi ? "गलत कीमत" : "Invalid price";
           }
 
           rows.push({
@@ -164,7 +164,7 @@ export function BulkExcelUploadModal({
       } catch {
         setImportError(
           isHi
-            ? "फ़ाइल पढ़ने में त्रुटि हुई। कृपया टेम्पलेट CSV प्रारूप जांचें।"
+            ? "फ़ाइल पढ़ने में गड़बड़ी हुई। कृपया टेम्पलेट वाला CSV फ़ॉर्मेट जांचें।"
             : "Failed to parse CSV file. Please ensure standard CSV format."
         );
       }
@@ -225,7 +225,7 @@ export function BulkExcelUploadModal({
             </div>
             <div>
               <h3 className="font-display font-bold text-base text-[#123324]">
-                {isHi ? "एक्सेल / CSV से बल्क सामान जोड़ें" : "Bulk Excel / CSV Catalog Upload"}
+                {isHi ? "एक्सेल / CSV से एक साथ सामान जोड़ें" : "Bulk Excel / CSV Catalog Upload"}
               </h3>
               <p className="text-xs text-[#6d756f]">
                 {isHi
@@ -236,6 +236,7 @@ export function BulkExcelUploadModal({
           </div>
           <button
             onClick={onClose}
+            aria-label={isHi ? "बंद करें" : "Close"}
             className="text-[#6d756f] hover:text-[#123324] p-1.5 rounded-xl hover:bg-[#eee9df] transition"
           >
             <X size={18} />
@@ -252,7 +253,7 @@ export function BulkExcelUploadModal({
               </p>
               <p className="text-[11px] text-[#6d756f] mt-0.5">
                 {isHi
-                  ? "इस टेम्पलेट में अपने सामान का नाम, ब्रांड, मूल्य और विवरण भरें।"
+                  ? "इस टेम्पलेट में सामान का नाम, ब्रांड, कीमत, एमआरपी और विवरण भरें।"
                   : "Use this template with predefined columns: Product Name, Brand, Price, MRP, Description."}
               </p>
             </div>
@@ -286,7 +287,7 @@ export function BulkExcelUploadModal({
                   )}
                 </p>
                 <p className="text-[11px] text-[#869088] mt-0.5">
-                  .CSV format supported (Max 5MB)
+                  {isHi ? ".CSV फ़ाइल चलेगी (अधिकतम 5MB)" : ".CSV format supported (Max 5MB)"}
                 </p>
               </div>
               <input
@@ -324,7 +325,7 @@ export function BulkExcelUploadModal({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-[#123324]">
-                  {isHi ? "3. डेटा पूर्वावलोकन (Preview)" : "3. Parsed Data Preview"}
+                  {isHi ? "3. डेटा की झलक" : "3. Parsed Data Preview"}
                 </span>
                 <span className="text-[11px] text-[#6d756f]">
                   {validCount} / {parsedRows.length} {isHi ? "मान्य पंक्तियाँ" : "valid rows"}
@@ -343,12 +344,12 @@ export function BulkExcelUploadModal({
                       <p className="text-[10px] text-[#6d756f]">
                         {row.brand && <span>{row.brand} · </span>}
                         <span>₹{row.price}</span>
-                        {row.mrp && <span className="line-through text-[#869088] ml-1">MRP ₹{row.mrp}</span>}
+                        {row.mrp && <span className="line-through text-[#869088] ml-1">{isHi ? "एमआरपी" : "MRP"} ₹{row.mrp}</span>}
                       </p>
                     </div>
                     {row.isValid ? (
                       <span className="text-[10px] font-bold text-[#1F5D42] bg-[#e7f2eb] px-2 py-0.5 rounded-full shrink-0">
-                        Ready ✓
+                        {isHi ? "तैयार ✓" : "Ready ✓"}
                       </span>
                     ) : (
                       <span className="text-[10px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full shrink-0">
@@ -359,7 +360,9 @@ export function BulkExcelUploadModal({
                 ))}
                 {parsedRows.length > 15 && (
                   <div className="p-2 text-center text-[10px] text-[#6d756f] bg-[#faf8f3]">
-                    + {parsedRows.length - 15} more rows parsed
+                    {isHi
+                      ? `+ ${parsedRows.length - 15} और पंक्तियाँ पढ़ी गईं`
+                      : `+ ${parsedRows.length - 15} more rows parsed`}
                   </div>
                 )}
               </div>
@@ -385,7 +388,7 @@ export function BulkExcelUploadModal({
               <>
                 <RefreshCw size={13} className="animate-spin" />
                 <span>
-                  {isHi ? "आयात जारी है…" : "Importing"} ({progress.current}/{progress.total})
+                  {isHi ? "जोड़ा जा रहा है…" : "Importing"} ({progress.current}/{progress.total})
                 </span>
               </>
             ) : (

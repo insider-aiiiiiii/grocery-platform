@@ -58,6 +58,7 @@ export function MerchantProductDetailModal({
           </div>
           <button
             onClick={onClose}
+            aria-label={isHi ? "बंद करें" : "Close"}
             className="text-[#6d756f] hover:text-[#123324] p-1.5 rounded-xl hover:bg-[#eee9df] transition"
           >
             <X size={18} />
@@ -100,7 +101,7 @@ export function MerchantProductDetailModal({
                 </span>
                 {mrp && mrp > 0 && (
                   <span className="text-xs text-[#869088] line-through">
-                    MRP ₹{mrp.toFixed(0)}
+                    {isHi ? "एमआरपी" : "MRP"} ₹{mrp.toFixed(0)}
                   </span>
                 )}
               </div>
@@ -115,7 +116,7 @@ export function MerchantProductDetailModal({
           {product.description && (
             <div className="rounded-2xl bg-[#faf8f3] border border-[#eee9df] p-4 space-y-1">
               <span className="font-bold text-[11px] text-[#123324] block">
-                {isHi ? "विवरण (Description)" : "Product Description"}
+                {isHi ? "प्रोडक्ट का विवरण" : "Product Description"}
               </span>
               <p className="text-[#5e665f] text-xs leading-relaxed">
                 {product.description}
@@ -130,7 +131,7 @@ export function MerchantProductDetailModal({
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] transition shadow-xs cursor-pointer"
           >
-            {isHi ? "ठीक है" : "Close"}
+            {isHi ? "बंद करें" : "Close"}
           </button>
         </div>
       </div>

@@ -116,7 +116,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-[#F6F0E6] text-sm text-[#123324] font-medium font-sans">
         <div className="flex items-center gap-2">
           <Store className="w-5 h-5 animate-pulse text-[#1F5D42]" />
-          <span>Opening your shop workspace…</span>
+          <span>{lang === "hi" ? "आपकी दुकान खुल रही है…" : "Opening your shop workspace…"}</span>
         </div>
       </div>
     );
@@ -136,7 +136,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             Dukandaar
           </p>
           <p className="text-[10px] font-medium uppercase tracking-[.18em] text-[#a2b5a8]">
-            Merchant Workspace
+            {lang === "hi" ? "दुकानदार पोर्टल" : "Merchant Workspace"}
           </p>
         </div>
       </div>
@@ -146,7 +146,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.18em] text-[#7d9688]">
           {lang === "hi" ? "नेविगेशन" : "Navigation"}
         </p>
-        <nav className="space-y-1" aria-label="Merchant navigation">
+        <nav className="space-y-1" aria-label={lang === "hi" ? "दुकानदार नेविगेशन" : "Merchant navigation"}>
           {links.map(({ href, labelEn, labelHi, icon: Icon }) => {
             const active =
               href === "/merchant"
@@ -185,9 +185,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {shop?.public_slug && (
           <div className="mb-3 rounded-2xl border border-white/10 bg-white/[.06] p-3 text-xs">
             <div className="mb-1 flex items-center justify-between text-white font-medium">
-              <span className="text-[11px] text-[#a2b5a8]">Customer View</span>
+              <span className="text-[11px] text-[#a2b5a8]">{lang === "hi" ? "ग्राहक व्यू" : "Customer View"}</span>
               <span className="text-[9px] bg-[#E8A33D]/20 text-[#E8A33D] px-1.5 py-0.5 rounded font-mono font-bold">
-                Live
+                {lang === "hi" ? "लाइव" : "Live"}
               </span>
             </div>
             <Link
@@ -195,7 +195,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               target="_blank"
               className="inline-flex items-center gap-1.5 text-xs text-[#E8A33D] hover:underline font-medium mt-1"
             >
-              <span>Open customer store</span>
+              <span>{lang === "hi" ? "ग्राहक स्टोर खोलें" : "Open customer store"}</span>
               <ExternalLink size={12} />
             </Link>
           </div>
@@ -206,7 +206,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-semibold text-[#b9c9c0] hover:bg-white/10 hover:text-white transition"
         >
           <LogOut size={16} />
-          <span>Sign out</span>
+          <span>{lang === "hi" ? "साइन आउट" : "Sign out"}</span>
         </button>
       </div>
     </>
@@ -223,7 +223,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
-            aria-label="Close menu"
+            aria-label={lang === "hi" ? "मेन्यू बंद करें" : "Close menu"}
             className="absolute inset-0 bg-black/50 backdrop-blur-xs"
             onClick={() => setMobileOpen(false)}
           />
@@ -241,7 +241,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <button
               className="rounded-lg p-2 text-[#5e665f] hover:bg-[#eee9df] lg:hidden"
               onClick={() => setMobileOpen(true)}
-              aria-label="Open menu"
+              aria-label={lang === "hi" ? "मेन्यू खोलें" : "Open menu"}
             >
               <Menu size={20} />
             </button>
@@ -250,7 +250,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 {shop?.name ?? "Sharma Kirana"}
               </h2>
               <p className="text-[11px] text-[#6d756f]">
-                My shop • {shop?.city ?? "Local"}
+                {lang === "hi" ? "मेरी दुकान" : "My shop"} • {shop?.city ?? (lang === "hi" ? "स्थानीय" : "Local")}
               </p>
             </div>
           </div>

@@ -100,7 +100,7 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
         <div>
           <span className="text-base font-display font-bold tracking-tight text-white">Dukandaar</span>
           <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#2a684c] text-emerald-200 border border-[#3e8464] tracking-wider">
-            ADMIN
+            {lang === "hi" ? "एडमिन" : "ADMIN"}
           </span>
         </div>
       </div>
@@ -138,7 +138,7 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
           <div className="text-left leading-tight">
             <div className="font-semibold text-xs text-white flex items-center gap-1.5">
               <span>{username}</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" title="Online" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" title={lang === "hi" ? "ऑनलाइन" : "Online"} />
             </div>
             <div className="text-[10px] text-[#a2b5a8] font-medium tracking-wide">
               {lang === "hi" ? "सुपर एडमिन" : "Super Admin"}
@@ -150,7 +150,7 @@ export function Navbar({ adminEmail = "admin@platform.com", onSearch }: NavbarPr
         <button
           onClick={handleLogout}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-[#b9c9c0] hover:text-white hover:bg-red-500/20 border border-white/15 rounded-xl transition-colors"
-          title="Logout from Super Admin session"
+          title={lang === "hi" ? "सुपर एडमिन सेशन से लॉग आउट करें" : "Logout from Super Admin session"}
         >
           <LogOut className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{lang === "hi" ? "लॉगआउट" : "Logout"}</span>

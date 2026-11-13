@@ -21,6 +21,7 @@ import {
   X,
   Pencil,
 } from "lucide-react";
+import { useAdminLang } from "./useAdminLang";
 import { adminApi, CampaignItem } from "@/lib/api/admin";
 import { MerchantShopItem } from "@/components/admin/MerchantTable";
 
@@ -38,6 +39,10 @@ export function CampaignsManager({
   merchants = [],
   onRefresh,
 }: CampaignsManagerProps) {
+  const hi = useAdminLang() === "hi";
+  const dateLocale = hi ? "hi-IN" : "en-IN";
+  const statusLabel = (s: string) =>
+    hi ? ({ ACTIVE: "चालू", DRAFT: "ड्राफ्ट", ENDED: "समाप्त", EXPIRED: "समाप्त", INACTIVE: "बंद" } as Record<string, string>)[s] ?? s : s;
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<CampaignItem | null>(null);
   const [title, setTitle] = useState("");
@@ -147,17 +152,17 @@ export function CampaignsManager({
     setActionError(null);
 
     if (!title.trim()) {
-      setActionError("Campaign title is required.");
+      setActionError(hi ? "कैंपेन का शीर्षक ज़रूरी है।" : "Campaign title is required.");
       return;
     }
 
     if (shopScope === "SELECTED_SHOPS" && selectedShops.length === 0) {
-      setActionError("Please select at least one shop for a targeted campaign.");
+      setActionError(hi ? "चुनिंदा कैंपेन के लिए कम से कम एक दुकान चुनें।" : "Please select at least one shop for a targeted campaign.");
       return;
     }
 
     if (startsAt && endsAt && new Date(startsAt) > new Date(endsAt)) {
-      setActionError("End time must be after the start time.");
+      setActionError(hi ? "खत्म होने का समय शुरू होने के समय के बाद का होना चाहिए।" : "End time must be after the start time.");
       return;
     }
 
@@ -202,7 +207,7 @@ export function CampaignsManager({
         err?.response?.data?.title?.[0] ||
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
-        "Failed to save campaign. Verify Super Admin authorization.";
+        (hi ? "कैंपेन सेव करने में विफल। सुपर एडमिन अनुमति जाँचें।" : "Failed to save campaign. Verify Super Admin authorization.");
       setActionError(msg);
     } finally {
       setSubmitting(false);
@@ -215,7 +220,7 @@ export function CampaignsManager({
       await adminApi.activateCampaign(id);
       if (onRefresh) onRefresh();
     } catch (err: any) {
-      setActionError(err?.response?.data?.error || "Could not activate campaign.");
+      setActionError(err?.response?.data?.error || (hi ? "कैंपेन चालू नहीं हो सका।" : "Could not activate campaign."));
     }
   };
 
@@ -225,18 +230,18 @@ export function CampaignsManager({
       await adminApi.endCampaign(id);
       if (onRefresh) onRefresh();
     } catch (err: any) {
-      setActionError(err?.response?.data?.error || "Could not end campaign.");
+      setActionError(err?.response?.data?.error || (hi ? "कैंपेन समाप्त नहीं हो सका।" : "Could not end campaign."));
     }
   };
 
   const handleDelete = async (id: number, title: string) => {
-    if (!window.confirm(`Are you sure you want to delete campaign "${title}"?`)) return;
+    if (!window.confirm(hi ? `क्या आप कैंपेन "${title}" हटाना चाहते हैं?` : `Are you sure you want to delete campaign "${title}"?`)) return;
     try {
       setActionError(null);
       await adminApi.deleteCampaign(id);
       if (onRefresh) onRefresh();
     } catch (err: any) {
-      setActionError(err?.response?.data?.error || "Could not delete campaign.");
+      setActionError(err?.response?.data?.error || (hi ? "कैंपेन हटाया नहीं जा सका।" : "Could not delete campaign."));
     }
   };
 
@@ -248,11 +253,11 @@ export function CampaignsManager({
           <div className="flex items-center gap-2">
             <Megaphone className="w-4 h-4 text-[#1F5D42]" />
             <h2 className="text-sm font-bold text-slate-900 tracking-tight">
-              Network Marketing Campaigns
+              {hi ? "नेटवर्क मार्केटिंग कैंपेन" : "Network Marketing Campaigns"}
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Storefront announcements and banner campaigns across merchant shops.
+            {hi ? "मर्चेंट दुकानों पर स्टोरफ्रंट घोषणाएं और बैनर कैंपेन।" : "Storefront announcements and banner campaigns across merchant shops."}
           </p>
         </div>
 
@@ -261,7 +266,7 @@ export function CampaignsManager({
           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1F5D42] text-white text-xs font-semibold rounded-lg hover:bg-[#164430] transition-colors shadow-2xs"
         >
           <Plus className="w-3.5 h-3.5" />
-          Create Campaign
+          {hi ? "कैंपेन बनाएं" : "Create Campaign"}
         </button>
       </div>
 
@@ -273,6 +278,7 @@ export function CampaignsManager({
           </div>
           <button
             onClick={() => setActionError(null)}
+            aria-label={hi ? "बंद करें" : "Close"}
             className="text-amber-600 hover:text-amber-800 font-bold"
           >
             ✕
@@ -285,9 +291,9 @@ export function CampaignsManager({
         {campaigns.length === 0 ? (
           <div className="py-10 text-center text-slate-400 text-xs px-4">
             <Megaphone className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="font-semibold text-slate-600">No campaigns created yet</p>
+            <p className="font-semibold text-slate-600">{hi ? "अभी तक कोई कैंपेन नहीं बना" : "No campaigns created yet"}</p>
             <p className="text-[11px] text-slate-400 mt-1">
-              Create platform-wide or shop-specific announcement banners to showcase on storefronts.
+              {hi ? "स्टोरफ्रंट पर दिखाने के लिए पूरे प्लेटफॉर्म या चुनी हुई दुकानों के लिए घोषणा बैनर बनाएं।" : "Create platform-wide or shop-specific announcement banners to showcase on storefronts."}
             </p>
           </div>
         ) : (
@@ -309,7 +315,7 @@ export function CampaignsManager({
                       : "bg-rose-100 text-rose-800 border border-rose-200"
                   }`}
                 >
-                  {c.status}
+                  {statusLabel(c.status)}
                 </span>
               </div>
 
@@ -317,20 +323,20 @@ export function CampaignsManager({
                 {c.shop_scope === "ALL_SHOPS" ? (
                   <span className="inline-flex items-center gap-1 font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px]">
                     <Layers className="w-3 h-3 text-emerald-600" />
-                    All Shops
+                    {hi ? "सभी दुकानें" : "All Shops"}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px]">
                     <Store className="w-3 h-3 text-indigo-600" />
-                    {c.selected_shops?.length ?? 0} Shops
+                    {c.selected_shops?.length ?? 0} {hi ? "दुकानें" : "Shops"}
                   </span>
                 )}
 
                 <div className="flex items-center gap-1 text-slate-500 text-[10px]">
                   <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
                   <span>
-                    {c.starts_at ? new Date(c.starts_at).toLocaleDateString("en-IN") : "Immediate"}
-                    {c.ends_at && ` → ${new Date(c.ends_at).toLocaleDateString("en-IN")}`}
+                    {c.starts_at ? new Date(c.starts_at).toLocaleDateString(dateLocale) : (hi ? "तुरंत" : "Immediate")}
+                    {c.ends_at && ` → ${new Date(c.ends_at).toLocaleDateString(dateLocale)}`}
                   </span>
                 </div>
               </div>
@@ -339,10 +345,10 @@ export function CampaignsManager({
                 <button
                   onClick={() => handleOpenEdit(c)}
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-[#e7f2eb] border border-slate-200 text-[#1F5D42] rounded text-[11px] font-semibold transition-colors"
-                  title="Edit Campaign"
+                  title={hi ? "कैंपेन बदलें" : "Edit Campaign"}
                 >
                   <Pencil className="w-3 h-3 text-[#1F5D42]" />
-                  Edit
+                  {hi ? "बदलें" : "Edit"}
                 </button>
                 {c.status === "DRAFT" && (
                   <button
@@ -350,7 +356,7 @@ export function CampaignsManager({
                     className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
                   >
                     <Play className="w-3 h-3" />
-                    Activate
+                    {hi ? "चालू करें" : "Activate"}
                   </button>
                 )}
                 {c.status === "ACTIVE" && (
@@ -359,13 +365,13 @@ export function CampaignsManager({
                     className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800"
                   >
                     <Square className="w-3 h-3" />
-                    End
+                    {hi ? "समाप्त करें" : "End"}
                   </button>
                 )}
                 <button
                   onClick={() => handleDelete(c.id, c.title)}
                   className="inline-flex items-center p-1 text-slate-400 hover:text-rose-600 rounded"
-                  title="Delete Campaign"
+                  title={hi ? "कैंपेन हटाएं" : "Delete Campaign"}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -380,11 +386,11 @@ export function CampaignsManager({
         <table className="w-full text-left text-xs">
           <thead className="bg-[#FAF7F2] border-b border-[#E8E2D9] text-slate-600 uppercase tracking-wider font-semibold text-[10px]">
             <tr>
-              <th className="py-2.5 px-4">Campaign & Announcement</th>
-              <th className="py-2.5 px-4">Target Scope</th>
-              <th className="py-2.5 px-4">Status</th>
-              <th className="py-2.5 px-4">Schedule</th>
-              <th className="py-2.5 px-4 text-right">Lifecycle Actions</th>
+              <th className="py-2.5 px-4">{hi ? "कैंपेन और घोषणा" : "Campaign & Announcement"}</th>
+              <th className="py-2.5 px-4">{hi ? "किन्हें दिखेगा" : "Target Scope"}</th>
+              <th className="py-2.5 px-4">{hi ? "स्थिति" : "Status"}</th>
+              <th className="py-2.5 px-4">{hi ? "समय-सारणी" : "Schedule"}</th>
+              <th className="py-2.5 px-4 text-right">{hi ? "कार्य" : "Lifecycle Actions"}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -393,9 +399,9 @@ export function CampaignsManager({
                 <td colSpan={5} className="py-12 text-center text-slate-400 text-xs">
                   <div className="max-w-xs mx-auto space-y-2">
                     <Megaphone className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-semibold text-slate-600">No campaigns created yet</p>
+                    <p className="font-semibold text-slate-600">{hi ? "अभी तक कोई कैंपेन नहीं बना" : "No campaigns created yet"}</p>
                     <p className="text-[11px] text-slate-400">
-                      Create platform-wide or shop-specific announcement banners to showcase on storefronts.
+                      {hi ? "स्टोरफ्रंट पर दिखाने के लिए पूरे प्लेटफॉर्म या चुनी हुई दुकानों के लिए घोषणा बैनर बनाएं।" : "Create platform-wide or shop-specific announcement banners to showcase on storefronts."}
                     </p>
                   </div>
                 </td>
@@ -412,7 +418,7 @@ export function CampaignsManager({
                       </div>
                     ) : (
                       <div className="text-[10px] text-slate-400 italic mt-0.5">
-                        No announcement text
+                        {hi ? "कोई घोषणा-पाठ नहीं" : "No announcement text"}
                       </div>
                     )}
                   </td>
@@ -422,12 +428,12 @@ export function CampaignsManager({
                     {c.shop_scope === "ALL_SHOPS" ? (
                       <span className="inline-flex items-center gap-1 font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px]">
                         <Layers className="w-3 h-3 text-emerald-600" />
-                        All Shops (Platform)
+                        {hi ? "सभी दुकानें (प्लेटफॉर्म)" : "All Shops (Platform)"}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 font-semibold text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px]">
                         <Store className="w-3 h-3 text-indigo-600" />
-                        {c.selected_shops?.length ?? 0} Selected Shops
+                        {c.selected_shops?.length ?? 0} {hi ? "चुनी हुई दुकानें" : "Selected Shops"}
                       </span>
                     )}
                   </td>
@@ -443,7 +449,7 @@ export function CampaignsManager({
                           : "bg-rose-100 text-rose-800 border border-rose-200"
                       }`}
                     >
-                      {c.status}
+                      {statusLabel(c.status)}
                     </span>
                   </td>
 
@@ -453,14 +459,14 @@ export function CampaignsManager({
                       <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <div>
                         {c.starts_at ? (
-                          <span>{new Date(c.starts_at).toLocaleDateString("en-IN")}</span>
+                          <span>{new Date(c.starts_at).toLocaleDateString(dateLocale)}</span>
                         ) : (
-                          <span className="text-slate-400">Immediate</span>
+                          <span className="text-slate-400">{hi ? "तुरंत" : "Immediate"}</span>
                         )}
                         {c.ends_at && (
                           <span className="text-slate-600">
                             {" "}
-                            → {new Date(c.ends_at).toLocaleDateString("en-IN")}
+                            → {new Date(c.ends_at).toLocaleDateString(dateLocale)}
                           </span>
                         )}
                       </div>
@@ -473,10 +479,10 @@ export function CampaignsManager({
                       <button
                         onClick={() => handleOpenEdit(c)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-[#e7f2eb] border border-slate-200 text-[#1F5D42] rounded text-[11px] font-semibold transition-colors shadow-2xs"
-                        title="Edit Campaign"
+                        title={hi ? "कैंपेन बदलें" : "Edit Campaign"}
                       >
                         <Pencil className="w-3 h-3 text-[#1F5D42]" />
-                        Edit
+                        {hi ? "बदलें" : "Edit"}
                       </button>
                       {c.status === "DRAFT" && (
                         <button
@@ -484,7 +490,7 @@ export function CampaignsManager({
                           className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700 transition-colors shadow-2xs"
                         >
                           <Play className="w-3 h-3" />
-                          Activate
+                          {hi ? "चालू करें" : "Activate"}
                         </button>
                       )}
                       {c.status === "ACTIVE" && (
@@ -493,13 +499,13 @@ export function CampaignsManager({
                           className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-700 text-white rounded text-[11px] font-semibold hover:bg-slate-800 transition-colors shadow-2xs"
                         >
                           <Square className="w-3 h-3" />
-                          End
+                          {hi ? "समाप्त करें" : "End"}
                         </button>
                       )}
                       <button
                         onClick={() => handleDelete(c.id, c.title)}
                         className="inline-flex items-center p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                        title="Delete Campaign"
+                        title={hi ? "कैंपेन हटाएं" : "Delete Campaign"}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -519,12 +525,12 @@ export function CampaignsManager({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  {editingCampaign ? "Edit Storefront Campaign" : "Create Storefront Campaign"}
+                  {editingCampaign ? (hi ? "स्टोरफ्रंट कैंपेन बदलें" : "Edit Storefront Campaign") : (hi ? "स्टोरफ्रंट कैंपेन बनाएं" : "Create Storefront Campaign")}
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   {editingCampaign
-                    ? "Update announcement details, schedule dates, or shop audience."
-                    : "Configure an announcement banner and target specific merchant storefronts."}
+                    ? (hi ? "घोषणा की जानकारी, तारीख़ें या दुकानें बदलें।" : "Update announcement details, schedule dates, or shop audience.")
+                    : (hi ? "घोषणा बैनर बनाएं और चुनी हुई मर्चेंट दुकानों को भेजें।" : "Configure an announcement banner and target specific merchant storefronts.")}
                 </p>
               </div>
               <button
@@ -532,6 +538,7 @@ export function CampaignsManager({
                   setIsCreateOpen(false);
                   setEditingCampaign(null);
                 }}
+                aria-label={hi ? "बंद करें" : "Close"}
                 className="text-slate-400 hover:text-slate-600 text-sm font-bold p-1 rounded hover:bg-slate-100"
               >
                 ✕
@@ -542,14 +549,14 @@ export function CampaignsManager({
               {/* Campaign Title */}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  Campaign Title <span className="text-rose-500">*</span>
+                  {hi ? "कैंपेन का शीर्षक" : "Campaign Title"} <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Weekend Kirana Festival"
+                  placeholder={hi ? "जैसे वीकेंड किराना फेस्टिवल" : "e.g. Weekend Kirana Festival"}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
                 />
               </div>
@@ -557,13 +564,13 @@ export function CampaignsManager({
               {/* Announcement Banner Content */}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  Announcement Text (Displayed on Storefront Header)
+                  {hi ? "घोषणा का पाठ (स्टोरफ्रंट के ऊपर दिखेगा)" : "Announcement Text (Displayed on Storefront Header)"}
                 </label>
                 <textarea
                   rows={2}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  placeholder="e.g. Free delivery on all orders above ₹299 this weekend!"
+                  placeholder={hi ? "जैसे इस वीकेंड ₹299 से ऊपर के सभी ऑर्डर पर फ्री डिलीवरी!" : "e.g. Free delivery on all orders above ₹299 this weekend!"}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-1 focus:ring-[#1F5D42] focus:border-[#1F5D42]"
                 />
               </div>
@@ -571,13 +578,13 @@ export function CampaignsManager({
               {/* Promotional Banner Image (Direct Upload) */}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  Promotional Banner Image (Optional)
+                  {hi ? "प्रमोशनल बैनर इमेज (वैकल्पिक)" : "Promotional Banner Image (Optional)"}
                 </label>
                 {bannerPreview ? (
                   <div className="relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
                     <img
                       src={bannerPreview}
-                      alt="Campaign Banner Preview"
+                      alt={hi ? "कैंपेन बैनर का प्रीव्यू" : "Campaign Banner Preview"}
                       className="w-full max-h-36 object-cover"
                     />
                     <button
@@ -586,6 +593,7 @@ export function CampaignsManager({
                         setBannerPreview(null);
                         if (bannerInputRef.current) bannerInputRef.current.value = "";
                       }}
+                      aria-label={hi ? "बैनर हटाएं" : "Remove banner"}
                       className="absolute top-2 right-2 p-1 rounded-full bg-red-600 text-white hover:bg-red-700 shadow-sm"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -598,8 +606,8 @@ export function CampaignsManager({
                     className="w-full py-4 px-3 border-2 border-dashed border-slate-300 hover:border-[#1F5D42] rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-[#1F5D42] bg-slate-50/50 hover:bg-[#f0f7f3]/50 transition cursor-pointer"
                   >
                     <Upload className="w-5 h-5 mb-1" />
-                    <span className="text-xs font-semibold">Upload Banner Image File</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG, or WEBP · 16:9 or wide format recommended</span>
+                    <span className="text-xs font-semibold">{hi ? "बैनर इमेज फ़ाइल अपलोड करें" : "Upload Banner Image File"}</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">{hi ? "PNG, JPG या WEBP · 16:9 या चौड़ा फ़ॉर्मैट बेहतर" : "PNG, JPG, or WEBP · 16:9 or wide format recommended"}</span>
                   </button>
                 )}
                 <input
@@ -614,7 +622,7 @@ export function CampaignsManager({
               {/* Scope Selection */}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1.5">
-                  Target Storefront Scope <span className="text-rose-500">*</span>
+                  {hi ? "किन स्टोरफ्रंट पर दिखाएं" : "Target Storefront Scope"} <span className="text-rose-500">*</span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <label
@@ -633,9 +641,9 @@ export function CampaignsManager({
                       className="mt-0.5 text-[#1F5D42] focus:ring-[#1F5D42]"
                     />
                     <div>
-                      <div className="font-semibold text-slate-900 text-xs">All Shops</div>
+                      <div className="font-semibold text-slate-900 text-xs">{hi ? "सभी दुकानें" : "All Shops"}</div>
                       <div className="text-[10px] text-slate-500">
-                        Broadcast to every merchant storefront across the platform
+                        {hi ? "प्लेटफॉर्म की हर मर्चेंट दुकान पर दिखाएं" : "Broadcast to every merchant storefront across the platform"}
                       </div>
                     </div>
                   </label>
@@ -656,9 +664,9 @@ export function CampaignsManager({
                       className="mt-0.5 text-[#1F5D42] focus:ring-[#1F5D42]"
                     />
                     <div>
-                      <div className="font-semibold text-slate-900 text-xs">Selected Shops</div>
+                      <div className="font-semibold text-slate-900 text-xs">{hi ? "चुनी हुई दुकानें" : "Selected Shops"}</div>
                       <div className="text-[10px] text-slate-500">
-                        Target specific shops ({selectedShops.length} selected)
+                        {hi ? "चुनी हुई दुकानों को भेजें" : "Target specific shops"} ({selectedShops.length} {hi ? "चुनी गईं" : "selected"})
                       </div>
                     </div>
                   </label>
@@ -670,7 +678,7 @@ export function CampaignsManager({
                 <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50 space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-slate-700 text-[11px]">
-                      Choose Target Merchants ({selectedShops.length} of {merchants.length} selected)
+                      {hi ? "मर्चेंट चुनें" : "Choose Target Merchants"} ({selectedShops.length} / {merchants.length} {hi ? "चुने गए" : "selected"})
                     </span>
                     <div className="flex items-center gap-2">
                       <button
@@ -678,7 +686,7 @@ export function CampaignsManager({
                         onClick={selectAllFiltered}
                         className="text-[10px] text-[#1F5D42] font-semibold hover:underline"
                       >
-                        Select All
+                        {hi ? "सभी चुनें" : "Select All"}
                       </button>
                       <span className="text-slate-300">|</span>
                       <button
@@ -686,7 +694,7 @@ export function CampaignsManager({
                         onClick={deselectAllFiltered}
                         className="text-[10px] text-slate-500 hover:underline"
                       >
-                        Deselect
+                        {hi ? "चुनाव हटाएं" : "Deselect"}
                       </button>
                     </div>
                   </div>
@@ -698,7 +706,7 @@ export function CampaignsManager({
                       type="text"
                       value={shopSearch}
                       onChange={(e) => setShopSearch(e.target.value)}
-                      placeholder="Search shops by name, city, or slug..."
+                      placeholder={hi ? "नाम, शहर या स्लग से दुकान खोजें..." : "Search shops by name, city, or slug..."}
                       className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded text-xs focus:ring-1 focus:ring-[#1F5D42]"
                     />
                   </div>
@@ -707,7 +715,7 @@ export function CampaignsManager({
                   <div className="max-h-36 overflow-y-auto space-y-1 bg-white border border-slate-200 rounded p-1.5">
                     {filteredMerchants.length === 0 ? (
                       <div className="text-center py-4 text-[11px] text-slate-400">
-                        No shops found matching "{shopSearch}"
+                        {hi ? `"${shopSearch}" से कोई दुकान नहीं मिली` : `No shops found matching "${shopSearch}"`}
                       </div>
                     ) : (
                       filteredMerchants.map((m) => {
@@ -743,7 +751,7 @@ export function CampaignsManager({
               {/* Schedule Dates */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Starts At</label>
+                  <label className="block text-slate-700 font-semibold mb-1">{hi ? "शुरू होने का समय" : "Starts At"}</label>
                   <input
                     type="datetime-local"
                     value={startsAt}
@@ -753,7 +761,7 @@ export function CampaignsManager({
                 </div>
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">
-                    Ends At (Optional)
+                    {hi ? "खत्म होने का समय (वैकल्पिक)" : "Ends At (Optional)"}
                   </label>
                   <input
                     type="datetime-local"
@@ -774,14 +782,14 @@ export function CampaignsManager({
                   }}
                   className="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs hover:bg-slate-50 transition-colors"
                 >
-                  Cancel
+                  {hi ? "रद्द करें" : "Cancel"}
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
                   className="px-4 py-1.5 bg-[#1F5D42] text-white rounded-lg text-xs font-semibold hover:bg-[#164430] disabled:opacity-50 transition-colors shadow-2xs"
                 >
-                  {submitting ? "Saving..." : editingCampaign ? "Save Changes" : "Save Draft Campaign"}
+                  {submitting ? (hi ? "सेव हो रहा है..." : "Saving...") : editingCampaign ? (hi ? "बदलाव सेव करें" : "Save Changes") : (hi ? "ड्राफ्ट कैंपेन सेव करें" : "Save Draft Campaign")}
                 </button>
               </div>
             </form>
