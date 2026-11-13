@@ -72,7 +72,7 @@ def get_or_create_default_template(event_type: str) -> NotificationTemplate:
     return template
 
 
-def enqueue_order_created_notification(order) -> Optional[NotificationOutbox]:
+def enqueue_order_created_notification(order, item_count: Optional[int] = None) -> Optional[NotificationOutbox]:
     """
     Enqueues a NEW_ORDER notification targeting the Shop's configured Merchant WhatsApp number.
     Must be called within the order creation transaction to guarantee atomic coupling.
@@ -99,7 +99,11 @@ def enqueue_order_created_notification(order) -> Optional[NotificationOutbox]:
         "shop_name": shop.name,
         "order_number": str(order.id)[:8],
         "total_amount": str(order.total_amount),
-        "item_count": order.items.count() if hasattr(order, "items") else 0,
+        "item_count": (
+            item_count
+            if item_count is not None
+            else (order.items.count() if hasattr(order, "items") else 0)
+        ),
         "portal_url": f"/merchant/orders/{order.id}/",
     }
 

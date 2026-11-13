@@ -84,6 +84,7 @@ def _create_order(shop, payload, idempotency_key):
         cart_items = list(
             cart.items.select_for_update(of=("self",))
             .select_related("product", "variant", "variant__product")
+            .prefetch_related("product__variants")  # one query for every has_variants check
             .order_by("pk")
         )
         if not cart_items:
@@ -116,6 +117,9 @@ def _create_order(shop, payload, idempotency_key):
                 "variant": variant,
                 "unit_price": Decimal(str(unit_price)).quantize(Decimal("0.01")),
             })
+            snapshots[-1]["line_total"] = (snapshots[-1]["unit_price"] * cart_item.quantity).quantize(
+                Decimal("0.01")
+            )
 
         try:
             reserve_order_creation_stock(shop, inventory_entries)
@@ -129,6 +133,10 @@ def _create_order(shop, payload, idempotency_key):
         ):
             delivery_charge = shop.delivery_charge
 
+        # Totals are computed here, from the same snapshots used for the line items,
+        # so the order is written once instead of insert-then-recalculate.
+        items_subtotal = sum((snap["line_total"] for snap in snapshots), Decimal("0.00"))
+
         order = Order.objects.create(
             shop=shop,
             customer=customer,
@@ -139,17 +147,18 @@ def _create_order(shop, payload, idempotency_key):
             customer_phone_snapshot=normalized_phone,
             delivery_fee_type_snapshot=shop.delivery_fee_type,
             delivery_charge_snapshot=delivery_charge,
-            items_subtotal=Decimal("0.00"),
-            total_amount=delivery_charge,
+            items_subtotal=items_subtotal,
+            total_amount=items_subtotal + delivery_charge,
             idempotency_key=idempotency_key or None,
             expires_at=timezone.now() + timedelta(minutes=shop.pending_order_timeout_minutes),
         )
 
+        order_items = []
         for snapshot in snapshots:
             item = snapshot["cart_item"]
             product = snapshot["product"]
             variant = snapshot["variant"]
-            OrderItem.objects.create(
+            order_item = OrderItem(
                 order=order,
                 product=product,
                 variant=variant,
@@ -161,8 +170,11 @@ def _create_order(shop, payload, idempotency_key):
                 ordered_quantity=item.quantity,
                 quantity=item.quantity,
                 unit_price_snapshot=snapshot["unit_price"],
-                line_total=(snapshot["unit_price"] * item.quantity).quantize(Decimal("0.01")),
+                line_total=snapshot["line_total"],
             )
+            order_item.clean()  # same business-rule validation as save(), no queries
+            order_items.append(order_item)
+        OrderItem.objects.bulk_create(order_items)
 
         if fulfillment == Order.FulfillmentType.HOME_DELIVERY:
             address = payload["delivery_address"]
@@ -185,9 +197,8 @@ def _create_order(shop, payload, idempotency_key):
                 delivery_notes=address.get("delivery_notes", ""),
             )
 
-        order.recalculate_totals(save=True)
         cart.items.all().delete()
-        enqueue_order_created_notification(order)
+        enqueue_order_created_notification(order, item_count=len(order_items))
         return order, True
 
 

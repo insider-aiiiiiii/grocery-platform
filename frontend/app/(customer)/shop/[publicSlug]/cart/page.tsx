@@ -92,16 +92,20 @@ export default function CustomerCartCheckoutPage() {
       setLoading(true);
       setError(null);
       try {
-        const shopData = await customerApi.getShop(publicSlug);
+        // Fetch shop and cart in parallel: they are independent, and each API call
+        // is a full round trip to the backend.
+        const savedCartId = localStorage.getItem(cartStorageKey);
+        const [shopData, cartData] = await Promise.all([
+          customerApi.getShop(publicSlug),
+          savedCartId ? customerApi.getCart(publicSlug, parseInt(savedCartId, 10)) : Promise.resolve(null),
+        ]);
         setShop(shopData);
 
         if (!shopData.is_home_delivery_enabled && shopData.is_pickup_enabled) {
           setFulfillmentType("PICKUP");
         }
 
-        const savedCartId = localStorage.getItem(cartStorageKey);
-        if (savedCartId) {
-          const cartData = await customerApi.getCart(publicSlug, parseInt(savedCartId, 10));
+        if (cartData) {
           setCart(cartData);
         }
       } catch (err: any) {
