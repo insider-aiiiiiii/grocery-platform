@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -269,7 +269,7 @@ class CartModelTests(TestCase):
         CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("1.000"))
 
         # Validation at save/full_clean level
-        with self.assertRaises((ValidationError, IntegrityError)):
+        with self.assertRaises((ValidationError, IntegrityError)), transaction.atomic():
             CartItem.objects.create(cart=cart, product=self.product1_s1, quantity=Decimal("2.000"))
 
         # Enforcement at database level
@@ -289,7 +289,7 @@ class CartModelTests(TestCase):
         )
 
         # Validation at save/full_clean level
-        with self.assertRaises((ValidationError, IntegrityError)):
+        with self.assertRaises((ValidationError, IntegrityError)), transaction.atomic():
             CartItem.objects.create(
                 cart=cart,
                 product=self.product2_s1,
@@ -2356,11 +2356,11 @@ class CartDomainVerificationTests(TestCase):
     def test_unique_constraint_enforces_single_line_per_product_or_variant(self):
         """Database unique constraint prevents duplicate lines for same product or variant."""
         CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("1.000"))
-        with self.assertRaises((IntegrityError, ValidationError)):
+        with self.assertRaises((IntegrityError, ValidationError)), transaction.atomic():
             CartItem.objects.create(cart=self.cart_s1, product=self.prod1_s1, quantity=Decimal("2.000"))
 
         CartItem.objects.create(cart=self.cart_s1, product=self.prod2_s1, variant=self.var1_s1, quantity=Decimal("1.000"))
-        with self.assertRaises((IntegrityError, ValidationError)):
+        with self.assertRaises((IntegrityError, ValidationError)), transaction.atomic():
             CartItem.objects.create(cart=self.cart_s1, product=self.prod2_s1, variant=self.var1_s1, quantity=Decimal("2.000"))
 
     # =========================================================================

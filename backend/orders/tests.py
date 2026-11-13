@@ -2,7 +2,7 @@ from decimal import Decimal
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.test import TestCase
 from django.utils import timezone
@@ -470,7 +470,7 @@ class OrderModelTests(TestCase):
         )
 
         # Same shop with duplicate key must fail unique constraint
-        with self.assertRaises((IntegrityError, ValidationError)):
+        with self.assertRaises((IntegrityError, ValidationError)), transaction.atomic():
             self.create_order(
                 shop=self.shop,
                 customer=self.customer,
