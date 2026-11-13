@@ -80,7 +80,7 @@ class Cart(models.Model):
                     raise ValidationError({"shop": "Cannot change the Shop of a Cart that contains items."})
 
     def save(self, *args, **kwargs) -> None:
-        self.full_clean()
+        self.full_clean(validate_constraints=False)
         super().save(*args, **kwargs)
 
     @property
@@ -209,5 +209,5 @@ class CartItem(models.Model):
     def save(self, *args, **kwargs) -> None:
         if self.quantity is not None:
             self.quantity = validate_positive_quantity(self.quantity)
-        self.full_clean()
+        self.full_clean(validate_constraints=False)
         super().save(*args, **kwargs)

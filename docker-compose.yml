@@ -11,6 +11,8 @@ services:
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       DATABASE_URL: ${DATABASE_URL:-}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+    # Dev: same server as production (persistent DB connections) plus code reload.
+    command: ["sh", "-c", "exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 4 --reload"]
     ports:
       - "${DJANGO_PORT:-8000}:8000"
     dns:

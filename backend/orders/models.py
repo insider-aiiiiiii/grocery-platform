@@ -5,6 +5,8 @@ from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
 
+from config.model_validation import full_clean_without_db_lookups
+
 
 class Order(models.Model):
     """
@@ -221,7 +223,7 @@ class Order(models.Model):
             self.total_amount = Decimal(str(self.total_amount)).quantize(Decimal("0.01"))
 
     def save(self, *args, **kwargs) -> None:
-        self.full_clean()
+        full_clean_without_db_lookups(self)
         super().save(*args, **kwargs)
 
     @property

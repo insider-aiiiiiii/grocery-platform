@@ -179,6 +179,9 @@ export const merchantApi = {
   order: async (id: number) => (await merchantClient.get<MerchantOrder>(`/orders/${id}/`)).data,
   orderAction: async (id: number, action: string, payload: Record<string, unknown> = {}) =>
     (await merchantClient.post(`/orders/${id}/${action}/`, payload)).data,
+  // Payment is merchant-managed (ADR 0002): an order must be PAID before it can be completed.
+  setOrderPayment: async (id: number, payment_status: "PAID" | "UNPAID") =>
+    (await merchantClient.post(`/orders/${id}/payment-status/`, { payment_status })).data,
   products: async () => (await merchantClient.get<Product[]>("/shops/me/products/")).data,
   createProduct: async (payload: (Partial<Product> & { name: string }) | FormData) => {
     if (typeof window !== "undefined" && payload instanceof FormData) {
@@ -233,8 +236,16 @@ export const merchantApi = {
 
 export function getApiError(error: unknown) {
   if (typeof error === "object" && error !== null && "response" in error) {
-    const response = (error as { response?: { data?: Record<string, unknown> } }).response;
-    const data = response?.data;
+    const response = (error as { response?: { status?: number; data?: unknown } }).response;
+    const raw = response?.data;
+    // A non-JSON body (for example an HTML 500 page) is not a message; indexing into the string
+    // used to produce a one-character error like "<".
+    if (typeof raw === "string") {
+      return (response?.status ?? 0) >= 500
+        ? "The server had a problem saving this. Please try again."
+        : "Something went wrong. Please try again.";
+    }
+    const data = raw as Record<string, unknown> | undefined;
     if (data?.detail) return String(data.detail);
     if (data) {
       const first = Object.values(data)[0];

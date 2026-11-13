@@ -1,5 +1,6 @@
 import logging
 
+from django.db.models import prefetch_related_objects
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 def format_public_order_response(order: Order, shop: Shop) -> dict:
+    # Load line items and delivery address once; the WhatsApp link builder and the
+    # response below then reuse the cached rows instead of querying again.
+    prefetch_related_objects([order], "items", "delivery_address")
+    if order.shop_id == shop.pk:
+        order.shop = shop
+
     whatsapp_links = None
     try:
         whatsapp_links = get_customer_order_notification_links(order)
@@ -34,7 +41,7 @@ def format_public_order_response(order: Order, shop: Shop) -> dict:
             "unit_price": str(item.unit_price_snapshot),
             "line_total": str(item.line_total),
         }
-        for item in order.items.all().order_by("pk")
+        for item in sorted(order.items.all(), key=lambda i: i.pk)
     ]
 
     addr_data = None

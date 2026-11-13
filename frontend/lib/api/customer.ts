@@ -344,8 +344,13 @@ export const customerApi = {
   },
 
   // Checkout
-  checkout: async (publicSlug: string, payload: CheckoutPayload): Promise<CheckoutResponse> => {
-    const idempotencyKey = `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  checkout: async (
+    publicSlug: string,
+    payload: CheckoutPayload,
+    // Callers pass a stable key per checkout attempt so a retry or double submit
+    // replays the original order instead of failing with "empty cart".
+    idempotencyKey: string = `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  ): Promise<CheckoutResponse> => {
     const res = await customerClient.post<CheckoutResponse>(
       `/shops/public/${publicSlug}/orders/`,
       payload,

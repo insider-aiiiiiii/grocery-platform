@@ -45,6 +45,22 @@ function getLangServerSnapshot(): "en" | "hi" {
   return "en";
 }
 
+// Pull the first human-readable message out of a DRF error body: {"detail": "..."},
+// {"field": ["..."]}, nested objects or a plain list.
+function firstApiMessage(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (Array.isArray(data)) return data.map(firstApiMessage).find(Boolean) ?? "";
+  if (data && typeof data === "object") {
+    const record = data as Record<string, unknown>;
+    if (record.detail) return firstApiMessage(record.detail);
+    for (const value of Object.values(record)) {
+      const message = firstApiMessage(value);
+      if (message) return message;
+    }
+  }
+  return "";
+}
+
 export default function CustomerCartCheckoutPage() {
   const params = useParams();
   const router = useRouter();
@@ -92,16 +108,20 @@ export default function CustomerCartCheckoutPage() {
       setLoading(true);
       setError(null);
       try {
-        const shopData = await customerApi.getShop(publicSlug);
+        // Fetch shop and cart in parallel: they are independent, and each API call
+        // is a full round trip to the backend.
+        const savedCartId = localStorage.getItem(cartStorageKey);
+        const [shopData, cartData] = await Promise.all([
+          customerApi.getShop(publicSlug),
+          savedCartId ? customerApi.getCart(publicSlug, parseInt(savedCartId, 10)) : Promise.resolve(null),
+        ]);
         setShop(shopData);
 
         if (!shopData.is_home_delivery_enabled && shopData.is_pickup_enabled) {
           setFulfillmentType("PICKUP");
         }
 
-        const savedCartId = localStorage.getItem(cartStorageKey);
-        if (savedCartId) {
-          const cartData = await customerApi.getCart(publicSlug, parseInt(savedCartId, 10));
+        if (cartData) {
           setCart(cartData);
         }
       } catch (err: any) {
@@ -114,24 +134,32 @@ export default function CustomerCartCheckoutPage() {
     loadCartData();
   }, [publicSlug]);
 
-  // Real-time Customer Recognition
+  // Real-time Customer Recognition.
+  // Runs once per complete phone number. It must NOT depend on the name/address fields:
+  // doing so re-sent this request on every keystroke in those boxes, queueing many slow
+  // requests in front of the actual order.
   useEffect(() => {
     const cleanedNumber = mobileNumber.replace(/\D/g, "");
-    if (cleanedNumber.length === 10) {
-      customerApi.recognizeCustomer(publicSlug, `+91${cleanedNumber}`).then((res) => {
-        if (res.recognized && res.customer) {
-          if (!customerName) setCustomerName(res.customer.name || "");
-          if (res.customer.address_line && !addressLine) {
-            setAddressLine(
-              [res.customer.address_line, res.customer.area, res.customer.city]
-                .filter(Boolean)
-                .join(", ")
-            );
-          }
+    if (cleanedNumber.length !== 10) return;
+    let cancelled = false;
+    customerApi
+      .recognizeCustomer(publicSlug, `+91${cleanedNumber}`)
+      .then((res) => {
+        if (cancelled || !res.recognized || !res.customer) return;
+        const known = res.customer;
+        // Only fill blanks, and read the latest field values via the updater form.
+        setCustomerName((prev) => prev || known.name || "");
+        if (known.address_line) {
+          setAddressLine(
+            (prev) => prev || [known.address_line, known.area, known.city].filter(Boolean).join(", ")
+          );
         }
-      }).catch(() => {});
-    }
-  }, [mobileNumber, publicSlug, customerName, addressLine]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mobileNumber, publicSlug]);
 
   // Cart item mutations
   const handleUpdateQuantity = async (itemId: number, nextQty: number) => {
@@ -167,8 +195,13 @@ export default function CustomerCartCheckoutPage() {
       return;
     }
     const cleanDigits = mobileNumber.replace(/\D/g, "").slice(-10);
-    if (cleanDigits.length !== 10) {
-      setError(isHindi ? "कृपया 10 अंकों का व्हाट्सएप नंबर दर्ज करें।" : "Please enter a valid 10-digit WhatsApp number");
+    // Indian mobile numbers are 10 digits starting with 6-9 (the API rejects anything else).
+    if (!/^[6-9]\d{9}$/.test(cleanDigits)) {
+      setError(
+        isHindi
+          ? "कृपया 6, 7, 8 या 9 से शुरू होने वाला 10 अंकों का सही व्हाट्सएप नंबर दर्ज करें।"
+          : "Please enter a valid 10-digit WhatsApp number starting with 6, 7, 8 or 9"
+      );
       return;
     }
     if (fulfillmentType === "HOME_DELIVERY" && !addressLine.trim()) {
@@ -202,8 +235,32 @@ export default function CustomerCartCheckoutPage() {
     }
 
     try {
-      // 1. Submit order to backend
-      const orderRes = await customerApi.checkout(publicSlug, payload);
+      // 1. Submit order to backend. The idempotency key is kept for this exact
+      // cart + customer + fulfillment, so a double click, retry or reload after a slow
+      // response gets the original order back instead of "empty cart".
+      const attemptSig = [cart.id, payload.customer_name, payload.whatsapp_number, payload.fulfillment_type].join("|");
+      const attemptStorageKey = `checkout_attempt_${publicSlug}`;
+      let idempotencyKey = "";
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(attemptStorageKey) || "null");
+        if (saved?.sig === attemptSig && typeof saved.key === "string") idempotencyKey = saved.key;
+      } catch {
+        /* storage unavailable: fall through to a fresh key */
+      }
+      if (!idempotencyKey) {
+        idempotencyKey = `chk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        try {
+          sessionStorage.setItem(attemptStorageKey, JSON.stringify({ sig: attemptSig, key: idempotencyKey }));
+        } catch {
+          /* ignore */
+        }
+      }
+      const orderRes = await customerApi.checkout(publicSlug, payload, idempotencyKey);
+      try {
+        sessionStorage.removeItem(attemptStorageKey);
+      } catch {
+        /* ignore */
+      }
 
       // 2. Clear cart from localStorage
       localStorage.removeItem(cartStorageKey);
@@ -222,8 +279,7 @@ export default function CustomerCartCheckoutPage() {
     } catch (err: any) {
       console.error("Order checkout error:", err);
       const errorMsg =
-        err.response?.data?.detail ||
-        err.response?.data?.items?.[0] ||
+        firstApiMessage(err.response?.data) ||
         err.message ||
         (isHindi ? "ऑर्डर नहीं हो पाया। कृपया अपना सामान जांचकर फिर कोशिश करें।" : "Failed to place order. Please check your items and try again.");
       setError(tr(String(errorMsg)));

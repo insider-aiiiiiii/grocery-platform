@@ -289,6 +289,21 @@ export default function MerchantWorkspace() {
     onError: (e) => setNotice(getApiError(e)),
   });
 
+  const paymentMutation = useMutation({
+    mutationFn: ({ id, payment_status }: { id: number; payment_status: "PAID" | "UNPAID" }) =>
+      merchantApi.setOrderPayment(id, payment_status),
+    onSuccess: (_data, vars) => {
+      setNotice(
+        vars.payment_status === "PAID"
+          ? (lang === "hi" ? "ऑर्डर का भुगतान प्राप्त के रूप में दर्ज हुआ।" : "Order marked as paid.")
+          : (lang === "hi" ? "ऑर्डर का भुगतान बाकी के रूप में दर्ज हुआ।" : "Order marked as unpaid.")
+      );
+      refresh("orders");
+      refresh("analytics");
+    },
+    onError: (e) => setNotice(getApiError(e)),
+  });
+
   const stockMutation = useMutation({
     mutationFn: ({ item, action, quantity }: { item: InventoryItem; action: "set-stock" | "add-stock" | "subtract-stock"; quantity: string }) =>
       merchantApi.updateStock(item.id, action, quantity),
@@ -649,7 +664,8 @@ export default function MerchantWorkspace() {
                   order={order}
                   lang={lang}
                   onAction={(action) => orderMutation.mutate({ id: order.id, action })}
-                  busy={orderMutation.isPending}
+                  onPaymentChange={(payment_status) => paymentMutation.mutate({ id: order.id, payment_status })}
+                  busy={orderMutation.isPending || paymentMutation.isPending}
                   onItemResolved={(itemName) => {
                     setNotice(
                       lang === "hi"
@@ -1611,12 +1627,14 @@ function getMerchantWhatsAppUrl(
 function VisualOrderCard({
   order,
   onAction,
+  onPaymentChange,
   busy,
   onItemResolved,
   lang = "en",
 }: {
   order: MerchantOrder;
   onAction: (action: string) => void;
+  onPaymentChange: (paymentStatus: "PAID" | "UNPAID") => void;
   busy: boolean;
   onItemResolved: (itemName: string) => void;
   lang?: "en" | "hi";
@@ -1662,6 +1680,13 @@ function VisualOrderCard({
         </div>
         <div className="flex items-center gap-3">
           <span className="font-display font-bold text-base text-[#1F5D42]">{money(order.total_amount)}</span>
+          <span
+            className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+              order.payment_status === "PAID" ? "bg-[#e7f2eb] text-[#1F5D42]" : "bg-[#fdf2ec] text-[#9a4d2a]"
+            }`}
+          >
+            {order.payment_status === "PAID" ? (lang === "hi" ? "भुगतान मिला" : "PAID") : (lang === "hi" ? "भुगतान बाकी" : "UNPAID")}
+          </span>
           <StatusPill status={order.status} />
         </div>
       </div>
@@ -1746,6 +1771,23 @@ function VisualOrderCard({
               {label}
             </button>
           ))}
+          {/* An order must be PAID before it can be completed, so the merchant needs a way to record payment. */}
+          {["PENDING", "ACCEPTED", "PREPARING", "READY"].includes(order.status) && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPaymentChange(order.payment_status === "PAID" ? "UNPAID" : "PAID")}
+              className={`rounded-xl border px-3.5 py-2 text-xs font-bold shadow-xs disabled:opacity-50 transition ${
+                order.payment_status === "PAID"
+                  ? "border-[#ddd6ca] bg-white text-[#6d756f] hover:bg-[#f7f3eb]"
+                  : "border-[#1F5D42] bg-[#e7f2eb] text-[#1F5D42] hover:bg-[#d8ebe0]"
+              }`}
+            >
+              {order.payment_status === "PAID"
+                ? (lang === "hi" ? "भुगतान बाकी करें" : "Mark unpaid")
+                : (lang === "hi" ? "भुगतान मिला ✓" : "Mark as paid")}
+            </button>
+          )}
           {!transitions[order.status] && <span className="text-xs text-[#89958c]">{lang === "hi" ? `ऑर्डर ${STATUS_HI[order.status] ?? order.status.toLowerCase()}` : `Order ${order.status.toLowerCase()}`}</span>}
         </div>
 
@@ -2129,8 +2171,8 @@ function EditPriceModal({
             </label>
             <input
               type="number"
-              step="0.5"
-              min="0.1"
+              step="0.01"
+              min="0.01"
               required
               value={price}
               onChange={(e) => setPrice(e.target.value)}
@@ -2148,8 +2190,8 @@ function EditPriceModal({
             </label>
             <input
               type="number"
-              step="0.5"
-              min="0.1"
+              step="0.01"
+              min="0.01"
               value={mrp}
               onChange={(e) => setMrp(e.target.value)}
               placeholder="0.00"
@@ -2340,7 +2382,7 @@ function ProductModal({
             <span className="block font-bold text-[#123324] mb-1">
               {lang === "hi" ? "विक्रय मूल्य (₹) *" : "Selling Price (₹) *"}
             </span>
-            <input {...register("price", { valueAsNumber: true })} type="number" min="0" step="0.5" required className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
+            <input {...register("price", { valueAsNumber: true })} type="number" min="0" step="0.01" required className="h-9 w-full rounded-xl border border-[#ddd6ca] px-3 outline-none focus:border-[#1F5D42]" />
           </label>
           <label>
             <span className="block font-bold text-[#123324] mb-1">
@@ -2731,15 +2773,13 @@ function ShopSettings({
       const primaryPhoto = photos.find((p) => p.file || (p.url && p.url.trim() !== ""));
       if (primaryPhoto?.file) {
         const formData = new FormData();
+        // Send empty strings too: omitting a cleared field (description, maps link, opening hours)
+        // meant it silently kept its old value whenever a photo was attached.
         Object.entries(restValues).forEach(([k, v]) => {
-          if (v !== undefined && v !== null && v !== "") {
+          if (v !== undefined && v !== null) {
             formData.append(k, String(v));
           }
         });
-        formData.append("delivery_charge", String(values.delivery_charge));
-        if (values.opening_time) formData.append("opening_time", values.opening_time);
-        if (values.closing_time) formData.append("closing_time", values.closing_time);
-        if (values.google_maps_url) formData.append("google_maps_url", values.google_maps_url);
         formData.append("logo", primaryPhoto.file);
         await merchantApi.updateShop(formData);
       } else {
@@ -2772,10 +2812,20 @@ function ShopSettings({
             processedUrls.push(p.url);
           }
         }
-        if (processedUrls.length > 0) {
-          localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
-        } else {
-          localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+        // This is only a browser-side cache. Large photos exceed the ~5 MB localStorage quota and
+        // setItem throws; that must not turn an already-saved shop into a "failed" save.
+        try {
+          if (processedUrls.length > 0) {
+            localStorage.setItem(`dukaandar_shop_photos_${shop.public_slug}`, JSON.stringify(processedUrls));
+          } else {
+            localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+          }
+        } catch {
+          try {
+            localStorage.removeItem(`dukaandar_shop_photos_${shop.public_slug}`);
+          } catch {
+            /* storage unavailable */
+          }
         }
       }
       setMessage(lang === "hi" ? "दुकान का विवरण सफलतापूर्वक सहेजा गया।" : "Shop details saved successfully.");
@@ -3172,6 +3222,16 @@ function ShopSettings({
             : "translate-y-20 opacity-0 pointer-events-none"
         }`}
       >
+        {/* A rejected save must be visible where the user is looking (this bar), not only
+            at the bottom of the long form, where it hides behind this bar. */}
+        {saveError && (
+          <div
+            role="alert"
+            className="mb-2 rounded-xl border border-red-300 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-700 shadow-lg"
+          >
+            {saveError}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#1F5D42]/40 bg-[#123324] px-4 py-3 sm:px-5 sm:py-3.5 text-white backdrop-blur-md shadow-2xl">
           <div className="flex items-center gap-3 min-w-0">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E8A33D] text-[#123324] font-bold shadow-xs">

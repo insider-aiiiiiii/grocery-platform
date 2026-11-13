@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, Q
 
+from config.model_validation import full_clean_without_db_lookups
+
 QUANTITY_PRECISION = Decimal("0.001")
 
 
@@ -147,7 +149,7 @@ class InventoryItem(models.Model):
             })
 
     def save(self, *args, **kwargs):
-        self.full_clean()
+        full_clean_without_db_lookups(self)
         super().save(*args, **kwargs)
 
     def __str__(self):
