@@ -421,7 +421,8 @@ class CampaignSuperAdminAPITests(TestCase):
         campaign.refresh_from_db()
         self.assertEqual(campaign.status, Campaign.Status.ENDED)
 
-    def test_active_campaign_cannot_be_edited_or_deleted(self):
+    def test_active_campaign_can_be_edited_and_deleted(self):
+        """Rules changed deliberately in adc566d: only ENDED campaigns are locked."""
         self._auth_super_admin()
         campaign = Campaign.objects.create(
             title="Active Campaign",
@@ -433,14 +434,16 @@ class CampaignSuperAdminAPITests(TestCase):
             {"title": "Modified Campaign"},
             format="json",
         )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.title, "Modified Campaign")
+        self.assertEqual(campaign.status, Campaign.Status.ACTIVE)
+
         delete_response = self.client.delete(f"{self.base_url}{campaign.pk}/")
 
-        self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
-        campaign.refresh_from_db()
-        self.assertEqual(campaign.title, "Active Campaign")
-        self.assertEqual(campaign.status, Campaign.Status.ACTIVE)
-        self.assertTrue(Campaign.objects.filter(pk=campaign.pk).exists())
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Campaign.objects.filter(pk=campaign.pk).exists())
 
 
 class PublicShopCampaignAPITests(TestCase):
@@ -1090,30 +1093,31 @@ class CampaignActivationAndExpiryLifecycleTests(TestCase):
         camp.refresh_from_db()
         self.assertEqual(camp.status, Campaign.Status.DRAFT)
 
-    def test_active_and_ended_campaigns_cannot_be_edited_or_deleted(self):
+    def test_only_ended_campaigns_are_locked_from_editing(self):
+        """Rules changed deliberately in adc566d: Active can be edited; Ended cannot; any can be deleted."""
         self._auth_super_admin()
         active_camp = Campaign.objects.create(title="Active Imm", status=Campaign.Status.ACTIVE)
         ended_camp = Campaign.objects.create(title="Ended Imm", status=Campaign.Status.ENDED)
 
-        # Cannot edit or delete Active
+        # Active can be edited
         self.assertEqual(
             self.client.patch(f"/api/v1/campaigns/{active_camp.id}/", {"title": "Edited"}).status_code,
-            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_200_OK,
         )
-        self.assertEqual(
-            self.client.delete(f"/api/v1/campaigns/{active_camp.id}/").status_code,
-            status.HTTP_400_BAD_REQUEST,
-        )
+        active_camp.refresh_from_db()
+        self.assertEqual(active_camp.title, "Edited")
 
-        # Cannot edit or delete Ended
+        # Ended cannot be edited
         self.assertEqual(
             self.client.patch(f"/api/v1/campaigns/{ended_camp.id}/", {"title": "Edited"}).status_code,
             status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(
-            self.client.delete(f"/api/v1/campaigns/{ended_camp.id}/").status_code,
-            status.HTTP_400_BAD_REQUEST,
-        )
+        ended_camp.refresh_from_db()
+        self.assertEqual(ended_camp.title, "Ended Imm")
+
+        # Deletion is allowed for any status
+        self.assertEqual(self.client.delete(f"/api/v1/campaigns/{active_camp.id}/").status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.delete(f"/api/v1/campaigns/{ended_camp.id}/").status_code, status.HTTP_204_NO_CONTENT)
 
     def test_expired_campaign_transitions_to_ended_on_super_admin_request(self):
         self._auth_super_admin()

@@ -5,6 +5,9 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+# A QR display code is the first 8 characters of a shop's public slug.
+QR_CODE_LENGTH = 8
+
 
 def generate_shop_public_slug() -> str:
     """Generate a random public slug for the shop's public link/QR code."""
@@ -193,11 +196,14 @@ class Shop(models.Model):
             cleaned = cleaned[3:]
         cleaned = cleaned.lower()
         if cleaned:
-            return cls.objects.filter(
-                Q(public_slug__iexact=slug_or_code)
-                | Q(public_slug__iexact=cleaned)
-                | Q(public_slug__istartswith=cleaned)
-            ).first()
+            query = Q(public_slug__iexact=slug_or_code) | Q(public_slug__iexact=cleaned)
+            # A QR display code is the first 8 characters of the slug. Only prefixes that long may
+            # match: a shorter one (a database id like "3", a single letter) matched whichever random
+            # slug happened to start with it, which made lookups unpredictable and let anyone reach
+            # shops by guessing short prefixes.
+            if len(cleaned) >= QR_CODE_LENGTH:
+                query |= Q(public_slug__istartswith=cleaned)
+            return cls.objects.filter(query).first()
         return None
 
     def __str__(self):

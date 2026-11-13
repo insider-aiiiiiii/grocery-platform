@@ -1351,6 +1351,20 @@ class PublicShopAPITests(TestCase):
         response = self.client.get(id_url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_public_lookup_requires_a_full_qr_code_prefix(self):
+        """Deterministic version of the database-id test: short text never matches by prefix."""
+        Shop.objects.filter(pk=self.shop.pk).update(public_slug="abcdef123456")
+
+        def lookup(value):
+            return self.client.get(reverse("shops:shop-public-detail", kwargs={"public_slug": value}))
+
+        self.assertEqual(lookup("abcdef123456").status_code, status.HTTP_200_OK)   # full slug
+        self.assertEqual(lookup("ABCDEF123456").status_code, status.HTTP_200_OK)   # case-insensitive
+        self.assertEqual(lookup("abcdef12").status_code, status.HTTP_200_OK)       # 8-char QR code
+        self.assertEqual(lookup("QR-ABCDEF12").status_code, status.HTTP_200_OK)    # displayed QR code
+        for short in ("a", "abc", "abcdef1", str(self.shop.pk)):
+            self.assertEqual(lookup(short).status_code, status.HTTP_404_NOT_FOUND, short)
+
     def test_authenticated_user_accessing_public_api_receives_only_public_data(self):
         """Authenticated users (merchants/admins) accessing public API receive only public fields."""
         auth_res = self.client.post(

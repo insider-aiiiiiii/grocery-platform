@@ -609,10 +609,14 @@ class SuperAdminAuthenticationAPITests(TestCase):
         for identifier in (self.super_admin.email, self.super_admin.mobile_number):
             response = self.login(identifier)
             self.assertEqual(response.status_code, 200)
+            # Includes the admin's own identity for the console header (aec45a0).
             self.assertEqual(response.data["user"], {
                 "id": self.super_admin.pk,
                 "role": "SUPER_ADMIN",
                 "shop_id": None,
+                "username": "super-admin-auth",
+                "email": "admin@example.com",
+                "mobile_number": "+919876543210",
             })
             self.assertFalse(response.data["must_change_password"])
             self.assertIn("access", response.data)
