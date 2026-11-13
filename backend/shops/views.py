@@ -1,5 +1,11 @@
+from datetime import timedelta
+from decimal import Decimal
+
 from django.db import transaction
+from django.db.models import Count, DecimalField, OuterRef, Subquery, Sum, Value
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -10,6 +16,7 @@ from users.permissions import IsSuperAdmin
 from .models import Shop
 from .permissions import IsActiveMerchant
 from .serializers import (
+    SALES_WINDOW_DAYS,
     PublicShopSerializer,
     ShopCreateSerializer,
     ShopSerializer,
@@ -282,7 +289,30 @@ class SuperAdminShopListView(generics.ListAPIView):
 
     permission_classes = [IsAuthenticated, IsSuperAdmin]
     serializer_class = SuperAdminShopDirectorySerializer
-    queryset = Shop.objects.all().select_related("merchant__user").order_by("-created_at")
+
+    def get_queryset(self):
+        # 30-day realized sales for every shop in a single query (correlated subquery, so
+        # no per-shop queries and no join fan-out): SUM(total_amount) of COMPLETED orders.
+        from orders.models import Order
+
+        since = timezone.now() - timedelta(days=SALES_WINDOW_DAYS)
+        sales = (
+            Order.objects.filter(shop=OuterRef("pk"), status=Order.Status.COMPLETED, created_at__gte=since)
+            .order_by()
+            .values("shop")
+            .annotate(total=Sum("total_amount"))
+            .values("total")
+        )
+        money = DecimalField(max_digits=14, decimal_places=2)
+        return (
+            Shop.objects.all()
+            .select_related("merchant__user")
+            .annotate(
+                thirty_day_sales=Coalesce(Subquery(sales, output_field=money), Value(Decimal("0.00")), output_field=money),
+                catalog_items=Count("products", distinct=True),
+            )
+            .order_by("-created_at")
+        )
 
     def list(self, request, *args, **kwargs):
         from users.models import Merchant

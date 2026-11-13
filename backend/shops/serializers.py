@@ -1,5 +1,8 @@
+from datetime import timedelta
 from decimal import Decimal
 
+from django.db.models import Sum
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import Shop
@@ -289,6 +292,37 @@ class ShopUpdateSerializer(serializers.ModelSerializer):
         return attrs
 
 
+SALES_WINDOW_DAYS = 30
+
+
+def thirty_day_completed_sales(shop) -> Decimal:
+    """Sum of total_amount for the shop's COMPLETED orders created in the last 30 days."""
+    from orders.models import Order
+
+    since = timezone.now() - timedelta(days=SALES_WINDOW_DAYS)
+    total = Order.objects.filter(
+        shop=shop, status=Order.Status.COMPLETED, created_at__gte=since
+    ).aggregate(total=Sum("total_amount"))["total"]
+    return total or Decimal("0.00")
+
+
+def format_rupees(amount) -> str:
+    """Format an amount as ₹ with Indian digit grouping; whole amounts omit the paise."""
+    value = Decimal(amount or 0).quantize(Decimal("0.01"))
+    whole, paise = f"{abs(value):.2f}".split(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        groups = []
+        while len(head) > 2:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            groups.insert(0, head)
+        whole = ",".join(groups + [tail])
+    sign = "-" if value < 0 else ""
+    return f"{sign}₹{whole}" if paise == "00" else f"{sign}₹{whole}.{paise}"
+
+
 class SuperAdminShopDirectorySerializer(serializers.ModelSerializer):
     """Serializer for Super Admin platform shop directory."""
 
@@ -321,10 +355,19 @@ class SuperAdminShopDirectorySerializer(serializers.ModelSerializer):
         ]
 
     def get_catalog_items_count(self, obj) -> int:
+        annotated = getattr(obj, "catalog_items", None)  # set by the directory view (one query for all shops)
+        if annotated is not None:
+            return annotated
         if hasattr(obj, "products"):
             return obj.products.count()
         return 0
 
     def get_monthly_volume(self, obj) -> str:
-        return "₹0"
+        """Realized sales over the last 30 days: SUM(total_amount) of COMPLETED orders
+        (ADR 0006). The directory view annotates ``thirty_day_sales`` for all shops in one
+        query; the fallback keeps this serializer correct when used on its own."""
+        total = getattr(obj, "thirty_day_sales", None)
+        if total is None:
+            total = thirty_day_completed_sales(obj)
+        return format_rupees(total)
 
