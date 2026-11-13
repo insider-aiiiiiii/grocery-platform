@@ -5,7 +5,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APIClient
+from config.test_clients import TokenAPIClient as APIClient
 
 from catalog.models import MasterCategory, MasterProduct, ProductVariant, ShopProduct
 from shops.models import Shop

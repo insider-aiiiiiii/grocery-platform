@@ -175,7 +175,7 @@ export default function SuperAdminDashboard() {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_access_token");
+    const token = sessionStorage.getItem("admin_access_token");
     if (!token) {
       router.push("/admin/login");
       return;

@@ -8,7 +8,7 @@ from django.db import close_old_connections
 from django.test import TestCase, TransactionTestCase, skipUnlessDBFeature
 from django.urls import reverse
 from django.utils import timezone
-from rest_framework.test import APIClient
+from config.test_clients import TokenAPIClient as APIClient
 
 from cart.models import Cart, CartItem
 from catalog.models import ProductVariant, ShopProduct

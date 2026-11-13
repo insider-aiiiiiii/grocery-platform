@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -30,12 +31,38 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-local-development-only')
+# Debug is OFF unless explicitly enabled (set DJANGO_DEBUG=True in your local .env).
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in {'true', '1', 'yes'}
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in {'true', '1', 'yes'}
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '')
+if not SECRET_KEY:
+    # Never fall back to a key that is public in the repository. Derive one from the (required,
+    # secret) JWT signing key so a deployment that forgot DJANGO_SECRET_KEY stays secure.
+    _jwt_key = os.environ.get('JWT_SIGNING_KEY', '')
+    if _jwt_key:
+        SECRET_KEY = hashlib.sha256(('django-secret-key:' + _jwt_key).encode()).hexdigest()
+    elif DEBUG or os.path.basename(sys.argv[0]) == 'manage.py':
+        SECRET_KEY = 'django-insecure-local-development-only'
+    else:
+        raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set in the environment.')
 
-ALLOWED_HOSTS =  ["*"]
+_allowed_hosts_env = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+if _allowed_hosts_env.strip():
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts_env.split(',') if h.strip()]
+else:
+    # No wildcard: a forged Host header is rejected. Set DJANGO_ALLOWED_HOSTS for custom domains.
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'testserver', '.vercel.app']
+
+if not DEBUG:
+    # Browsers are told to use HTTPS only and never to sniff content types.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
 
 
 # Application definition
@@ -120,10 +147,22 @@ AUTH_PASSWORD_VALIDATORS = [
 AUTH_USER_MODEL = 'users.User'
 AUTHENTICATION_BACKENDS = ['users.backends.PlatformAuthenticationBackend']
 
+# Shared cache (database table) so rate limits hold across serverless instances / workers.
+# The table is created by cache migration `config.0001` / `manage.py createcachetable`.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache',
+    }
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ['users.authentication.PlatformJWTAuthentication'],
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'EXCEPTION_HANDLER': 'users.exceptions.authentication_exception_handler',
+    # Number of trusted reverse proxies in front of the app (Vercel = 1). Without this, DRF keys
+    # rate limits on the client-supplied X-Forwarded-For text, which an attacker can vary freely.
+    'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', '1' if os.environ.get('VERCEL') else '0')),
 }
 
 # Login attempts allowed per client IP + account (see users/throttles.py).
@@ -132,6 +171,11 @@ LOGIN_THROTTLE_RATE = os.environ.get(
     'LOGIN_THROTTLE_RATE',
     '1000/min' if 'test' in sys.argv[1:2] else '10/min',
 )
+_RELAX_RATES = 'test' in sys.argv[1:2]
+LOGIN_IP_THROTTLE_RATE = os.environ.get('LOGIN_IP_THROTTLE_RATE', '100000/min' if _RELAX_RATES else '30/min')
+LOGIN_ACCOUNT_THROTTLE_RATE = os.environ.get('LOGIN_ACCOUNT_THROTTLE_RATE', '100000/hour' if _RELAX_RATES else '20/hour')
+PUBLIC_LOOKUP_THROTTLE_RATE = os.environ.get('PUBLIC_LOOKUP_THROTTLE_RATE', '100000/min' if _RELAX_RATES else '30/min')
+PUBLIC_WRITE_THROTTLE_RATE = os.environ.get('PUBLIC_WRITE_THROTTLE_RATE', '100000/min' if _RELAX_RATES else '60/min')
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
@@ -260,6 +304,8 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'idempotency-key',
     'x-shop-slug',
+    'x-cart-token',
+    'x-order-token',
 ]
 
 

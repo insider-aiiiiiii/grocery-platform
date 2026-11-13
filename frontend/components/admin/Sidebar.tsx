@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { signOutAdmin } from "@/lib/api/client";
 import {
   LayoutDashboard,
   Store,
@@ -79,12 +80,8 @@ export function Sidebar({
     window.dispatchEvent(new Event("admin-lang-changed"));
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("admin_access_token");
-    localStorage.removeItem("admin_refresh_token");
-    localStorage.removeItem("admin_user");
-    localStorage.removeItem("admin_remember");
-    localStorage.removeItem("admin_username");
+  const handleLogout = async () => {
+    await signOutAdmin();
     router.push("/admin/login");
   };
 

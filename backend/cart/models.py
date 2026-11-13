@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from config.tokens import TOKEN_MAX_LENGTH, new_access_token
+
 QUANTITY_PRECISION = Decimal("0.001")
 
 
@@ -50,6 +52,8 @@ class Cart(models.Model):
         blank=True,
         related_name="carts",
     )
+    # Secret that proves the holder created this cart. The numeric id alone is guessable.
+    access_token = models.CharField(max_length=TOKEN_MAX_LENGTH, unique=True, default=new_access_token, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

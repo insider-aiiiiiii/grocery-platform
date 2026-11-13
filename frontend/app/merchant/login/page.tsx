@@ -18,6 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { merchantApi, getApiError } from "@/lib/api/merchant";
+import { clearQueryCache } from "@/lib/query/client";
 
 const schema = z.object({
   mobile_number: z
@@ -73,6 +74,7 @@ export default function MerchantLoginPage() {
       if (result.user.role !== "MERCHANT") {
         throw new Error("This sign-in is for merchant accounts.");
       }
+      clearQueryCache(); // never show the previous merchant's cached data
       sessionStorage.setItem("merchant_access_token", result.access);
       sessionStorage.setItem("merchant_refresh_token", result.refresh);
       sessionStorage.setItem("merchant_must_change_password", String(result.must_change_password));

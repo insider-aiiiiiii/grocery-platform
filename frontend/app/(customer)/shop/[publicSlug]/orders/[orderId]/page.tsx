@@ -21,7 +21,7 @@ import {
   User,
   ShieldCheck,
 } from "lucide-react";
-import { customerApi, PublicShopInfo } from "@/lib/api/customer";
+import { customerApi, getOrderToken, PublicShopInfo, rememberOrderToken } from "@/lib/api/customer";
 import { formatPrice } from "@/lib/format";
 
 
@@ -76,13 +76,18 @@ export default function OrderConfirmationPage() {
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  // The secret link token: from the ?t= in the shared link, else the one stored by the browser that placed the order.
+  const getLinkToken = () =>
+    (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("t") : null) ||
+    (publicSlug && orderId ? getOrderToken(publicSlug, orderId) : null);
 
   // 5-minute countdown timer state (300 seconds)
   const [secondsLeft, setSecondsLeft] = useState(300);
 
   useEffect(() => {
     if (typeof window !== "undefined" && orderId) {
-      const raw = sessionStorage.getItem(`order_confirmation_${orderId}`);
+      const raw = getOrderToken(publicSlug, orderId) ? sessionStorage.getItem(`order_confirmation_${orderId}`) : null;
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
@@ -96,9 +101,12 @@ export default function OrderConfirmationPage() {
       }
       // Fetch fresh order details from public API
       if (publicSlug) {
+        const linkToken = getLinkToken();
+        if (linkToken) rememberOrderToken(publicSlug, orderId, linkToken);
         customerApi
-          .getOrder(publicSlug, parseInt(orderId, 10))
+          .getOrder(publicSlug, parseInt(orderId, 10), linkToken)
           .then((data) => {
+            setNotFound(false);
             setOrderData(data);
             if (data.status === "REJECTED") {
               setCancelled(true);
@@ -107,9 +115,20 @@ export default function OrderConfirmationPage() {
               sessionStorage.setItem(`order_confirmation_${orderId}`, JSON.stringify(data));
             } catch {}
           })
-          .catch(console.error);
+          .catch((err) => {
+            if (err?.response?.status === 404 || err?.response?.status === 403) {
+              setNotFound(true);
+              setOrderData(null);
+              try {
+                sessionStorage.removeItem(`order_confirmation_${orderId}`);
+              } catch {}
+            } else {
+              console.error(err);
+            }
+          });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, publicSlug]);
 
   useEffect(() => {
@@ -142,7 +161,7 @@ export default function OrderConfirmationPage() {
     setCancelling(true);
     setCancelError(null);
     try {
-      const res = await customerApi.cancelOrder(publicSlug, parseInt(orderId, 10));
+      const res = await customerApi.cancelOrder(publicSlug, parseInt(orderId, 10), getLinkToken());
       setCancelled(true);
       const updated = { ...(orderData || {}), ...res, status: "REJECTED" };
       setOrderData(updated);
@@ -243,6 +262,21 @@ export default function OrderConfirmationPage() {
       </header>
 
       <main className="max-w-xl mx-auto px-4 py-6 space-y-4">
+        {notFound && (
+          <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-3xl p-6 text-center space-y-3 shadow-md">
+            <div className="text-4xl select-none">🔍</div>
+            <h1 className="text-lg font-bold text-[#1F5D42]">{isHindi ? "ऑर्डर नहीं मिला" : "Order not found"}</h1>
+            <p className="text-sm text-[#6b6457]">
+              {isHindi
+                ? "यह लिंक सही नहीं है। ऑर्डर देखने के लिए वही लिंक खोलें जो ऑर्डर करने के बाद मिला था।"
+                : "This link is not valid. Open the exact link you got after placing your order."}
+            </p>
+            <Link href={`/shop/${publicSlug}`} className="inline-block text-sm font-bold text-[#1F5D42] underline">
+              {isHindi ? "दुकान पर वापस जाएँ" : "Back to shop"}
+            </Link>
+          </div>
+        )}
+        {!notFound && (<>
         {/* 1. Order Status Header Card */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-3xl p-6 text-center space-y-3 shadow-md relative overflow-hidden">
           <div className="text-4xl animate-bounce select-none">
@@ -590,6 +624,7 @@ export default function OrderConfirmationPage() {
             <span>{isHindi ? `हो गया · ${shop?.name || "दुकान"} पर वापस जाएं` : `Done · Return to ${shop?.name || "Shop"}`}</span>
           </Link>
         </div>
+        </>)}
       </main>
     </div>
   );

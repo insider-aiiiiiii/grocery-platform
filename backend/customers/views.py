@@ -6,8 +6,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from cart.models import Cart
+from config.tokens import tokens_match
 from shops.models import Shop
 from shops.permissions import IsActiveMerchant
+from users.throttles import PublicReadThrottle
 from .models import Customer
 from .serializers import (
     MerchantCustomerSerializer,
@@ -93,6 +95,8 @@ class PublicCustomerCreateOrRecognizeView(APIView):
         cart = None
         if cart_id is not None:
             cart = Cart.objects.filter(pk=cart_id, shop=shop).first()
+            if not cart or not tokens_match(cart.access_token, request.headers.get("X-Cart-Token")):
+                cart = None
             if not cart:
                 return Response(
                     {"detail": "Cart not found in this shop.", "code": "CART_NOT_FOUND"},
@@ -130,6 +134,7 @@ class PublicCustomerRecognizeView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [PublicReadThrottle]
 
     def get(self, request, public_slug: str):
         return self._recognize(request, public_slug)

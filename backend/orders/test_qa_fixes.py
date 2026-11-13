@@ -4,7 +4,7 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from rest_framework.test import APIClient
+from config.test_clients import TokenAPIClient as APIClient
 
 from cart.models import Cart, CartItem
 from customers.models import Customer

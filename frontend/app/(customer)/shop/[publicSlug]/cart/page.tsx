@@ -13,7 +13,7 @@ import {
   ShoppingBag,
   MessageCircle,
 } from "lucide-react";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, normalizeIndianMobileInput } from "@/lib/format";
 import {
   customerApi,
   PublicShopInfo,
@@ -272,7 +272,8 @@ export default function CustomerCartCheckoutPage() {
 
       // 4. Navigate directly to order confirmation page
       if (orderRes?.id) {
-        router.push(`/shop/${publicSlug}/orders/${orderRes.id}`);
+        const linkToken = orderRes.access_token ? `?t=${encodeURIComponent(orderRes.access_token)}` : "";
+        router.push(`/shop/${publicSlug}/orders/${orderRes.id}${linkToken}`);
       } else {
         router.push(`/shop/${publicSlug}`);
       }
@@ -482,9 +483,9 @@ export default function CustomerCartCheckoutPage() {
                 <input
                   type="tel"
                   required
-                  maxLength={10}
+                  
                   value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  onChange={(e) => setMobileNumber(normalizeIndianMobileInput(e.target.value))}
                   placeholder="9876543210"
                   className="w-full bg-transparent px-3 py-2.5 text-xs sm:text-sm font-body font-mono text-[#17251e] outline-none"
                 />
@@ -525,9 +526,16 @@ export default function CustomerCartCheckoutPage() {
 
             {/* Sticky Action Button */}
             <div className="pt-2">
+              {shop?.is_temporarily_closed && (
+                <p role="alert" className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                  {isHindi
+                    ? "दुकान अभी बंद है और ऑर्डर नहीं ले रही। कृपया बाद में कोशिश करें।"
+                    : "This shop is closed right now and is not taking orders. Please try again later."}
+                </p>
+              )}
               <button
                 type="submit"
-                disabled={submitting || !consentChecked}
+                disabled={submitting || !consentChecked || Boolean(shop?.is_temporarily_closed)}
                 className="w-full bg-gradient-to-r from-[#123324] via-[#174b36] to-[#1F5D42] hover:brightness-110 active:scale-[0.99] disabled:opacity-50 text-white font-body font-bold text-sm sm:text-base py-3.5 rounded-xl shadow-[0_10px_25px_rgba(18,51,36,0.25)] transition flex items-center justify-center gap-2 cursor-pointer"
               >
                 {submitting ? (

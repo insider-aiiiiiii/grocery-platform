@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearQueryCache } from "@/lib/query/client";
 
 const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -25,6 +26,7 @@ function expireMerchantSession() {
   sessionStorage.removeItem("merchant_access_token");
   sessionStorage.removeItem("merchant_refresh_token");
   sessionStorage.removeItem("merchant_must_change_password");
+  clearQueryCache();
   window.dispatchEvent(new Event("merchant-session-expired"));
 }
 

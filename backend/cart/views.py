@@ -4,7 +4,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.tokens import tokens_match
 from shops.models import Shop
+from users.throttles import PublicWriteThrottle
 
 from .models import Cart, CartItem
 from .serializers import (
@@ -18,6 +20,21 @@ from .serializers import (
     PublicCartSerializer,
 )
 from .services import associate_cart_customer, validate_cart_state
+
+
+CART_TOKEN_HEADER = "X-Cart-Token"
+
+
+def cart_token_matches(request, cart) -> bool:
+    """A cart is only reachable by whoever holds its secret token (not just its numeric id)."""
+    return tokens_match(cart.access_token, request.headers.get(CART_TOKEN_HEADER))
+
+
+def cart_not_found():
+    return Response(
+        {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
+        status=status.HTTP_404_NOT_FOUND,
+    )
 
 
 def get_public_active_shop(public_slug: str):
@@ -71,12 +88,12 @@ def resolve_cart_for_request(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    cart = Cart.objects.filter(id=resolved_id).select_related("shop").first()
-    if not cart:
-        return None, Response(
-            {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+    try:
+        cart = Cart.objects.filter(id=int(resolved_id)).select_related("shop").first()
+    except (TypeError, ValueError):
+        cart = None
+    if not cart or not cart_token_matches(request, cart):
+        return None, cart_not_found()
 
     if not allow_inactive_shop and cart.shop.status != Shop.Status.ACTIVE:
         return None, Response(
@@ -101,6 +118,7 @@ class PublicShopCartView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [PublicWriteThrottle]
 
     def post(self, request, public_slug: str):
         shop, error_res = get_public_active_shop(public_slug)
@@ -141,11 +159,8 @@ class PublicShopCartView(APIView):
             .prefetch_related("items__product", "items__variant")
             .first()
         )
-        if not cart:
-            return Response(
-                {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if not cart or not cart_token_matches(request, cart):
+            return cart_not_found()
 
         return Response(PublicCartSerializer(cart).data, status=status.HTTP_200_OK)
 
@@ -169,35 +184,8 @@ class PublicShopCartDetailView(APIView):
             .prefetch_related("items__product", "items__variant")
             .first()
         )
-        if not cart:
-            return Response(
-                {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        return Response(PublicCartSerializer(cart).data, status=status.HTTP_200_OK)
-
-
-class PublicCartDetailView(APIView):
-    """
-    Public customer-facing Cart direct detail endpoint by cart ID.
-    - GET: Retrieves cart details by PK, verifying the associated Shop is active.
-    """
-
-    permission_classes = [AllowAny]
-
-    def get(self, request, pk: int):
-        cart = (
-            Cart.objects.filter(id=pk)
-            .select_related("shop", "customer")
-            .prefetch_related("items__product", "items__variant")
-            .first()
-        )
-        if not cart or cart.shop.status != Shop.Status.ACTIVE:
-            return Response(
-                {"detail": "Cart not found.", "code": "CART_NOT_FOUND"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if not cart or not cart_token_matches(request, cart):
+            return cart_not_found()
 
         return Response(PublicCartSerializer(cart).data, status=status.HTTP_200_OK)
 

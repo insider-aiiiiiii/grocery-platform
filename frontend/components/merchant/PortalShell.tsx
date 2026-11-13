@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { merchantApi } from "@/lib/api/merchant";
+import { clearQueryCache } from "@/lib/query/client";
 
 const links = [
   { href: "/merchant", labelEn: "My QR", labelHi: "मेरा QR", icon: QrCode },
@@ -106,6 +107,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem("merchant_access_token");
       sessionStorage.removeItem("merchant_refresh_token");
       sessionStorage.removeItem("merchant_must_change_password");
+      clearQueryCache();
       router.replace("/merchant/login");
     }
   };

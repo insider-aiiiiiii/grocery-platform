@@ -6,16 +6,30 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.tokens import tokens_match
 from notifications.links import get_customer_order_notification_links
+from cart.models import Cart
 from orders.models import Order
 from orders.serializers import CheckoutSerializer
 from orders.services import create_order
 from shops.models import Shop
+from users.throttles import PublicWriteThrottle
 
 logger = logging.getLogger(__name__)
 
 
-def format_public_order_response(order: Order, shop: Shop) -> dict:
+ORDER_TOKEN_HEADER = "X-Order-Token"
+CART_TOKEN_HEADER = "X-Cart-Token"
+
+
+def _order_not_found():
+    return Response(
+        {"detail": "Order not found in this shop.", "code": "ORDER_NOT_FOUND"},
+        status=404,
+    )
+
+
+def format_public_order_response(order: Order, shop: Shop, include_token: bool = False) -> dict:
     # Load line items and delivery address once; the WhatsApp link builder and the
     # response below then reuse the cached rows instead of querying again.
     prefetch_related_objects([order], "items", "delivery_address")
@@ -57,7 +71,7 @@ def format_public_order_response(order: Order, shop: Shop) -> dict:
             "delivery_notes": addr.delivery_notes,
         }
 
-    return {
+    data = {
         "id": order.pk,
         "status": order.status,
         "payment_status": order.payment_status,
@@ -74,11 +88,16 @@ def format_public_order_response(order: Order, shop: Shop) -> dict:
         "items": items_data,
         "whatsapp_notification_links": whatsapp_links,
     }
+    if include_token:
+        # Only ever returned to the browser that just placed the order.
+        data["access_token"] = order.access_token
+    return data
 
 
 class PublicCheckoutView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [PublicWriteThrottle]
 
     def post(self, request, public_slug):
         serializer = CheckoutSerializer(data=request.data)
@@ -95,8 +114,14 @@ class PublicCheckoutView(APIView):
                 {"detail": "Shop not found or unavailable.", "code": "SHOP_UNAVAILABLE"},
                 status=404,
             )
+        cart = Cart.objects.filter(pk=serializer.validated_data["cart_id"], shop=shop).first()
+        if cart is None or not tokens_match(cart.access_token, request.headers.get(CART_TOKEN_HEADER)):
+            return Response({"detail": "Cart not found.", "code": "CART_NOT_FOUND"}, status=404)
         order, created = create_order(shop, serializer.validated_data, idempotency_key)
-        return Response(format_public_order_response(order, shop), status=201 if created else 200)
+        return Response(
+            format_public_order_response(order, shop, include_token=True),
+            status=201 if created else 200,
+        )
 
 
 from orders.transitions import OrderTransitionConflict, cancel_pending_order_for_shop
@@ -120,11 +145,9 @@ class PublicOrderDetailView(APIView):
             .prefetch_related("items")
             .first()
         )
-        if not order:
-            return Response(
-                {"detail": "Order not found in this shop.", "code": "ORDER_NOT_FOUND"},
-                status=404,
-            )
+        # A wrong or missing token is indistinguishable from a missing order.
+        if not order or not tokens_match(order.access_token, request.headers.get(ORDER_TOKEN_HEADER)):
+            return _order_not_found()
 
         return Response(format_public_order_response(order, shop), status=200)
 
@@ -143,6 +166,10 @@ class PublicOrderCancelView(APIView):
                 {"detail": "Shop not found or unavailable.", "code": "SHOP_UNAVAILABLE"},
                 status=404,
             )
+
+        owned = Order.objects.filter(shop=shop, pk=order_id).only("access_token").first()
+        if not owned or not tokens_match(owned.access_token, request.headers.get(ORDER_TOKEN_HEADER)):
+            return _order_not_found()
 
         try:
             order, expired = cancel_pending_order_for_shop(shop.id, order_id)

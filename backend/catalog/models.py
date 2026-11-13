@@ -4,6 +4,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
+from config.uploads import validate_image_upload
+
 
 class MasterCategory(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -45,6 +47,7 @@ class MasterProduct(models.Model):
     brand = models.CharField(max_length=255, blank=True, default="")
     image = models.FileField(
         upload_to="catalog/master_products/",
+        validators=[validate_image_upload],
         blank=True,
         null=True,
     )
@@ -85,6 +88,7 @@ class MasterProductImage(models.Model):
     )
     image = models.FileField(
         upload_to="catalog/master_products/gallery/",
+        validators=[validate_image_upload],
         blank=True,
         null=True,
     )
@@ -309,6 +313,7 @@ class ShopProduct(models.Model):
     brand = models.CharField(max_length=255, blank=True, default="")
     image = models.FileField(
         upload_to="catalog/shop_products/",
+        validators=[validate_image_upload],
         blank=True,
         null=True,
     )
@@ -528,6 +533,7 @@ class ProductVariant(models.Model):
     description = models.TextField(blank=True, default="")
     image = models.FileField(
         upload_to="catalog/variants/",
+        validators=[validate_image_upload],
         blank=True,
         null=True,
     )

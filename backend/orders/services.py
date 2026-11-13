@@ -75,6 +75,11 @@ def _create_order(shop, payload, idempotency_key):
             cart.customer = customer
             cart.save(update_fields=["customer", "updated_at"])
 
+        if not shop.is_accepting_orders:
+            raise ValidationError(
+                {"detail": "This shop is currently closed and is not taking orders.", "code": "SHOP_CLOSED"}
+            )
+
         fulfillment = payload["fulfillment_type"]
         if fulfillment == Order.FulfillmentType.PICKUP and not shop.is_pickup_enabled:
             raise ValidationError({"fulfillment_type": "Pickup is not available at this Shop."})
