@@ -48,26 +48,39 @@ export function ShopHeader({
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    const found: string[] = [];
-    if (shop.logo && shop.logo.trim() !== "") found.push(shop.logo);
 
     try {
       const stored = localStorage.getItem(`dukaandar_shop_photos_${shop.public_slug}`);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const list: string[] = [];
           parsed.forEach((item: any) => {
             const url = typeof item === "string" ? item : item?.url;
-            if (url && !found.includes(url)) found.push(url);
+            if (url && typeof url === "string" && url.trim() !== "" && !list.includes(url)) {
+              list.push(url);
+            }
           });
+          if (list.length > 0) {
+            setGalleryPhotos(list);
+            return;
+          }
         }
       }
     } catch {
       // Ignore
     }
 
-    setGalleryPhotos(found);
+    if (shop.logo && shop.logo.trim() !== "") {
+      setGalleryPhotos([shop.logo]);
+    } else {
+      setGalleryPhotos([]);
+    }
   }, [shop.logo, shop.public_slug]);
+
+  React.useEffect(() => {
+    setPhotoIndex(0);
+  }, [galleryPhotos.length]);
 
   const handlePrevPhoto = (e: React.MouseEvent) => {
     e.stopPropagation();

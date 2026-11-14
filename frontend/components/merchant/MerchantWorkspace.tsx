@@ -2354,9 +2354,11 @@ function ProductModal({
       if (values.sku) formData.append("sku", values.sku);
       if (values.description) formData.append("description", values.description);
       formData.append("image", images[0]); // primary image
+      formData.append("is_visible", "true");
+      formData.append("is_available", "true");
       onSave(formData);
     } else {
-      onSave({ ...values, price: String(values.price), unit: values.unit });
+      onSave({ ...values, price: String(values.price), unit: values.unit, is_visible: true, is_available: true });
     }
   };
 
@@ -2554,12 +2556,26 @@ function ShopSettings({
     labelHi: string;
   }
 
-  const [photos, setPhotos] = useState<ShopPhotoSlot[]>([
-    { id: "cover", url: shop?.logo ?? "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
-  ]);
-  const [initialPhotos, setInitialPhotos] = useState<ShopPhotoSlot[]>([
-    { id: "cover", url: shop?.logo ?? "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
-  ]);
+  const DEFAULT_SHOP_SLOTS: ShopPhotoSlot[] = [
+    { id: "slot-0", url: "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
+    { id: "slot-1", url: "", labelEn: "Store Entrance / Board", labelHi: "बोर्ड / प्रवेश द्वार" },
+    { id: "slot-2", url: "", labelEn: "Shelves & Products", labelHi: "सामान के रैक" },
+    { id: "slot-3", url: "", labelEn: "Counter & Inside", labelHi: "बिलिंग काउंटर" },
+  ];
+
+  const buildInitialSlots = (logoUrl?: string | null, customUrls: string[] = []): ShopPhotoSlot[] => {
+    const slots = DEFAULT_SHOP_SLOTS.map((s, idx) => ({ ...s, id: `photo-${idx}` }));
+    if (logoUrl) slots[0].url = logoUrl;
+    if (customUrls.length > 0) {
+      customUrls.slice(0, 4).forEach((url, idx) => {
+        if (url && slots[idx]) slots[idx].url = url;
+      });
+    }
+    return slots;
+  };
+
+  const [photos, setPhotos] = useState<ShopPhotoSlot[]>(() => buildInitialSlots(shop?.logo));
+  const [initialPhotos, setInitialPhotos] = useState<ShopPhotoSlot[]>(() => buildInitialSlots(shop?.logo));
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [activeSlotIdx, setActiveSlotIdx] = useState<number | null>(null);
 
@@ -2570,26 +2586,9 @@ function ShopSettings({
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            const slotsMeta = [
-              { labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
-              { labelEn: "Store Entrance / Board", labelHi: "बोर्ड / प्रवेश द्वार" },
-              { labelEn: "Shelves & Products", labelHi: "सामान के रैक" },
-              { labelEn: "Counter & Inside", labelHi: "बिलिंग काउंटर" },
-            ];
-            const restored = parsed
-              .map((item: any, idx: number) => {
-                const url = typeof item === "string" ? item : item?.url || "";
-                const meta = slotsMeta[idx] || slotsMeta[0];
-                return {
-                  id: `photo-${idx}`,
-                  url,
-                  labelEn: meta.labelEn,
-                  labelHi: meta.labelHi,
-                };
-              })
-              .filter((p: ShopPhotoSlot) => Boolean(p.url));
-
-            if (restored.length > 0) {
+            const urls = parsed.map((item: any) => (typeof item === "string" ? item : item?.url || "")).filter(Boolean);
+            if (urls.length > 0) {
+              const restored = buildInitialSlots(shop?.logo, urls);
               setPhotos(restored);
               setInitialPhotos(restored);
               return;
@@ -2600,10 +2599,8 @@ function ShopSettings({
         // fallback
       }
     }
-    if (shop?.logo && (!photos[0] || !photos[0].url)) {
-      const initPhotos = [
-        { id: "cover", url: shop.logo, labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" },
-      ];
+    if (shop?.logo && !photos[0]?.url) {
+      const initPhotos = buildInitialSlots(shop.logo);
       setPhotos(initPhotos);
       setInitialPhotos(initPhotos);
     }
@@ -2614,41 +2611,37 @@ function ShopSettings({
     if (!files.length) return;
 
     if (activeSlotIdx !== null) {
-      // Replacing a specific slot
+      // Replacing or filling a specific slot
       const file = files[0];
       const newUrl = URL.createObjectURL(file);
       setPhotos((prev) => {
-        const next = [...prev];
-        next[activeSlotIdx] = {
-          ...next[activeSlotIdx],
-          url: newUrl,
-          file,
-        };
+        const next = prev.length >= 4 ? [...prev] : buildInitialSlots(shop?.logo).map((s, i) => prev[i] || s);
+        if (next[activeSlotIdx]) {
+          next[activeSlotIdx] = {
+            ...next[activeSlotIdx],
+            url: newUrl,
+            file,
+          };
+        }
         return next;
       });
       setActiveSlotIdx(null);
     } else {
-      // Adding new photos up to 4 total
-      const slots: { labelEn: string; labelHi: string }[] = [
-        { labelEn: "Main Storefront", labelHi: "मुख्य दुकान" },
-        { labelEn: "Store Entrance / Board", labelHi: "बोर्ड / प्रवेश द्वार" },
-        { labelEn: "Shelves & Products", labelHi: "सामान के रैक" },
-        { labelEn: "Counter & Inside", labelHi: "बिलिंग काउंटर" },
-      ];
-
+      // Adding new photos to first empty slot(s)
       setPhotos((prev) => {
-        const remaining = 4 - prev.length;
-        const toAdd = files.slice(0, remaining).map((f, i) => {
-          const slotMeta = slots[prev.length + i] || slots[0];
-          return {
-            id: `photo-${Date.now()}-${i}`,
-            url: URL.createObjectURL(f),
-            file: f,
-            labelEn: slotMeta.labelEn,
-            labelHi: slotMeta.labelHi,
-          };
-        });
-        return [...prev, ...toAdd];
+        const next = prev.length >= 4 ? [...prev] : buildInitialSlots(shop?.logo).map((s, i) => prev[i] || s);
+        let fileIdx = 0;
+        for (let slotIdx = 0; slotIdx < 4 && fileIdx < files.length; slotIdx++) {
+          if (!next[slotIdx]?.url && !next[slotIdx]?.file) {
+            const file = files[fileIdx++];
+            next[slotIdx] = {
+              ...next[slotIdx],
+              url: URL.createObjectURL(file),
+              file,
+            };
+          }
+        }
+        return next;
       });
     }
 
@@ -2659,10 +2652,15 @@ function ShopSettings({
 
   const handleRemovePhoto = (idx: number) => {
     setPhotos((prev) => {
-      const filtered = prev.filter((_, i) => i !== idx);
-      return filtered.length === 0
-        ? [{ id: "cover", url: "", labelEn: "Main Storefront Photo", labelHi: "मुख्य दुकान का फोटो" }]
-        : filtered;
+      const next = prev.length >= 4 ? [...prev] : buildInitialSlots(shop?.logo).map((s, i) => prev[i] || s);
+      if (next[idx]) {
+        next[idx] = {
+          ...next[idx],
+          url: "",
+          file: undefined,
+        };
+      }
+      return next;
     });
   };
 
@@ -2743,9 +2741,9 @@ function ShopSettings({
 
   // Determine if photo slots differ from initial state
   const photosHaveChanges = useMemo(() => {
-    if (photos.some((p) => p.file)) return true;
-    const currentUrls = photos.map((p) => p.url).filter(Boolean);
-    const initUrls = initialPhotos.map((p) => p.url).filter(Boolean);
+    if (photos.some((p) => Boolean(p?.file))) return true;
+    const currentUrls = photos.map((p) => p?.url || "").filter(Boolean);
+    const initUrls = initialPhotos.map((p) => p?.url || "").filter(Boolean);
     if (currentUrls.length !== initUrls.length) return true;
     return currentUrls.some((url, idx) => url !== initUrls[idx]);
   }, [photos, initialPhotos]);
@@ -2770,7 +2768,9 @@ function ShopSettings({
     setSaveError("");
     try {
       const { logo, ...restValues } = values;
-      const primaryPhoto = photos.find((p) => p.file || (p.url && p.url.trim() !== ""));
+      const primaryPhoto = photos[0]?.file || photos[0]?.url
+        ? photos[0]
+        : photos.find((p) => p?.file || (p?.url && p.url.trim() !== ""));
       if (primaryPhoto?.file) {
         const formData = new FormData();
         // Send empty strings too: omitting a cleared field (description, maps link, opening hours)
@@ -2783,7 +2783,7 @@ function ShopSettings({
         formData.append("logo", primaryPhoto.file);
         await merchantApi.updateShop(formData);
       } else {
-        const isPhotoDeleted = !primaryPhoto;
+        const isPhotoDeleted = !primaryPhoto || !primaryPhoto.url;
         await merchantApi.updateShop({
           ...restValues,
           delete_logo: isPhotoDeleted ? true : undefined,
@@ -2796,6 +2796,7 @@ function ShopSettings({
       if (typeof window !== "undefined" && shop?.public_slug) {
         const processedUrls: string[] = [];
         for (const p of photos) {
+          if (!p) continue;
           if (p.file) {
             try {
               const base64 = await new Promise<string>((resolve, reject) => {
@@ -2938,7 +2939,7 @@ function ShopSettings({
                 {lang === "hi" ? "दुकान की तस्वीरें (अधिकतम 4 तस्वीरें)" : "Shop Storefront Photos (Up to 4 Photos)"}
               </span>
               <span className="text-[11px] text-[#6d756f] font-mono">
-                {photos.filter((p) => p.url).length}/4 {lang === "hi" ? "अपलोड की गई" : "uploaded"}
+                {photos.filter((p) => Boolean(p?.url)).length}/4 {lang === "hi" ? "अपलोड की गई" : "uploaded"}
               </span>
             </div>
             <p className="text-[11px] text-[#6d756f] mb-3">

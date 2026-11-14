@@ -121,11 +121,13 @@ export default function CustomerShopPage() {
       if (!publicSlug) return;
       if (!silent) setIsSyncing(true);
       try {
-        const [catData, campData, prodData] = await Promise.all([
+        const [shopData, catData, campData, prodData] = await Promise.all([
+          customerApi.getShop(publicSlug),
           customerApi.getCategories(publicSlug),
           customerApi.getCampaigns(publicSlug),
           customerApi.getProducts(publicSlug),
         ]);
+        setShop(shopData);
         setCategories(catData);
         setCampaigns(campData);
         setProducts(prodData);
