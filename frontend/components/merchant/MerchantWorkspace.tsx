@@ -241,6 +241,19 @@ export default function MerchantWorkspace() {
   } | null>(null);
   const [editPriceLoading, setEditPriceLoading] = useState(false);
   const [editPriceError, setEditPriceError] = useState<string | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  const notifyStorefrontUpdate = () => {
+    try {
+      if (typeof window !== "undefined") {
+        const now = String(Date.now());
+        localStorage.setItem("dukaandar_catalog_updated", now);
+        window.dispatchEvent(new CustomEvent("dukaandar_catalog_updated", { detail: { timestamp: now } }));
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     const syncLang = () => {
@@ -275,6 +288,7 @@ export default function MerchantWorkspace() {
       refresh("master-catalog");
       refresh("products");
       refresh("inventory");
+      notifyStorefrontUpdate();
     },
     onError: (e) => setNotice(getApiError(e)),
   });
@@ -343,6 +357,7 @@ export default function MerchantWorkspace() {
       setPendingItemId(null);
       refresh("inventory");
       refresh("analytics");
+      notifyStorefrontUpdate();
     },
   });
 
@@ -353,6 +368,23 @@ export default function MerchantWorkspace() {
       setNewProductOpen(false);
       setNotice(lang === "hi" ? "प्रोडक्ट कैटलॉग में सफलतापूर्वक जोड़ा गया।" : "Product added to your catalog.");
       refresh("products");
+      refresh("inventory");
+      refresh("master-catalog");
+      notifyStorefrontUpdate();
+    },
+    onError: (e) => setNotice(getApiError(e)),
+  });
+
+  const updateProductMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: (Partial<Product> & { name: string }) | FormData }) =>
+      merchantApi.updateProduct(id, payload),
+    onSuccess: () => {
+      setEditingProduct(null);
+      setNotice(lang === "hi" ? "प्रोडक्ट विवरण सफलतापूर्वक अपडेट हुआ।" : "Product details updated successfully.");
+      refresh("products");
+      refresh("inventory");
+      refresh("master-catalog");
+      notifyStorefrontUpdate();
     },
     onError: (e) => setNotice(getApiError(e)),
   });
@@ -371,6 +403,7 @@ export default function MerchantWorkspace() {
       refresh("products");
       refresh("inventory");
       refresh("master-catalog");
+      notifyStorefrontUpdate();
     } catch (err: any) {
       setEditPriceError(err.response?.data?.price?.[0] || err.message || (lang === "hi" ? "मूल्य अपडेट नहीं हो सका" : "Failed to update price"));
     } finally {
@@ -795,11 +828,11 @@ export default function MerchantWorkspace() {
             <Notice error={products.error} onRetry={() => products.refetch()} />
           ) : (
             <div className="overflow-hidden rounded-2xl border border-[#ddd6ca] bg-white">
-              <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] gap-3 border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
+              <div className="grid grid-cols-[1.1fr_.5fr_.7fr_1.3fr] gap-3 border-b border-[#eee9df] bg-[#faf8f3] px-5 py-3 text-[10px] font-bold uppercase tracking-[.13em] text-[#6d756f]">
                 <span>{lang === "hi" ? "उत्पाद विवरण" : "Product"}</span>
                 <span>{lang === "hi" ? "विक्रय मूल्य" : "Price"}</span>
-                <span>{lang === "hi" ? "स्थिति" : "Visibility"}</span>
-                <span>{lang === "hi" ? "क्रिया" : "Action"}</span>
+                <span>{lang === "hi" ? "स्थिति" : "Status"}</span>
+                <span className="text-right">{lang === "hi" ? "क्रिया" : "Actions"}</span>
               </div>
               {sortedShopProducts.length ? (
                 sortedShopProducts.map((item) => (
@@ -817,21 +850,40 @@ export default function MerchantWorkspace() {
                         description: item.description ?? undefined,
                         image: item.effective_image || item.image || undefined,
                         sku: item.sku ?? undefined,
+                        unit: item.unit ?? undefined,
                         is_available: item.is_available,
                         is_visible: item.is_visible,
                       })
                     }
+                    onEdit={() => setEditingProduct(item)}
+                    onToggleStock={() =>
+                      merchantApi
+                        .updateProduct(item.id, { is_available: !item.is_available })
+                        .then(() => {
+                          refresh("products");
+                          refresh("inventory");
+                          notifyStorefrontUpdate();
+                        })
+                        .catch((e) => setNotice(getApiError(e)))
+                    }
                     onToggle={() =>
                       merchantApi
                         .updateProduct(item.id, { is_visible: !item.is_visible })
-                        .then(() => refresh("products"))
+                        .then(() => {
+                          refresh("products");
+                          notifyStorefrontUpdate();
+                        })
                         .catch((e) => setNotice(getApiError(e)))
                     }
                     onDelete={() => {
                       if (window.confirm(lang === "hi" ? `${item.name} को कैटलॉग से हटाएं?` : `Remove ${item.name} from catalog?`))
                         merchantApi
                           .deleteProduct(item.id)
-                          .then(() => refresh("products"))
+                          .then(() => {
+                            refresh("products");
+                            refresh("inventory");
+                            notifyStorefrontUpdate();
+                          })
                           .catch((e) => setNotice(getApiError(e)));
                     }}
                   />
@@ -1013,12 +1065,31 @@ export default function MerchantWorkspace() {
         )}
 
         {newProductOpen && (
-          <ProductModal lang={lang} onClose={() => setNewProductOpen(false)} onSave={(payload) => productMutation.mutate(payload)} saving={productMutation.isPending} />
+          <ProductModal
+            lang={lang}
+            onClose={() => setNewProductOpen(false)}
+            onSave={(payload) => productMutation.mutate(payload)}
+            saving={productMutation.isPending}
+          />
+        )}
+        {editingProduct && (
+          <ProductModal
+            key={editingProduct.id}
+            initialProduct={editingProduct}
+            lang={lang}
+            onClose={() => setEditingProduct(null)}
+            onSave={(payload) => updateProductMutation.mutate({ id: editingProduct.id, payload })}
+            saving={updateProductMutation.isPending}
+          />
         )}
         {activeProductDetail && (
           <MerchantProductDetailModal
             product={activeProductDetail}
             onClose={() => setActiveProductDetail(null)}
+            onEdit={() => {
+              const match = products.data?.find((p) => p.id === activeProductDetail.id);
+              if (match) setEditingProduct(match);
+            }}
             lang={lang}
           />
         )}
@@ -2235,19 +2306,23 @@ function EditPriceModal({
 function ProductRow({
   product,
   onToggle,
+  onToggleStock,
+  onEdit,
   onDelete,
   onViewDetail,
   lang = "en",
 }: {
   product: Product;
   onToggle: () => void;
+  onToggleStock?: () => void;
+  onEdit?: () => void;
   onDelete: () => void;
   onViewDetail?: () => void;
   lang?: "en" | "hi";
 }) {
   const effectiveImg = product.effective_image || product.image;
   return (
-    <div className="grid grid-cols-[1.4fr_.7fr_.7fr_.6fr] items-center gap-3 border-b border-[#eee9df] px-5 py-4 last:border-0 text-xs">
+    <div className="grid grid-cols-[1.1fr_.5fr_.7fr_1.3fr] items-center gap-3 border-b border-[#eee9df] px-5 py-4 last:border-0 text-xs">
       <div
         className="flex min-w-0 items-center gap-3 cursor-pointer group"
         onClick={onViewDetail}
@@ -2256,20 +2331,27 @@ function ProductRow({
           <img
             src={effectiveImg}
             alt={product.name}
-            className="w-9 h-9 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white group-hover:scale-105 transition"
+            className="w-10 h-10 object-cover rounded-xl border border-[#ddd6ca] shrink-0 bg-white group-hover:scale-105 transition"
           />
         ) : (
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#F6F0E6] text-[#1F5D42] group-hover:bg-[#e7f2eb] transition">
-            <ShoppingBag size={16} />
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#F6F0E6] text-[#1F5D42] group-hover:bg-[#e7f2eb] transition">
+            <ShoppingBag size={18} />
           </span>
         )}
         <div className="min-w-0">
           <p className="truncate font-bold text-[#123324] group-hover:text-[#1F5D42] transition underline-offset-2 group-hover:underline">
             {product.name}
           </p>
-          <p className="mt-0.5 truncate text-[10px] text-[#7d857e]">
-            {product.brand || (lang === "hi" ? "स्थानीय" : "Local")}{product.sku ? ` · ${product.sku}` : ""}
-          </p>
+          <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span className="truncate text-[10px] text-[#7d857e]">
+              {product.brand || (lang === "hi" ? "स्थानीय" : "Local")}{product.sku ? ` · ${product.sku}` : ""}
+            </span>
+            {product.unit && (
+              <span className="rounded-md bg-[#e7f2eb] px-1.5 py-0.5 text-[9px] font-bold text-[#1F5D42] border border-[#cbe1d5]">
+                {product.unit}
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div>
@@ -2280,21 +2362,62 @@ function ProductRow({
           </span>
         )}
       </div>
-      <span className={`text-[10px] font-bold ${product.is_visible && product.is_available ? "text-[#1F5D42]" : "text-[#9a4d2a]"}`}>
-        {!product.is_visible
-          ? (lang === "hi" ? "छिपा हुआ" : "Hidden")
-          : product.is_available
-          ? (lang === "hi" ? "दुकान में दिखेगा" : "Visible")
-          : (lang === "hi" ? "आउट ऑफ स्टॉक" : "Out of stock")}
-      </span>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-1 items-start">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold border ${
+          product.is_visible
+            ? "bg-[#e7f2eb] text-[#1F5D42] border-[#cbe1d5]"
+            : "bg-gray-100 text-gray-600 border-gray-200"
+        }`}>
+          {product.is_visible
+            ? (lang === "hi" ? "दुकान में दिखेगा" : "Visible")
+            : (lang === "hi" ? "छिपा हुआ" : "Hidden")}
+        </span>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold border ${
+          product.is_available
+            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+            : "bg-red-50 text-red-700 border-red-200"
+        }`}>
+          {product.is_available
+            ? (lang === "hi" ? "स्टॉक में है" : "In Stock")
+            : (lang === "hi" ? "आउट ऑफ स्टॉक" : "Out of Stock")}
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            title={lang === "hi" ? "प्रोडक्ट विवरण बदलें" : "Edit details"}
+            className="rounded-lg border border-[#ddd6ca] bg-white px-2.5 py-1.5 text-[11px] font-bold text-[#123324] hover:bg-[#F6F0E6] flex items-center gap-1 cursor-pointer transition shadow-2xs"
+          >
+            <Edit3 size={12} className="text-[#1F5D42]" />
+            <span>{lang === "hi" ? "बदलें" : "Edit"}</span>
+          </button>
+        )}
+        {onToggleStock && (
+          <button
+            type="button"
+            onClick={onToggleStock}
+            title={product.is_available ? (lang === "hi" ? "आउट ऑफ स्टॉक मार्क करें" : "Mark Out of Stock") : (lang === "hi" ? "इन स्टॉक मार्क करें" : "Mark In Stock")}
+            className={`rounded-lg px-2.5 py-1.5 text-[11px] font-bold transition cursor-pointer border shadow-2xs ${
+              product.is_available
+                ? "bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200"
+                : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200"
+            }`}
+          >
+            {product.is_available ? (lang === "hi" ? "स्टॉक खत्म?" : "Out of stock") : (lang === "hi" ? "स्टॉक में लाएं" : "In stock")}
+          </button>
+        )}
         <button
+          type="button"
           onClick={onToggle}
-          className="rounded-lg bg-[#F6F0E6] px-2.5 py-1.5 text-[10px] font-bold text-[#1F5D42] hover:bg-[#eee9df] cursor-pointer"
+          title={product.is_visible ? (lang === "hi" ? "दुकान से छिपाएं" : "Hide from shop") : (lang === "hi" ? "दुकान में दिखाएं" : "Show in shop")}
+          className="rounded-lg bg-[#F6F0E6] px-2.5 py-1.5 text-[11px] font-bold text-[#1F5D42] hover:bg-[#eee9df] cursor-pointer"
         >
           {product.is_visible ? (lang === "hi" ? "छिपाएं" : "Hide") : (lang === "hi" ? "दिखाएं" : "Show")}
         </button>
         <button
+          type="button"
           aria-label={lang === "hi" ? `${product.name} हटाएं` : `Delete ${product.name}`}
           onClick={onDelete}
           className="rounded-lg p-1.5 text-[#9a4d2a] hover:bg-[#ffece6] cursor-pointer"
@@ -2307,11 +2430,13 @@ function ProductRow({
 }
 
 function ProductModal({
+  initialProduct,
   onClose,
   onSave,
   saving,
   lang = "en",
 }: {
+  initialProduct?: Product | null;
   onClose: () => void;
   onSave: (payload: (Partial<Product> & { name: string }) | FormData) => void;
   saving: boolean;
@@ -2319,12 +2444,22 @@ function ProductModal({
 }) {
   const { register, trigger, getValues, setValue, watch } = useForm<ProductInput, unknown, ProductValues>({
     resolver: zodResolver(productSchema),
-    defaultValues: { name: "", price: 0, brand: "", sku: "", description: "", unit: "" },
+    defaultValues: {
+      name: initialProduct?.name || "",
+      price: initialProduct ? Number(initialProduct.price || 0) : 0,
+      brand: initialProduct?.brand || "",
+      sku: initialProduct?.sku || "",
+      description: initialProduct?.description || "",
+      unit: initialProduct?.unit || "",
+    },
   });
   const selectedUnit = watch("unit") || "";
 
   const [images, setImages] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [existingImage, setExistingImage] = useState<string | null>(
+    initialProduct?.effective_image || initialProduct?.image || null
+  );
   const productInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2349,16 +2484,30 @@ function ProductModal({
       const formData = new FormData();
       formData.append("name", values.name);
       formData.append("price", String(values.price));
-      if (values.brand) formData.append("brand", values.brand);
-      if (values.unit) formData.append("unit", values.unit);
-      if (values.sku) formData.append("sku", values.sku);
-      if (values.description) formData.append("description", values.description);
+      if (values.brand !== undefined) formData.append("brand", values.brand || "");
+      if (values.unit !== undefined) formData.append("unit", values.unit || "");
+      if (values.sku !== undefined) formData.append("sku", values.sku || "");
+      if (values.description !== undefined) formData.append("description", values.description || "");
       formData.append("image", images[0]); // primary image
-      formData.append("is_visible", "true");
-      formData.append("is_available", "true");
+      if (!initialProduct) {
+        formData.append("is_visible", "true");
+        formData.append("is_available", "true");
+      }
       onSave(formData);
     } else {
-      onSave({ ...values, price: String(values.price), unit: values.unit, is_visible: true, is_available: true });
+      const payload: any = {
+        name: values.name,
+        price: String(values.price),
+        brand: values.brand || "",
+        unit: values.unit || "",
+        sku: values.sku || "",
+        description: values.description || "",
+      };
+      if (!initialProduct) {
+        payload.is_visible = true;
+        payload.is_available = true;
+      }
+      onSave(payload);
     }
   };
 
@@ -2367,9 +2516,11 @@ function ProductModal({
       <form onSubmit={submit} className="w-full max-w-[500px] rounded-2xl bg-white p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
           <h2 className="font-display font-bold text-base text-[#123324]">
-            {lang === "hi" ? "नया प्रोडक्ट जोड़ें" : "Add New Product"}
+            {initialProduct
+              ? (lang === "hi" ? "प्रोडक्ट विवरण बदलें" : "Edit Product Details")
+              : (lang === "hi" ? "नया प्रोडक्ट जोड़ें" : "Add New Product")}
           </h2>
-          <button type="button" onClick={onClose} aria-label={lang === "hi" ? "बंद करें" : "Close"} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df]">
+          <button type="button" onClick={onClose} aria-label={lang === "hi" ? "बंद करें" : "Close"} className="rounded-lg p-1 text-[#6d756f] hover:bg-[#eee9df] cursor-pointer">
             <X size={16} />
           </button>
         </div>
@@ -2403,7 +2554,7 @@ function ProductModal({
                 <button
                   type="button"
                   onClick={() => setValue("unit", "")}
-                  className="text-[10px] text-red-600 hover:underline font-semibold"
+                  className="text-[10px] text-red-600 hover:underline font-semibold cursor-pointer"
                 >
                   {lang === "hi" ? "इकाई हटाएं" : "Clear Unit"}
                 </button>
@@ -2460,6 +2611,19 @@ function ProductModal({
             </div>
           </div>
 
+          {/* Description */}
+          <label className="sm:col-span-2">
+            <span className="block font-bold text-[#123324] mb-1">
+              {lang === "hi" ? "प्रोडक्ट विवरण (Description)" : "Product Description"}
+            </span>
+            <textarea
+              {...register("description")}
+              rows={2}
+              placeholder={lang === "hi" ? "सामग्री, गुणवत्ता, उपयोग की विधि आदि..." : "Key details, ingredients, quality, usage instructions..."}
+              className="w-full rounded-xl border border-[#ddd6ca] p-2.5 outline-none focus:border-[#1F5D42] text-xs resize-none"
+            />
+          </label>
+
           {/* Product Images (Max 4) */}
           <div className="sm:col-span-2">
             <div className="flex items-center justify-between mb-1.5">
@@ -2467,11 +2631,32 @@ function ProductModal({
                 {lang === "hi" ? "प्रोडक्ट की तस्वीरें (अधिकतम 4)" : "Product Photos (Max 4 images)"}
               </span>
               <span className="text-[10px] font-semibold text-[#6d756f]">
-                {images.length}/4
+                {images.length > 0 ? `${images.length}/4` : existingImage ? "1/4" : "0/4"}
               </span>
             </div>
 
             <div className="grid grid-cols-4 gap-2">
+              {existingImage && images.length === 0 && (
+                <div className="relative aspect-square rounded-xl border border-[#ddd6ca] overflow-hidden bg-[#FAF8F3]">
+                  <img
+                    src={existingImage}
+                    alt={lang === "hi" ? "मौजूदा प्रोडक्ट फोटो" : "Current product photo"}
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setExistingImage(null)}
+                    aria-label={lang === "hi" ? "फोटो हटाएं" : "Remove photo"}
+                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 shadow-sm cursor-pointer"
+                  >
+                    <X size={10} />
+                  </button>
+                  <span className="absolute bottom-1 left-1 text-[8px] bg-[#1F5D42] text-white px-1 py-0.5 rounded font-bold">
+                    {lang === "hi" ? "मौजूदा" : "Current"}
+                  </span>
+                </div>
+              )}
+
               {previews.map((src, idx) => (
                 <div key={idx} className="relative aspect-square rounded-xl border border-[#ddd6ca] overflow-hidden bg-[#FAF8F3]">
                   <img src={src} alt={lang === "hi" ? `प्रोडक्ट फोटो ${idx + 1}` : `Product thumbnail ${idx + 1}`} className="w-full h-full object-cover" />
@@ -2479,7 +2664,7 @@ function ProductModal({
                     type="button"
                     onClick={() => removeImage(idx)}
                     aria-label={lang === "hi" ? "फोटो हटाएं" : "Remove photo"}
-                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 shadow-sm"
+                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 shadow-sm cursor-pointer"
                   >
                     <X size={10} />
                   </button>
@@ -2495,10 +2680,12 @@ function ProductModal({
                 <button
                   type="button"
                   onClick={() => productInputRef.current?.click()}
-                  className="aspect-square rounded-xl border-2 border-dashed border-[#c8c0b2] hover:border-[#1F5D42] bg-[#FAF8F3] hover:bg-[#e7f2eb]/40 flex flex-col items-center justify-center text-[#6d756f] hover:text-[#1F5D42] transition"
+                  className="aspect-square rounded-xl border-2 border-dashed border-[#c8c0b2] hover:border-[#1F5D42] bg-[#FAF8F3] hover:bg-[#e7f2eb]/40 flex flex-col items-center justify-center text-[#6d756f] hover:text-[#1F5D42] transition cursor-pointer"
                 >
                   <Upload size={16} />
-                  <span className="text-[9px] font-bold mt-1">{lang === "hi" ? "जोड़ें" : "Upload"}</span>
+                  <span className="text-[9px] font-bold mt-1">
+                    {existingImage ? (lang === "hi" ? "बदलें" : "Replace") : (lang === "hi" ? "जोड़ें" : "Upload")}
+                  </span>
                 </button>
               )}
             </div>
@@ -2517,11 +2704,15 @@ function ProductModal({
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-3 border-t border-[#eee9df]">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#6d756f]">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-[#6d756f] hover:text-[#123324] cursor-pointer">
             {lang === "hi" ? "रद्द करें" : "Cancel"}
           </button>
-          <button disabled={saving} className="px-4 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] disabled:opacity-60">
-            {saving ? (lang === "hi" ? "जोड़ा जा रहा है…" : "Adding…") : (lang === "hi" ? "कैटलॉग में जोड़ें" : "Add to Catalog")}
+          <button disabled={saving} className="px-4 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] disabled:opacity-60 cursor-pointer shadow-xs">
+            {saving
+              ? (lang === "hi" ? "सहेजा जा रहा है…" : "Saving…")
+              : initialProduct
+              ? (lang === "hi" ? "बदलाव सहेजें" : "Save Changes")
+              : (lang === "hi" ? "कैटलॉग में जोड़ें" : "Add to Catalog")}
           </button>
         </div>
       </form>

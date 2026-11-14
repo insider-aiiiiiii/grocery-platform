@@ -115,6 +115,7 @@ export interface PublicProduct {
   name: string;
   description: string;
   brand: string;
+  unit?: string | null;
   image: string | null;
   effective_image?: string | null;
   price: string | null;

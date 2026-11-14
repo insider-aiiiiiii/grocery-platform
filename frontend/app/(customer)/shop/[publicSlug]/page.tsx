@@ -191,13 +191,28 @@ export default function CustomerShopPage() {
     loadStorefront();
   }, [publicSlug]);
 
-  // Real-time Background Polling every 12 seconds for live sync
+  // Real-time Background Polling & Cross-Tab Event Sync
   useEffect(() => {
     if (!publicSlug) return;
     const interval = setInterval(() => {
       syncStorefront(true);
-    }, 12000);
-    return () => clearInterval(interval);
+    }, 4000);
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "dukaandar_catalog_updated" || e.key?.startsWith("dukaan_")) {
+        syncStorefront(true);
+      }
+    };
+    const onCatalogUpdated = () => syncStorefront(true);
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("dukaandar_catalog_updated", onCatalogUpdated);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("dukaandar_catalog_updated", onCatalogUpdated);
+    };
   }, [publicSlug, syncStorefront]);
 
   // Tab focus / visibility revalidation
