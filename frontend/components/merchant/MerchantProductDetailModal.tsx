@@ -7,6 +7,7 @@ export interface MerchantProductDetailItem {
   id: number;
   name: string;
   brand?: string | null;
+  unit?: string | null;
   category_name?: string | null;
   price?: string | number | null;
   mrp?: string | number | null;
@@ -23,12 +24,14 @@ export interface MerchantProductDetailItem {
 interface MerchantProductDetailModalProps {
   product: MerchantProductDetailItem | null;
   onClose: () => void;
+  onEdit?: () => void;
   lang?: "en" | "hi";
 }
 
 export function MerchantProductDetailModal({
   product,
   onClose,
+  onEdit,
   lang = "en",
 }: MerchantProductDetailModalProps) {
   if (!product) return null;
@@ -53,6 +56,11 @@ export function MerchantProductDetailModal({
             {product.brand && (
               <span className="text-[10px] font-bold text-[#8a5b1d] bg-[#fff3db] px-2 py-0.5 rounded-full border border-[#f5deb5]">
                 {product.brand}
+              </span>
+            )}
+            {product.unit && (
+              <span className="text-[10px] font-bold text-[#1F5D42] bg-[#FAF8F3] px-2 py-0.5 rounded-full border border-[#ddd6ca]">
+                {product.unit}
               </span>
             )}
           </div>
@@ -126,7 +134,21 @@ export function MerchantProductDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-[#eee9df] px-6 py-4 bg-white flex justify-end">
+        <div className="border-t border-[#eee9df] px-6 py-4 bg-white flex items-center justify-between">
+          {onEdit ? (
+            <button
+              onClick={() => {
+                onClose();
+                onEdit();
+              }}
+              className="px-4 py-2 rounded-xl border border-[#ddd6ca] text-[#123324] hover:bg-[#F6F0E6] text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles size={14} className="text-[#1F5D42]" />
+              <span>{isHi ? "विवरण बदलें" : "Edit Details"}</span>
+            </button>
+          ) : (
+            <div />
+          )}
           <button
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-[#1F5D42] text-white text-xs font-bold hover:bg-[#123324] transition shadow-xs cursor-pointer"

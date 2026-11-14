@@ -8,6 +8,7 @@ interface CartBottomBarProps {
   itemCount: number;
   totalAmount: string | number;
   onOpenCart: () => void;
+  isClosed?: boolean;
   language?: "en" | "hi";
 }
 
@@ -15,6 +16,7 @@ export function CartBottomBar({
   itemCount,
   totalAmount,
   onOpenCart,
+  isClosed = false,
   language = "en",
 }: CartBottomBarProps) {
   if (itemCount <= 0) return null;
@@ -29,7 +31,11 @@ export function CartBottomBar({
     <div className="fixed bottom-4 left-0 right-0 z-40 px-4 max-w-xl mx-auto animate-in slide-in-from-bottom-4 duration-200">
       <div
         onClick={onOpenCart}
-        className="bg-gradient-to-r from-[#123324] via-[#1a4a35] to-[#1F5D42] text-white rounded-2xl p-3.5 sm:p-4 flex items-center justify-between shadow-[0_12px_28px_rgba(18,51,36,0.35)] border border-emerald-500/20 cursor-pointer hover:brightness-105 transition-all active:scale-[0.99]"
+        className={`text-white rounded-2xl p-3.5 sm:p-4 flex items-center justify-between shadow-[0_12px_28px_rgba(18,51,36,0.35)] border cursor-pointer hover:brightness-105 transition-all active:scale-[0.99] ${
+          isClosed
+            ? "bg-gradient-to-r from-[#451a03] via-[#78350f] to-[#9a3412] border-amber-500/30"
+            : "bg-gradient-to-r from-[#123324] via-[#1a4a35] to-[#1F5D42] border-emerald-500/20"
+        }`}
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#E8A33D] text-[#123324] flex items-center justify-center font-bold shadow-sm shrink-0">
@@ -46,7 +52,15 @@ export function CartBottomBar({
         </div>
 
         <button className="flex items-center gap-2 px-4 py-2.5 bg-[#E8A33D] hover:bg-[#D6902B] text-[#123324] text-xs sm:text-sm font-bold font-body rounded-xl transition-all shadow-md active:scale-95">
-          <span>{isHindi ? "ऑर्डर और चेकआउट" : "View Cart & Checkout"}</span>
+          <span>
+            {isClosed
+              ? isHindi
+                ? "दुकान बंद है · कार्ट"
+                : "Store Closed · Cart"
+              : isHindi
+              ? "ऑर्डर और चेकआउट"
+              : "View Cart & Checkout"}
+          </span>
           <ArrowRight className="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>

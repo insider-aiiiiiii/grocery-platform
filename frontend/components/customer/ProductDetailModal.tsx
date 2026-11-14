@@ -84,6 +84,27 @@ export function ProductDetailModal({
             <h2 className="font-display font-bold text-base sm:text-lg text-[#123324] tracking-tight">
               {product.name}
             </h2>
+
+            {/* Unit / Pack Size & Brand */}
+            {(product.unit || product.brand || product.available_quantity) && (
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {product.unit && (
+                  <span className="text-xs font-bold text-[#1F5D42] bg-[#e7f2eb] px-2.5 py-0.5 rounded-lg border border-[#cbe1d5]">
+                    {product.unit}
+                  </span>
+                )}
+                {product.brand && (
+                  <span className="text-xs font-bold text-[#8a5b1d] bg-[#fff3db] px-2.5 py-0.5 rounded-lg border border-[#f5deb5]">
+                    {product.brand}
+                  </span>
+                )}
+                {product.available_quantity && Number(product.available_quantity) > 0 && (
+                  <span className="text-[11px] font-semibold text-[#6d756f] bg-[#FAF8F3] px-2 py-0.5 rounded-lg border border-[#eee9df]">
+                    {isHindi ? `स्टॉक: ${Number(product.available_quantity)}` : `Stock: ${Number(product.available_quantity)}`}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className="font-display font-bold text-2xl text-[#1F5D42]">₹{formatPrice(price)}</span>
               {product.mrp && parseFloat(product.mrp) > price && (
@@ -131,14 +152,12 @@ export function ProductDetailModal({
           )}
 
           {/* Description */}
-          {product.description && (
-            <div className="pt-2 border-t border-[#eee8dc]">
-              <h4 className="text-xs font-bold text-[#17251e] mb-1">{isHindi ? "विवरण" : "Description"}</h4>
-              <p className="text-xs text-[#5e665f] leading-relaxed whitespace-pre-line">
-                {product.description}
-              </p>
-            </div>
-          )}
+          <div className="pt-2 border-t border-[#eee8dc]">
+            <h4 className="text-xs font-bold text-[#17251e] mb-1">{isHindi ? "सामान का विवरण" : "Description"}</h4>
+            <p className="text-xs text-[#5e665f] leading-relaxed whitespace-pre-line">
+              {product.description || (isHindi ? "दुकानदार द्वारा सत्यापित ताज़ा और अच्छी गुणवत्ता वाला सामान।" : "Fresh and premium quality item verified by your local store.")}
+            </p>
+          </div>
 
           {/* Action Footer */}
           <div className="pt-4 border-t border-[#eee8dc] flex items-center justify-between gap-3">

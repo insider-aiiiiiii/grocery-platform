@@ -191,8 +191,16 @@ export const merchantApi = {
     }
     return (await merchantClient.post<Product>("/shops/me/products/", payload)).data;
   },
-  updateProduct: async (id: number, payload: Partial<Product>) =>
-    (await merchantClient.patch<Product>(`/shops/me/products/${id}/`, payload)).data,
+  updateProduct: async (id: number, payload: Partial<Product> | FormData) => {
+    if (payload instanceof FormData) {
+      return (
+        await merchantClient.patch<Product>(`/shops/me/products/${id}/`, payload, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    }
+    return (await merchantClient.patch<Product>(`/shops/me/products/${id}/`, payload)).data;
+  },
   deleteProduct: async (id: number) => merchantClient.delete(`/shops/me/products/${id}/`),
   categories: async () => (await merchantClient.get<Array<{ id: number; name: string }>>("/shops/me/categories/")).data,
   inventory: async () => (await merchantClient.get<InventoryItem[]>("/shops/me/inventory/")).data,

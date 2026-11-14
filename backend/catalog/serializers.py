@@ -570,6 +570,11 @@ class ShopProductSerializer(serializers.ModelSerializer):
         if "image" in data and isinstance(data["image"], str):
             if not data["image"] or data["image"].startswith("http") or data["image"].startswith("/"):
                 data.pop("image")
+        if self.instance is None and hasattr(data, "getlist"):
+            if "is_visible" not in data:
+                data["is_visible"] = "true"
+            if "is_available" not in data:
+                data["is_available"] = "true"
         return super().to_internal_value(data)
 
     def validate(self, attrs):

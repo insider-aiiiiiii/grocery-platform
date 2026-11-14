@@ -52,6 +52,7 @@ export function ProductCard({
   const mrpPrice = product.mrp ? parseFloat(product.mrp) : null;
 
   const packSize =
+    product.unit ||
     activeVariant?.name ||
     product.attributes?.pack_size ||
     product.attributes?.weight ||
@@ -96,9 +97,22 @@ export function ProductCard({
             {product.name}
           </h3>
 
-          {packSize && (
-            <p className="font-body text-xs text-[#6d756f] mt-0.5">
-              {packSize}
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            {packSize && (
+              <span className="font-body text-xs font-semibold text-[#1F5D42] bg-[#e7f2eb] px-1.5 py-0.5 rounded-md">
+                {packSize}
+              </span>
+            )}
+            {product.brand && (
+              <span className="font-body text-xs text-[#8a5b1d] bg-[#fff3db] px-1.5 py-0.5 rounded-md">
+                {product.brand}
+              </span>
+            )}
+          </div>
+
+          {product.description && (
+            <p className="font-body text-[11px] text-[#6d756f] mt-1 line-clamp-1">
+              {product.description}
             </p>
           )}
 
