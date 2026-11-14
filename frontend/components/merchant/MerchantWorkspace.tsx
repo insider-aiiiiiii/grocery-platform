@@ -497,6 +497,7 @@ export default function MerchantWorkspace() {
           try {
             await merchantApi.updateShop({ is_temporarily_closed: !shop.data.is_temporarily_closed });
             refresh("shop");
+            notifyStorefrontUpdate();
             setNotice(
               !shop.data.is_temporarily_closed
                 ? (lang === "hi" ? "दुकान अस्थायी रूप से बंद कर दी गई है।" : "Store is now marked as Closed.")
@@ -1113,7 +1114,17 @@ export default function MerchantWorkspace() {
 
   // Shop Settings Section
   if (section === "settings") {
-    return <ShopSettings shop={shop.data} loading={shop.isLoading} error={shop.error} refetch={() => shop.refetch()} onSaved={() => refresh("shop")} lang={lang} />;
+    return (
+      <ShopSettings
+        shop={shop.data}
+        loading={shop.isLoading}
+        error={shop.error}
+        refetch={() => shop.refetch()}
+        onSaved={() => refresh("shop")}
+        onNotifyStorefront={notifyStorefrontUpdate}
+        lang={lang}
+      />
+    );
   }
 
   return (
@@ -2726,6 +2737,7 @@ function ShopSettings({
   error,
   refetch,
   onSaved,
+  onNotifyStorefront,
   lang = "en",
 }: {
   shop?: Shop;
@@ -2733,9 +2745,11 @@ function ShopSettings({
   error: unknown;
   refetch: () => void;
   onSaved: () => void;
+  onNotifyStorefront?: () => void;
   lang?: "en" | "hi";
 }) {
   const [saving, setSaving] = useState(false);
+  const [togglingStatus, setTogglingStatus] = useState(false);
   const [message, setMessage] = useState("");
   const [saveError, setSaveError] = useState("");
 
@@ -2953,6 +2967,48 @@ function ShopSettings({
   if (loading) return <LoadingRows />;
   if (error || !shop) return <Notice error={error ?? new Error("Shop not found")} onRetry={refetch} />;
 
+  const handleInstantToggleStatus = async () => {
+    if (!shop || togglingStatus) return;
+    const currentClosed = Boolean(watched.is_temporarily_closed);
+    const newClosed = !currentClosed;
+
+    // Optimistically update form state without marking form dirty
+    setValue("is_temporarily_closed", newClosed, {
+      shouldDirty: false,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+    setTogglingStatus(true);
+    setMessage("");
+    setSaveError("");
+
+    try {
+      await merchantApi.updateShop({ is_temporarily_closed: newClosed });
+      refetch();
+      onSaved();
+      onNotifyStorefront?.();
+      setMessage(
+        !newClosed
+          ? lang === "hi"
+            ? "दुकान सफलतापूर्वक खोल दी गई है! ग्राहक अब नए ऑर्डर दे सकते हैं।"
+            : "Store is now marked as OPEN! Customers can place orders."
+          : lang === "hi"
+          ? "दुकान अस्थायी रूप से बंद कर दी गई है। नए ऑर्डर रोक दिए गए हैं।"
+          : "Store is now marked as CLOSED. New orders are paused."
+      );
+    } catch (err: any) {
+      // Revert if API call fails
+      setValue("is_temporarily_closed", currentClosed, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+      setSaveError(getApiError(err));
+    } finally {
+      setTogglingStatus(false);
+    }
+  };
+
   const submit = async (values: ShopSettingsValues) => {
     setSaving(true);
     setMessage("");
@@ -3024,6 +3080,7 @@ function ShopSettings({
       setInitialPhotos(photos.map((p) => ({ ...p, file: undefined })));
       onSaved();
       refetch();
+      onNotifyStorefront?.();
     } catch (e) {
       setSaveError(getApiError(e));
     } finally {
@@ -3054,19 +3111,24 @@ function ShopSettings({
             </div>
           </div>
           {/* Modern Dukaan Open / Closed Toggle Switch Card */}
-          <div
-            onClick={() => {
-              setValue("is_temporarily_closed", !watched.is_temporarily_closed, {
-                shouldDirty: true,
-                shouldTouch: true,
-                shouldValidate: true,
-              });
-            }}
-            className={`flex items-center gap-3 p-3 rounded-2xl border transition cursor-pointer select-none shadow-xs ${
+          <button
+            type="button"
+            disabled={togglingStatus}
+            onClick={handleInstantToggleStatus}
+            className={`flex items-center gap-3 p-3 rounded-2xl border transition cursor-pointer select-none shadow-xs text-left ${
               !watched.is_temporarily_closed
-                ? "bg-[#f0f8f4] border-[#a9d7be]"
-                : "bg-[#fff5f2] border-[#f8c0b0]"
-            }`}
+                ? "bg-[#f0f8f4] border-[#a9d7be] hover:bg-[#e7f4ec]"
+                : "bg-[#fff5f2] border-[#f8c0b0] hover:bg-[#ffece6]"
+            } ${togglingStatus ? "opacity-60 cursor-wait" : ""}`}
+            title={
+              !watched.is_temporarily_closed
+                ? lang === "hi"
+                  ? "दुकान बंद करने के लिए क्लिक करें"
+                  : "Click to pause orders and close store"
+                : lang === "hi"
+                ? "दुकान खोलने के लिए क्लिक करें"
+                : "Click to open store and accept orders"
+            }
           >
             <div className="text-right">
               <span
@@ -3074,7 +3136,11 @@ function ShopSettings({
                   !watched.is_temporarily_closed ? "text-[#1F5D42]" : "text-[#c2410c]"
                 }`}
               >
-                {!watched.is_temporarily_closed
+                {togglingStatus
+                  ? lang === "hi"
+                    ? "अपडेट हो रहा है…"
+                    : "Updating status…"
+                  : !watched.is_temporarily_closed
                   ? lang === "hi"
                     ? "दुकान खुली है"
                     : "Store is OPEN"
@@ -3105,7 +3171,7 @@ function ShopSettings({
                 }`}
               />
             </div>
-          </div>
+          </button>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 text-xs">

@@ -506,6 +506,25 @@ export default function CustomerShopPage() {
         onSearchChange={setSearchQuery}
       />
 
+      {/* Closed Store Alert Banner */}
+      {shop?.is_temporarily_closed && (
+        <div className="max-w-xl mx-auto px-3.5 pt-2">
+          <div className="bg-[#fff1f0] border border-[#ffccc7] text-[#cf1322] rounded-2xl p-3.5 flex items-start gap-2.5 text-xs shadow-xs animate-in fade-in">
+            <span className="text-base leading-none mt-0.5">⏸️</span>
+            <div className="flex-1">
+              <p className="font-bold text-xs sm:text-sm leading-tight text-[#a8071a]">
+                {isHindi ? "दुकान अभी बंद है (ऑर्डर रोके गए हैं)" : "Store is Temporarily Closed (Orders Paused)"}
+              </p>
+              <p className="text-[11px] text-[#cf1322]/90 mt-1 leading-relaxed">
+                {isHindi
+                  ? "दुकानदार ने नए ऑर्डर्स लेना कुछ समय के लिए रोक दिया है। आप सामान देख सकते हैं, लेकिन अभी ऑर्डर नहीं हो सकेगा।"
+                  : "The store is temporarily not accepting new orders. You can browse the catalog, but ordering is paused until the shop reopens."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Cart Sync Error Toast */}
       {cartError && (
         <div className="fixed top-4 left-4 right-4 z-50 max-w-md mx-auto bg-rose-900/95 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg backdrop-blur flex items-center justify-between animate-in fade-in slide-in-from-top-2 border border-rose-700">
@@ -797,6 +816,7 @@ export default function CustomerShopPage() {
         itemCount={cart?.items_count || 0}
         totalAmount={cart?.total_amount || "0"}
         onOpenCart={() => router.push(`/shop/${publicSlug}/cart`)}
+        isClosed={Boolean(shop?.is_temporarily_closed)}
         language={language}
       />
     </div>

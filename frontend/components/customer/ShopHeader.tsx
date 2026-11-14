@@ -350,8 +350,12 @@ export function ShopHeader({
             </div>
           )}
 
-          {/* 4. STORE OPEN NOW & TIMINGS GREEN BANNER (Schedule dropdown removed per instructions) */}
-          <div className="rounded-2xl bg-[#0c4a2f] text-white p-3.5 shadow-sm border border-[#1b6a45]">
+          {/* 4. STORE OPEN NOW & TIMINGS BANNER */}
+          <div
+            className={`rounded-2xl text-white p-3.5 shadow-sm border transition-colors duration-200 ${
+              isClosed ? "bg-[#7f1d1d] border-[#991b1b]" : "bg-[#0c4a2f] border-[#1b6a45]"
+            }`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 font-bold text-xs sm:text-sm tracking-wide">
@@ -366,13 +370,24 @@ export function ShopHeader({
                       : "STORE OPEN NOW"}
                   </span>
                 </div>
-                {hasHours && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-200/90 mt-1">
-                    <Clock className="w-3.5 h-3.5 text-[#E8A33D]" />
+                {isClosed ? (
+                  <div className="flex items-center gap-1.5 text-[11px] text-red-200 mt-1">
+                    <Clock className="w-3.5 h-3.5 text-red-300" />
                     <span>
-                      {isHindi ? "आज का समय" : "Today"}: {openTime} - {closeTime}
+                      {isHindi
+                        ? "दुकानदार द्वारा नए ऑर्डर्स अस्थायी रूप से रोक दिए गए हैं।"
+                        : "Store is temporarily closed · Orders are paused"}
                     </span>
                   </div>
+                ) : (
+                  hasHours && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-emerald-200/90 mt-1">
+                      <Clock className="w-3.5 h-3.5 text-[#E8A33D]" />
+                      <span>
+                        {isHindi ? "आज का समय" : "Today"}: {openTime} - {closeTime}
+                      </span>
+                    </div>
+                  )
                 )}
               </div>
             </div>
