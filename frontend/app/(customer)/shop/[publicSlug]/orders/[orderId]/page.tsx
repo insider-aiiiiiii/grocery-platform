@@ -82,8 +82,8 @@ export default function OrderConfirmationPage() {
     (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("t") : null) ||
     (publicSlug && orderId ? getOrderToken(publicSlug, orderId) : null);
 
-  // 5-minute countdown timer state (300 seconds)
-  const [secondsLeft, setSecondsLeft] = useState(300);
+  // Customer cancellation is available for one minute after order placement.
+  const [secondsLeft, setSecondsLeft] = useState(60);
 
   useEffect(() => {
     if (typeof window !== "undefined" && orderId) {
@@ -143,12 +143,15 @@ export default function OrderConfirmationPage() {
   }, [orderData?.status]);
 
   useEffect(() => {
-    if (secondsLeft <= 0 || cancelled) return;
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    if (!orderData?.created_at || cancelled) return;
+    const updateRemaining = () => {
+      const elapsed = Math.floor((Date.now() - new Date(orderData.created_at).getTime()) / 1000);
+      setSecondsLeft(Math.max(0, 60 - elapsed));
+    };
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
     return () => clearInterval(interval);
-  }, [secondsLeft, cancelled]);
+  }, [orderData?.created_at, cancelled]);
 
   const handleCopyOrderId = () => {
     navigator.clipboard.writeText(`#SK-${orderId}`);
@@ -565,7 +568,7 @@ export default function OrderConfirmationPage() {
           </div>
         </div>
 
-        {/* 6. Order Cancellation Action (Valid for 5 mins while pending) */}
+        {/* 6. Order Cancellation Action (Valid for 1 minute after placement) */}
         <div className="bg-[#FFFDF8] border border-[#ddd6ca] rounded-2xl p-4 shadow-sm space-y-3">
           {cancelled ? (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
@@ -580,7 +583,9 @@ export default function OrderConfirmationPage() {
                   <p className="text-[11px] text-[#6d756f]">
                     {isHindi
                       ? `पैकिंग शुरू होने से पहले आप ${timeFormatted} मिनट के अंदर ऑर्डर रद्द कर सकते हैं।`
-                      : `You can cancel your order within ${timeFormatted} minutes before packing begins.`}
+                      : secondsLeft > 0
+                        ? `You can cancel your order for ${timeFormatted} after placing it.`
+                        : "The one-minute cancellation window has ended."}
                   </p>
                 </div>
               </div>

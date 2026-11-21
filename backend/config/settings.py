@@ -161,6 +161,14 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ['users.authentication.PlatformJWTAuthentication'],
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
     'EXCEPTION_HANDLER': 'users.exceptions.authentication_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'users.throttles.PublicReadThrottle',
+        'users.throttles.PublicWriteThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'public_lookup': os.environ.get('PUBLIC_LOOKUP_THROTTLE_RATE', '30/min'),
+        'public_write': os.environ.get('PUBLIC_WRITE_THROTTLE_RATE', '60/min'),
+    },
     # Number of trusted reverse proxies in front of the app (Vercel = 1). Without this, DRF keys
     # rate limits on the client-supplied X-Forwarded-For text, which an attacker can vary freely.
     'NUM_PROXIES': int(os.environ.get('NUM_PROXIES', '1' if os.environ.get('VERCEL') else '0')),
@@ -282,6 +290,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # WhatsApp Integration Settings
 # Primary customer/merchant communication utilizes direct WhatsApp Click-to-Chat (wa.me) draft links.
 DEFAULT_WHATSAPP_COUNTRY_CODE = os.environ.get('DEFAULT_WHATSAPP_COUNTRY_CODE', '91')
+FRONTEND_BASE_URL = os.environ.get('FRONTEND_BASE_URL', 'http://localhost:3000').rstrip('/')
 
 # CORS Configuration
 from corsheaders.defaults import default_headers
