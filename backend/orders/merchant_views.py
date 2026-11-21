@@ -39,12 +39,36 @@ class MerchantOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if shop is None:
             return Order.objects.none()
 
-        return (
+        qs = (
             Order.objects.filter(shop_id=shop.pk)
             .select_related("delivery_address")
             .prefetch_related("items")
             .order_by("-created_at", "-pk")
         )
+
+        view_mode = self.request.query_params.get("view")
+        if self.action == "list" and view_mode == "incoming":
+            import zoneinfo
+            try:
+                ist = zoneinfo.ZoneInfo("Asia/Kolkata")
+                today_start = timezone.now().astimezone(ist).replace(hour=0, minute=0, second=0, microsecond=0)
+            except Exception:
+                today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            from django.db.models import Q
+            incoming_q = Q(status__in=[
+                Order.Status.PENDING,
+                Order.Status.ACCEPTED,
+                Order.Status.PREPARING,
+                Order.Status.READY,
+            ]) | Q(
+                status__in=[Order.Status.COMPLETED, Order.Status.REJECTED],
+                updated_at__gte=today_start,
+            )
+            matching_ids = list(qs.filter(incoming_q).values_list("pk", flat=True)[:50])
+            return qs.filter(pk__in=matching_ids)
+
+        return qs
 
     def _expire_due_orders(self):
         due_orders = list(self.get_queryset().filter(

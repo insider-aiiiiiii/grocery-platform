@@ -56,6 +56,15 @@ def _create_order(shop, payload, idempotency_key):
         if existing:
             return _replay_or_conflict(existing, payload, normalized_phone)
 
+        merchant_user = getattr(getattr(shop, "merchant", None), "user", None)
+        merchant_phone = getattr(merchant_user, "mobile_number", None)
+        contact_number = getattr(shop, "contact_number", None)
+        own_numbers = {normalize_whatsapp_number(n) for n in (merchant_phone, contact_number) if n}
+        if normalized_phone in own_numbers:
+            raise ValidationError(
+                {"whatsapp_number": "Merchants cannot place customer orders in their own shop."}
+            )
+
         if cart.customer_id:
             if cart.customer.whatsapp_number != normalized_phone:
                 raise ValidationError({"whatsapp_number": "This cart belongs to a different customer identity."})

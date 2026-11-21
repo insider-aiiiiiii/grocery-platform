@@ -38,6 +38,7 @@ import {
   Receipt,
   Edit3,
   Minus,
+  Eye,
 } from "lucide-react";
 import { getApiError as getApiErrorEn, InventoryItem, MerchantOrder, merchantApi, Overview, Product, Shop } from "@/lib/api/merchant";
 import { BulkExcelUploadModal } from "./BulkExcelUploadModal";
@@ -241,6 +242,10 @@ export default function MerchantWorkspace() {
   } | null>(null);
   const [editPriceLoading, setEditPriceLoading] = useState(false);
   const [editPriceError, setEditPriceError] = useState<string | null>(null);
+  const [previewMessageData, setPreviewMessageData] = useState<{
+    order: MerchantOrder;
+    mode: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered";
+  } | null>(null);
 
   useEffect(() => {
     const syncLang = () => {
@@ -253,7 +258,9 @@ export default function MerchantWorkspace() {
   }, []);
 
   const analytics = useQuery({ queryKey: ["merchant", "analytics", period], queryFn: () => merchantApi.analytics(period), enabled: ["overview", "analytics"].includes(section) });
-  const orders = useQuery({ queryKey: ["merchant", "orders"], queryFn: merchantApi.orders, enabled: ["overview", "orders", "customers"].includes(section), refetchInterval: ["overview", "orders"].includes(section) ? 10000 : false });
+  const incomingOrders = useQuery({ queryKey: ["merchant", "orders", "incoming"], queryFn: () => merchantApi.orders({ view: "incoming" }), enabled: ["overview", "orders"].includes(section), refetchInterval: ["overview", "orders"].includes(section) ? 10000 : false });
+  const allOrders = useQuery({ queryKey: ["merchant", "orders", "all"], queryFn: () => merchantApi.orders(), enabled: ["history", "customers"].includes(section) });
+  const orders = incomingOrders;
   const products = useQuery({ queryKey: ["merchant", "products"], queryFn: merchantApi.products, enabled: ["overview", "catalog", "inventory"].includes(section) });
   const categories = useQuery({ queryKey: ["merchant", "categories"], queryFn: merchantApi.categories, enabled: ["catalog", "inventory"].includes(section) });
   const masterCatalog = useQuery({ queryKey: ["merchant", "master-catalog"], queryFn: merchantApi.getMasterCatalog, enabled: section === "catalog" });
@@ -281,12 +288,57 @@ export default function MerchantWorkspace() {
 
   const orderMutation = useMutation({
     mutationFn: ({ id, action }: { id: number; action: string }) => merchantApi.orderAction(id, action),
-    onSuccess: () => {
-      setNotice(lang === "hi" ? "ऑर्डर सफलतापूर्वक अपडेट हुआ।" : "Order updated successfully.");
-      refresh("orders");
-      refresh("analytics");
+    onMutate: async ({ id, action }) => {
+      await queryClient.cancelQueries({ queryKey: ["merchant", "orders"] });
+      const previousIncoming = queryClient.getQueryData<MerchantOrder[]>(["merchant", "orders", "incoming"]);
+      const previousAll = queryClient.getQueryData<MerchantOrder[]>(["merchant", "orders", "all"]);
+
+      const targetStatusMap: Record<string, MerchantOrder["status"]> = {
+        accept: "ACCEPTED",
+        prepare: "PREPARING",
+        ready: "READY",
+        complete: "COMPLETED",
+        cancel: "REJECTED",
+        reject: "REJECTED",
+      };
+      const newStatus = targetStatusMap[action];
+
+      if (newStatus) {
+        const updateList = (old: MerchantOrder[] | undefined) => {
+          if (!old) return [];
+          return old.map((ord) => (ord.id === id ? { ...ord, status: newStatus } : ord));
+        };
+        queryClient.setQueryData(["merchant", "orders", "incoming"], updateList);
+        queryClient.setQueryData(["merchant", "orders", "all"], updateList);
+      }
+
+      return { previousIncoming, previousAll };
     },
-    onError: (e) => setNotice(getApiError(e)),
+    onSuccess: (updatedOrder: MerchantOrder) => {
+      setNotice(lang === "hi" ? "ऑर्डर सफलतापूर्वक अपडेट हुआ।" : "Order updated successfully.");
+      if (updatedOrder && updatedOrder.id) {
+        const updateWithServer = (old: MerchantOrder[] | undefined) => {
+          if (!old) return [];
+          return old.map((ord) => (ord.id === updatedOrder.id ? { ...ord, ...updatedOrder } : ord));
+        };
+        queryClient.setQueryData(["merchant", "orders", "incoming"], updateWithServer);
+        queryClient.setQueryData(["merchant", "orders", "all"], updateWithServer);
+      }
+      queryClient.invalidateQueries({ queryKey: ["merchant", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["merchant", "analytics"] });
+    },
+    onError: (e, _vars, context) => {
+      if (context?.previousIncoming) {
+        queryClient.setQueryData(["merchant", "orders", "incoming"], context.previousIncoming);
+      }
+      if (context?.previousAll) {
+        queryClient.setQueryData(["merchant", "orders", "all"], context.previousAll);
+      }
+      setNotice(getApiError(e));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["merchant", "orders"] });
+    },
   });
 
   const paymentMutation = useMutation({
@@ -663,9 +715,11 @@ export default function MerchantWorkspace() {
                   key={order.id}
                   order={order}
                   lang={lang}
+                  shopSlug={shop.data?.public_slug}
                   onAction={(action) => orderMutation.mutate({ id: order.id, action })}
                   onPaymentChange={(payment_status) => paymentMutation.mutate({ id: order.id, payment_status })}
                   busy={orderMutation.isPending || paymentMutation.isPending}
+                  onPreviewMessage={(mode) => setPreviewMessageData({ order, mode })}
                   onItemResolved={(itemName) => {
                     setNotice(
                       lang === "hi"
@@ -680,6 +734,15 @@ export default function MerchantWorkspace() {
               <Empty icon={ClipboardList} title={lang === "hi" ? "कोई नया ऑर्डर नहीं" : "No incoming orders"} text={lang === "hi" ? "आपके QR स्टोर से आने वाले नए ऑर्डर यहां तुरंत दिखेंगे।" : "New orders placed from your QR store will appear here in real time."} />
             )}
           </div>
+        )}
+        {previewMessageData && (
+          <WhatsAppPreviewModal
+            order={previewMessageData.order}
+            mode={previewMessageData.mode}
+            shopSlug={shop.data?.public_slug}
+            lang={lang}
+            onClose={() => setPreviewMessageData(null)}
+          />
         )}
         {notice && <Toast text={notice} onClose={() => setNotice("")} />}
       </>
@@ -1031,9 +1094,9 @@ export default function MerchantWorkspace() {
   if (section === "customers") {
     return (
       <OrdersHistoryView
-        orders={orders.data ?? []}
-        loading={orders.isLoading}
-        error={orders.error}
+        orders={allOrders.data ?? []}
+        loading={allOrders.isLoading}
+        error={allOrders.error}
         onRefresh={() => refresh("orders")}
         lang={lang}
       />
@@ -1509,116 +1572,218 @@ function InventoryTickRow({
   );
 }
 
-function getMerchantWhatsAppUrl(
+function getMerchantWhatsAppMessage(
   order: MerchantOrder,
-  mode: "status" | "bill" | "pack" | "out_for_delivery" | "delivered" = "status",
-  lang: "en" | "hi" = "en"
-): string {
+  mode: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered" = "delivered",
+  lang: "en" | "hi" = "en",
+  shopSlug?: string
+): { message: string; url: string } {
   const cleanPhone = (order.customer_phone_snapshot || "").replace(/\D/g, "");
   const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-  if (!phoneWithCountry) return "";
-
   const customerName = order.customer_name_snapshot || (lang === "hi" ? "ग्राहक" : "Customer");
   const shortId = `#SK-${order.id}`;
   const total = parseFloat(order.total_amount || "0").toFixed(0);
 
-  if (mode === "bill") {
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const storeUrl = shopSlug && baseUrl ? `${baseUrl}/shop/${shopSlug}` : "";
+
+  let msg = "";
+
+  if (mode === "accept") {
+    msg = lang === "hi"
+      ? `नमस्ते ${customerName} जी! 🙏\nआपका ऑर्डर ${shortId} (कुल बिल: ₹${total}) स्वीकार कर लिया गया है और अब पैक किया जा रहा है! 📦`
+      : `Namaste ${customerName}! 🙏\nYour order ${shortId} for ₹${total} has been *ACCEPTED* and is now being packed! 📦`;
+  } else if (mode === "cancel") {
+    msg = lang === "hi"
+      ? `नमस्ते ${customerName} जी! 🙏\nहमें खेद है, आपका ऑर्डर ${shortId} इस समय पूरा नहीं किया जा सका। असुविधा के लिए हम क्षमा चाहते हैं।${storeUrl ? `\n\n🛒 अन्य सामान देखने के लिए हमारी दुकान का लिंक:\n${storeUrl}` : ""}`
+      : `Namaste ${customerName}! 🙏\nWe are sorry, your order ${shortId} could not be fulfilled at this moment. We apologize for any inconvenience.${storeUrl ? `\n\n🛒 Browse our online store for other items:\n${storeUrl}` : ""}`;
+  } else if (mode === "pack") {
+    msg = lang === "hi"
+      ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (₹${total}) पैक हो गया है! 📦 जल्द ही आपको प्राप्त होगा।`
+      : `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been packed and is ready! 📦`;
+  } else if (mode === "out_for_delivery") {
+    const isPickup = order.fulfillment_type === "PICKUP";
+    msg = isPickup
+      ? lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} दुकान से पिकअप के लिए तैयार है। कृपया दुकान पर आकर अपना सामान प्राप्त करें। 🛍️ कुल बिल: ₹${total}।`
+        : `Namaste ${customerName}! Your order ${shortId} is ready for store pickup. Please visit us to collect! 🛍️ Total Bill: ₹${total}.`
+      : lang === "hi"
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} दुकान से निकल चुका है और आपके पते पर डिलीवरी के लिए रास्ते में है! 🛵 कुल बिल: ₹${total}।`
+        : `Namaste ${customerName}! Your order ${shortId} is out for delivery to your address and will reach you shortly! 🛵 Total Bill: ₹${total}.`;
+  } else {
+    // mode === "delivered" (Combined Bill Summary & Completion Receipt)
     const itemsLines = (order.items || []).map(
       (item) => `• ${item.product_name_snapshot}${item.variant_name_snapshot ? ` (${item.variant_name_snapshot})` : ""} × ${parseFloat(item.quantity || "1")} = ₹${parseFloat(item.line_total || "0").toFixed(0)}`
     ).join("\n");
     const addr = order.delivery_address;
     const addrText = addr ? [addr.address_line, addr.area, addr.city, addr.pincode].filter(Boolean).join(", ") : "";
 
-    const billMsg = [
-      lang === "hi" ? `🛍️ *ऑर्डर ${shortId} बिल सारांश*` : `🛍️ *Order ${shortId} Bill Summary*`,
+    const lines = [
+      lang === "hi" ? `🛍️ *ऑर्डर ${shortId} पूर्ण एवं बिल विवरण*` : `🛍️ *Order ${shortId} Bill & Completion Summary*`,
       ``,
       lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपके ऑर्डर का पक्का बिल विवरण:`
-        : `Namaste ${customerName}! Here is the bill for your order:`,
+        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} पूर्ण हो चुका है। आपके ऑर्डर का बिल विवरण:`
+        : `Namaste ${customerName}! Your order ${shortId} has been completed. Here is your bill summary:`,
       ``,
       itemsLines,
       ``,
       order.delivery_charge_snapshot && parseFloat(order.delivery_charge_snapshot) > 0
         ? `${lang === "hi" ? "डिलीवरी शुल्क" : "Delivery Charge"}: ₹${parseFloat(order.delivery_charge_snapshot).toFixed(0)}`
         : null,
-      `*${lang === "hi" ? "कुल देय राशि" : "Total Payable"}: ₹${total}* (${order.payment_status === "PAID" ? (lang === "hi" ? "ऑनलाइन भुगतान हो गया" : "PAID Online") : (lang === "hi" ? "भुगतान बाकी / डिलीवरी पर कैश" : "Payment Pending / Cash on Delivery")})`,
+      `*${lang === "hi" ? "कुल बिल" : "Total Bill"}: ₹${total}*`,
       order.fulfillment_type === "HOME_DELIVERY" && addrText ? `📍 ${lang === "hi" ? "डिलीवरी पता" : "Delivering to"}: ${addrText}` : null,
       ``,
+      storeUrl ? (lang === "hi" ? `🛒 दोबारा ऑर्डर करने के लिए हमारी दुकान का लिंक: ${storeUrl}` : `🛒 Reorder anytime from our online store: ${storeUrl}`) : null,
+      ``,
       lang === "hi" ? `हमारी दुकान से ख़रीदारी के लिए धन्यवाद! 🙏` : `Thank you for ordering with us! 🙏`,
-    ].filter(Boolean).join("\n");
-
-    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(billMsg)}`;
+    ];
+    msg = lines.filter(Boolean).join("\n");
   }
 
-  if (mode === "pack") {
-    const msg = lang === "hi"
-      ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (₹${total}) पैक हो गया है! 📦 जल्द ही आपको प्राप्त होगा।`
-      : `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been packed and is ready! 📦`;
-    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
-  }
+  const url = phoneWithCountry ? `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}` : "";
+  return { message: msg, url };
+}
 
-  if (mode === "out_for_delivery") {
-    const isPickup = order.fulfillment_type === "PICKUP";
-    const msg = isPickup
-      ? lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार है। कृपया दुकान पर आकर अपना सामान प्राप्त करें। कुल राशि: ₹${total}।`
-        : `Namaste ${customerName}! Your order ${shortId} is ready for store pickup. Please visit us to collect! Total: ₹${total}.`
-      : lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} दुकान से निकल चुका है और आपके पते पर डिलीवरी के लिए रास्ते में है! 🛵 कुल राशि: ₹${total}।`
-        : `Namaste ${customerName}! Your order ${shortId} is out for delivery to your address and will reach you shortly! 🛵 Total: ₹${total}.`;
-    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
-  }
+function getMerchantWhatsAppUrl(
+  order: MerchantOrder,
+  mode: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered" = "delivered",
+  lang: "en" | "hi" = "en",
+  shopSlug?: string
+): string {
+  return getMerchantWhatsAppMessage(order, mode, lang, shopSlug).url;
+}
 
-  if (mode === "delivered") {
-    const msg = lang === "hi"
-      ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (कुल राशि: ₹${total}) डिलीवर/पूर्ण हो चुका है। हमारी दुकान से जुड़ने के लिए बहुत धन्यवाद! 🙏`
-      : `Namaste ${customerName}! Your order ${shortId} (Total: ₹${total}) has been delivered. Thank you for shopping with us! 🙏`;
-    return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(msg)}`;
-  }
+function WhatsAppPreviewModal({
+  order,
+  mode,
+  shopSlug,
+  lang: initialLang = "en",
+  onClose,
+}: {
+  order: MerchantOrder;
+  mode: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered";
+  shopSlug?: string;
+  lang?: Lang;
+  onClose: () => void;
+}) {
+  const [modalLang, setModalLang] = useState<Lang>(initialLang);
+  const [copied, setCopied] = useState(false);
 
-  // General Status update message
-  let statusMsg = "";
-  switch (order.status) {
-    case "PENDING":
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! हमें आपका ऑर्डर ${shortId} (₹${total}) मिल गया है। स्टॉक चेक करके तुरंत पुष्टि कर रहे हैं!`
-        : `Namaste ${customerName}! We have received your order ${shortId} for ₹${total}. Checking items on shelves and confirming shortly!`;
-      break;
-    case "ACCEPTED":
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} (₹${total}) स्वीकार कर लिया गया है और अब पैक किया जा रहा है! 📦`
-        : `Namaste ${customerName}! Your order ${shortId} for ₹${total} has been accepted and is now being packed! 📦`;
-      break;
-    case "PREPARING":
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार किया जा रहा है। जल्द तैयार होगा!`
-        : `Namaste ${customerName}! Your order ${shortId} is currently being packed. It will be ready soon!`;
-      break;
-    case "READY":
-      const actionText = order.fulfillment_type === "PICKUP"
-        ? (lang === "hi" ? "दुकान से पिकअप के लिए तैयार है।" : "ready for store pickup. Please visit us to collect!")
-        : (lang === "hi" ? "डिलीवरी के लिए निकल चुका है।" : "out for delivery to your address!");
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} तैयार है और ${actionText} कुल राशि: ₹${total}।`
-        : `Namaste ${customerName}! Your order ${shortId} is ready and ${actionText} Total: ₹${total}.`;
-      break;
-    case "COMPLETED":
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपका ऑर्डर ${shortId} डिलीवर/पूर्ण हो चुका है। धन्यवाद! 🙏`
-        : `Namaste ${customerName}! Your order ${shortId} has been completed/delivered. Thank you! 🙏`;
-      break;
-    case "REJECTED":
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी, किसी कारणवश हम आपका ऑर्डर ${shortId} स्वीकार नहीं कर पाए हैं। असुविधा के लिए खेद है!`
-        : `Namaste ${customerName}, we are unable to accept order ${shortId} at this time. Sorry for the inconvenience!`;
-      break;
-    default:
-      statusMsg = lang === "hi"
-        ? `नमस्ते ${customerName} जी! आपके ऑर्डर ${shortId} के बारे में: कुल राशि ₹${total}।`
-        : `Namaste ${customerName}! Regarding your order ${shortId}: Total ₹${total}.`;
-  }
+  const { message, url } = useMemo(
+    () => getMerchantWhatsAppMessage(order, mode, modalLang, shopSlug),
+    [order, mode, modalLang, shopSlug]
+  );
 
-  return `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(statusMsg)}`;
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  const titleMap: Record<string, { en: string; hi: string }> = {
+    accept: { en: "Order Accepted Message (स्वीकार संदेश)", hi: "ऑर्डर स्वीकार संदेश पूर्वावलोकन" },
+    cancel: { en: "Order Cancelled Message (रद्द संदेश)", hi: "ऑर्डर रद्द संदेश पूर्वावलोकन" },
+    pack: { en: "Packing Done Message (पैकिंग पूर्ण)", hi: "पैक हो गया संदेश पूर्वावलोकन" },
+    out_for_delivery: {
+      en: order.fulfillment_type === "PICKUP" ? "Pickup Ready Message (पिकअप तैयार)" : "Out for Delivery Message (डिलीवरी रवाना)",
+      hi: order.fulfillment_type === "PICKUP" ? "पिकअप तैयार संदेश पूर्वावलोकन" : "डिलीवरी रवाना संदेश पूर्वावलोकन",
+    },
+    delivered: { en: "Order Done & Bill Message (पूर्ण एवं बिल)", hi: "ऑर्डर पूर्ण एवं पक्का बिल पूर्वावलोकन" },
+  };
+
+  const title = modalLang === "hi" ? titleMap[mode]?.hi : titleMap[mode]?.en;
+  const hasStoreLink = mode === "cancel" || mode === "delivered";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+      <div className="w-full max-w-lg rounded-2xl border border-[#ddd6ca] bg-white p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between border-b border-[#eee9df] pb-3">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="h-5 w-5 text-[#25D366]" />
+            <h3 className="font-display font-bold text-base text-[#123324]">{title}</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-[#6d756f] hover:bg-[#f3eee5] hover:text-[#123324] transition cursor-pointer"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Language switcher & Store link indicator */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-[#f5f1e8] p-1 border border-[#e4ded3]">
+            <button
+              type="button"
+              onClick={() => setModalLang("hi")}
+              className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer ${
+                modalLang === "hi" ? "bg-white text-[#1F5D42] shadow-xs" : "text-[#6d756f] hover:text-[#123324]"
+              }`}
+            >
+              हिंदी (Hindi)
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalLang("en")}
+              className={`rounded-lg px-3 py-1 text-xs font-bold transition cursor-pointer ${
+                modalLang === "en" ? "bg-white text-[#1F5D42] shadow-xs" : "text-[#6d756f] hover:text-[#123324]"
+              }`}
+            >
+              English
+            </button>
+          </div>
+
+          {hasStoreLink && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#e7f2eb] px-2.5 py-1 text-[11px] font-bold text-[#1F5D42] border border-[#c6dfce]">
+              <span>🔗</span>
+              <span>{modalLang === "hi" ? "दुकान QR लिंक शामिल" : "Store Link Included"}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Message preview body */}
+        <div className="relative rounded-xl border border-[#cde0d5] bg-[#fcfdfc] p-4 text-xs font-sans text-[#123324] whitespace-pre-wrap max-h-72 overflow-y-auto leading-relaxed shadow-inner">
+          {message}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#eee9df]">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#ddd6ca] bg-white px-3.5 py-2 text-xs font-bold text-[#123324] hover:bg-[#f7f3eb] transition cursor-pointer"
+          >
+            {copied ? <Check size={14} className="text-[#1F5D42]" /> : <Copy size={14} />}
+            <span>{copied ? (modalLang === "hi" ? "कॉपी हो गया!" : "Copied!") : (modalLang === "hi" ? "संदेश कॉपी करें" : "Copy Message")}</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl px-4 py-2 text-xs font-bold text-[#6d756f] hover:bg-[#f3eee5] transition cursor-pointer"
+            >
+              {modalLang === "hi" ? "बंद करें" : "Close"}
+            </button>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#1fb858] px-4 py-2 text-xs font-bold text-white shadow-xs transition active:scale-[0.98]"
+            >
+              <MessageCircle className="h-4 w-4 fill-white" />
+              <span>{modalLang === "hi" ? "व्हाट्सएप पर भेजें" : "Send via WhatsApp"}</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // -------------------------------------------------------------
@@ -1627,34 +1792,39 @@ function getMerchantWhatsAppUrl(
 function VisualOrderCard({
   order,
   onAction,
-  onPaymentChange,
   busy,
   onItemResolved,
+  onPreviewMessage,
+  shopSlug,
   lang = "en",
 }: {
   order: MerchantOrder;
   onAction: (action: string) => void;
-  onPaymentChange: (paymentStatus: "PAID" | "UNPAID") => void;
+  onPaymentChange?: (paymentStatus: "PAID" | "UNPAID") => void;
   busy: boolean;
   onItemResolved: (itemName: string) => void;
+  onPreviewMessage: (mode: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered") => void;
+  shopSlug?: string;
   lang?: "en" | "hi";
 }) {
   const [missingItem, setMissingItem] = useState<string | null>(null);
-
-  const transitions: Record<string, Array<[string, string]>> = {
-    PENDING: [
-      ["accept", lang === "hi" ? "स्वीकार करें" : "Accept"],
-      ["reject", lang === "hi" ? "अस्वीकार करें" : "Reject"],
-    ],
-    ACCEPTED: [["prepare", lang === "hi" ? "पैकिंग शुरू करें" : "Start packing"]],
-    PREPARING: [["ready", lang === "hi" ? "पैक हो गया / तैयार" : "Packed / Done"]],
-    READY: [["complete", order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "दुकान से उठाया गया" : "Picked up from store") : (lang === "hi" ? "डिलीवरी रवाना / पूर्ण" : "Out for delivery / Complete")]],
-  };
 
   const handleRemoveMissingItem = (itemName: string) => {
     setMissingItem(null);
     onItemResolved(itemName);
   };
+
+  const handleActionWithWhatsApp = (action: string, mode?: "accept" | "cancel" | "pack" | "out_for_delivery" | "delivered") => {
+    onAction(action);
+    if (mode && order.customer_phone_snapshot) {
+      const url = getMerchantWhatsAppUrl(order, mode, lang, shopSlug);
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    }
+  };
+
+  const isTerminal = order.status === "COMPLETED" || order.status === "REJECTED";
 
   return (
     <div className="rounded-2xl border border-[#ddd6ca] bg-[#FFFDF8] p-5 shadow-xs space-y-4">
@@ -1680,13 +1850,6 @@ function VisualOrderCard({
         </div>
         <div className="flex items-center gap-3">
           <span className="font-display font-bold text-base text-[#1F5D42]">{money(order.total_amount)}</span>
-          <span
-            className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
-              order.payment_status === "PAID" ? "bg-[#e7f2eb] text-[#1F5D42]" : "bg-[#fdf2ec] text-[#9a4d2a]"
-            }`}
-          >
-            {order.payment_status === "PAID" ? (lang === "hi" ? "भुगतान मिला" : "PAID") : (lang === "hi" ? "भुगतान बाकी" : "UNPAID")}
-          </span>
           <StatusPill status={order.status} />
         </div>
       </div>
@@ -1714,7 +1877,7 @@ function VisualOrderCard({
                 {(order.status === "PENDING" || order.status === "ACCEPTED") && !isItemFlagged && (
                   <button
                     onClick={() => setMissingItem(item.product_name_snapshot)}
-                    className="text-[10px] text-[#9a4d2a] hover:underline"
+                    className="text-[10px] text-[#9a4d2a] hover:underline cursor-pointer"
                     title={lang === "hi" ? "सामान को उपलब्ध नहीं के रूप में चिह्नित करें" : "Flag item as missing"}
                   >
                     {lang === "hi" ? "उपलब्ध नहीं" : "Flag missing"}
@@ -1738,13 +1901,13 @@ function VisualOrderCard({
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => handleRemoveMissingItem(missingItem)}
-              className="px-3 py-1.5 rounded-lg bg-[#f7d7ca] hover:bg-[#f1c3b1] text-[#803f24] font-bold text-xs transition"
+              className="px-3 py-1.5 rounded-lg bg-[#f7d7ca] hover:bg-[#f1c3b1] text-[#803f24] font-bold text-xs transition cursor-pointer"
             >
               {lang === "hi" ? "यह सामान हटाएं और कुल रकम ठीक करें" : "Remove this item & adjust total"}
             </button>
             <button
               onClick={() => setMissingItem(null)}
-              className="px-3 py-1.5 rounded-lg bg-[#1F5D42] hover:bg-[#123324] text-white font-bold text-xs transition"
+              className="px-3 py-1.5 rounded-lg bg-[#1F5D42] hover:bg-[#123324] text-white font-bold text-xs transition cursor-pointer"
             >
               {lang === "hi" ? "अभी मेरी इन्वेंट्री में जोड़ें" : "Add to my inventory now"}
             </button>
@@ -1752,91 +1915,235 @@ function VisualOrderCard({
         </div>
       )}
 
-      {/* Action Transition & WhatsApp Buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#eee9df]">
-        <div className="flex flex-wrap items-center gap-2">
-          {transitions[order.status]?.map(([action, label]) => (
-            <button
-              disabled={busy}
-              key={action}
-              onClick={() => onAction(action)}
-              className={`rounded-xl px-4 py-2 text-xs font-bold shadow-xs disabled:opacity-50 transition ${
-                action === "reject"
-                  ? "border border-[#ecd9d3] bg-white text-[#9a5244] hover:bg-[#fff6f3]"
-                  : action === "accept"
-                  ? "bg-[#1F5D42] text-white hover:bg-[#123324]"
-                  : "bg-[#E8A33D] text-[#123324] hover:bg-[#d6902b]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-          {/* An order must be PAID before it can be completed, so the merchant needs a way to record payment. */}
-          {["PENDING", "ACCEPTED", "PREPARING", "READY"].includes(order.status) && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onPaymentChange(order.payment_status === "PAID" ? "UNPAID" : "PAID")}
-              className={`rounded-xl border px-3.5 py-2 text-xs font-bold shadow-xs disabled:opacity-50 transition ${
-                order.payment_status === "PAID"
-                  ? "border-[#ddd6ca] bg-white text-[#6d756f] hover:bg-[#f7f3eb]"
-                  : "border-[#1F5D42] bg-[#e7f2eb] text-[#1F5D42] hover:bg-[#d8ebe0]"
-              }`}
-            >
-              {order.payment_status === "PAID"
-                ? (lang === "hi" ? "भुगतान बाकी करें" : "Mark unpaid")
-                : (lang === "hi" ? "भुगतान मिला ✓" : "Mark as paid")}
-            </button>
-          )}
-          {!transitions[order.status] && <span className="text-xs text-[#89958c]">{lang === "hi" ? `ऑर्डर ${STATUS_HI[order.status] ?? order.status.toLowerCase()}` : `Order ${order.status.toLowerCase()}`}</span>}
-        </div>
+      {/* Overrides Bar */}
+      {!isTerminal && (
+        <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-[#F6F1E8]/70 border border-[#E3DCB]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#735A38] mr-1">
+              {lang === "hi" ? "सीधे नियंत्रण (Overrides):" : "Overrides:"}
+            </span>
 
-        {/* 1-Click WhatsApp Actions for Merchant */}
-        {order.customer_phone_snapshot && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <a
-              href={getMerchantWhatsAppUrl(order, "status", lang)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1fb858] text-white text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title={lang === "hi" ? "ग्राहक को व्हाट्सएप पर मौजूदा स्थिति भेजें" : "Message customer on WhatsApp with current status"}
-            >
-              <MessageCircle className="w-3.5 h-3.5 fill-white" />
-              <span>{lang === "hi" ? "व्हाट्सएप चैट" : "WhatsApp"}</span>
-            </a>
+            {/* Direct Mark as Done */}
+            <div className="inline-flex items-center rounded-xl bg-[#2E7D32] shadow-xs text-white">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleActionWithWhatsApp("complete", "delivered")}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold hover:bg-[#1B5E20] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                title={lang === "hi" ? "सीधे पूर्ण करें और ग्राहक को बिल भेजें" : "Directly mark as completed & send bill"}
+              >
+                <CheckCircle2 size={13} />
+                <span>{lang === "hi" ? "सीधे पूर्ण करें ✓ (Mark Done)" : "Mark as Done ✓"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewMessage("delivered")}
+                className="p-1.5 hover:bg-[#1B5E20] border-l border-white/25 rounded-r-xl transition cursor-pointer"
+                title={lang === "hi" ? "पूर्ण संदेश एवं बिल देखें (Preview)" : "Preview completion & bill message"}
+              >
+                <Eye size={13} />
+              </button>
+            </div>
 
-            <a
-              href={getMerchantWhatsAppUrl(order, "pack", lang)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title={lang === "hi" ? "पैक हो गया संदेश भेजें" : "Send Pack Ho Gaya notification"}
-            >
-              <span>{lang === "hi" ? "पैक हो गया 📦" : "Pack Done 📦"}</span>
-            </a>
-
-            <a
-              href={getMerchantWhatsAppUrl(order, "out_for_delivery", lang)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title={order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप के लिए तैयार संदेश भेजें" : "Send Ready for Pickup notification") : (lang === "hi" ? "डिलीवरी रवाना संदेश भेजें" : "Send Out for Delivery notification")}
-            >
-              <span>{order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप तैयार 🛍️" : "Pickup Ready 🛍️") : (lang === "hi" ? "डिलीवरी रवाना 🛵" : "Out for Delivery 🛵")}</span>
-            </a>
-
-            <a
-              href={getMerchantWhatsAppUrl(order, "bill", lang)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-[#cde0d5] bg-[#f0f7f3] hover:bg-[#e2efe7] text-[#1F5D42] text-[11px] font-bold shadow-xs transition active:scale-[0.98]"
-              title={lang === "hi" ? "ग्राहक को व्हाट्सएप पर सामान सहित बिल भेजें" : "Share pre-filled itemized bill with customer on WhatsApp"}
-            >
-              <Receipt className="w-3 h-3" />
-              <span>{lang === "hi" ? "पक्का बिल 🧾" : "Share Bill 🧾"}</span>
-            </a>
+            {/* Direct Cancel Order */}
+            <div className="inline-flex items-center rounded-xl border border-[#ecd9d3] bg-white shadow-xs text-[#b9381e]">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleActionWithWhatsApp("cancel", "cancel")}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold hover:bg-[#fff5f2] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                title={lang === "hi" ? "ऑर्डर रद्द करें (स्टॉक वापस जुड़ेगा)" : "Cancel order & release stock"}
+              >
+                <X size={13} />
+                <span>{lang === "hi" ? "ऑर्डर रद्द करें" : "Cancel Order"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewMessage("cancel")}
+                className="p-1.5 hover:bg-[#fff5f2] border-l border-[#ecd9d3] rounded-r-xl transition cursor-pointer"
+                title={lang === "hi" ? "रद्द संदेश देखें (Preview)" : "Preview cancellation message"}
+              >
+                <Eye size={13} />
+              </button>
+            </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Stage Progression & WhatsApp Action Row */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#eee9df]">
+        <div className="flex flex-wrap items-center gap-2">
+          {order.status === "PENDING" && (
+            <>
+              {/* Accept Order */}
+              <div className="inline-flex items-center rounded-xl bg-[#1F5D42] text-white shadow-xs">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleActionWithWhatsApp("accept", "accept")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold hover:bg-[#123324] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                  title={lang === "hi" ? "ऑर्डर स्वीकार करें और ग्राहक को सूचित करें" : "Accept order & notify customer"}
+                >
+                  <Check size={13} />
+                  <span>{lang === "hi" ? "ऑर्डर स्वीकार करें" : "Accept Order"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPreviewMessage("accept")}
+                  className="p-2 hover:bg-[#123324] border-l border-white/20 rounded-r-xl transition cursor-pointer"
+                  title={lang === "hi" ? "स्वीकार संदेश देखें (Preview)" : "Preview accept message"}
+                >
+                  <Eye size={13} />
+                </button>
+              </div>
+
+              {/* Cancel Order from PENDING */}
+              <div className="inline-flex items-center rounded-xl border border-[#ecd9d3] bg-white text-[#b9381e] shadow-xs">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleActionWithWhatsApp("cancel", "cancel")}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold hover:bg-[#fff5f2] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                  title={lang === "hi" ? "ऑर्डर रद्द करें" : "Cancel Order"}
+                >
+                  <X size={13} />
+                  <span>{lang === "hi" ? "अस्वीकार / रद्द करें" : "Cancel / Reject"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPreviewMessage("cancel")}
+                  className="p-2 hover:bg-[#fff5f2] border-l border-[#ecd9d3] rounded-r-xl transition cursor-pointer"
+                  title={lang === "hi" ? "रद्द संदेश देखें (Preview)" : "Preview reject message"}
+                >
+                  <Eye size={13} />
+                </button>
+              </div>
+            </>
+          )}
+
+          {order.status === "ACCEPTED" && (
+            <div className="inline-flex items-center rounded-xl bg-[#E8A33D] text-[#123324] shadow-xs">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleActionWithWhatsApp("prepare", "pack")}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold hover:bg-[#d6902b] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                title={lang === "hi" ? "पैकिंग पूर्ण करें और संदेश भेजें" : "Mark packing done & notify customer"}
+              >
+                <span>{lang === "hi" ? "पैक हो गया 📦 (Pack Done)" : "Pack Done 📦"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewMessage("pack")}
+                className="p-2 hover:bg-[#d6902b] border-l border-[#123324]/20 rounded-r-xl transition cursor-pointer"
+                title={lang === "hi" ? "पैक संदेश देखें (Preview)" : "Preview packing message"}
+              >
+                <Eye size={13} />
+              </button>
+            </div>
+          )}
+
+          {order.status === "PREPARING" && (
+            <div className="inline-flex items-center rounded-xl bg-[#E8A33D] text-[#123324] shadow-xs">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleActionWithWhatsApp("ready", "out_for_delivery")}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold hover:bg-[#d6902b] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                title={order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप के लिए तैयार करें और संदेश भेजें" : "Mark ready for pickup") : (lang === "hi" ? "डिलीवरी रवाना करें और संदेश भेजें" : "Mark out for delivery")}
+              >
+                <span>{order.fulfillment_type === "PICKUP" ? (lang === "hi" ? "पिकअप तैयार 🛍️ (Ready)" : "Ready for Pickup 🛍️") : (lang === "hi" ? "डिलीवरी रवाना 🛵 (Out for Delivery)" : "Out for Delivery 🛵")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewMessage("out_for_delivery")}
+                className="p-2 hover:bg-[#d6902b] border-l border-[#123324]/20 rounded-r-xl transition cursor-pointer"
+                title={lang === "hi" ? "डिलीवरी/पिकअप संदेश देखें (Preview)" : "Preview delivery/pickup message"}
+              >
+                <Eye size={13} />
+              </button>
+            </div>
+          )}
+
+          {order.status === "READY" && (
+            <div className="inline-flex items-center rounded-xl bg-[#2E7D32] text-white shadow-xs">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleActionWithWhatsApp("complete", "delivered")}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold hover:bg-[#1B5E20] disabled:opacity-50 transition cursor-pointer rounded-l-xl"
+                title={lang === "hi" ? "ऑर्डर पूर्ण करें और बिल रसीद भेजें" : "Complete order & share bill receipt"}
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>{lang === "hi" ? "ऑर्डर पूर्ण एवं पक्का बिल 🎉🧾" : "Order Done & Bill 🎉🧾"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewMessage("delivered")}
+                className="p-2 hover:bg-[#1B5E20] border-l border-white/20 rounded-r-xl transition cursor-pointer"
+                title={lang === "hi" ? "पूर्ण एवं बिल संदेश देखें (Preview)" : "Preview completion & bill message"}
+              >
+                <Eye size={13} />
+              </button>
+            </div>
+          )}
+
+          {order.status === "COMPLETED" && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#1F5D42] bg-[#e7f2eb] px-2.5 py-1 rounded-lg">
+                ✓ {lang === "hi" ? "ऑर्डर पूर्ण" : "Order completed"}
+              </span>
+              <div className="inline-flex items-center rounded-xl border border-[#cde0d5] bg-[#f0f7f3] shadow-xs text-[#1F5D42]">
+                <a
+                  href={getMerchantWhatsAppUrl(order, "delivered", lang, shopSlug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold hover:bg-[#e2efe7] transition rounded-l-xl"
+                  title={lang === "hi" ? "पुनः बिल एवं रसीद भेजें" : "Re-share bill & receipt"}
+                >
+                  <Receipt className="w-3 h-3" />
+                  <span>{lang === "hi" ? "बिल पुनः भेजें 🧾" : "Re-share Bill 🧾"}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => onPreviewMessage("delivered")}
+                  className="p-1.5 hover:bg-[#d8ebe0] border-l border-[#cde0d5] rounded-r-xl transition cursor-pointer"
+                  title={lang === "hi" ? "बिल संदेश देखें (Preview)" : "Preview bill message"}
+                >
+                  <Eye size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {order.status === "REJECTED" && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#b9381e] bg-[#fde8de] px-2.5 py-1 rounded-lg">
+                ✗ {lang === "hi" ? "ऑर्डर रद्द" : "Order cancelled"}
+              </span>
+              <div className="inline-flex items-center rounded-xl border border-[#ecd9d3] bg-white shadow-xs text-[#b9381e]">
+                <a
+                  href={getMerchantWhatsAppUrl(order, "cancel", lang, shopSlug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold hover:bg-[#fff5f2] transition rounded-l-xl"
+                  title={lang === "hi" ? "रद्द संदेश भेजें" : "Send cancel notice"}
+                >
+                  <X size={13} />
+                  <span>{lang === "hi" ? "रद्द संदेश ✗" : "Cancel Notice ✗"}</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => onPreviewMessage("cancel")}
+                  className="p-1.5 hover:bg-[#fff5f2] border-l border-[#ecd9d3] rounded-r-xl transition cursor-pointer"
+                  title={lang === "hi" ? "रद्द संदेश देखें (Preview)" : "Preview cancel message"}
+                >
+                  <Eye size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

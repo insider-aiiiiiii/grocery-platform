@@ -849,15 +849,15 @@ def restore_accepted_order_stock(
 
         order_status = getattr(order, "status", None)
         if order_status is not None:
-            if order_status in ("PREPARING", "READY", "COMPLETED"):
+            if order_status == "COMPLETED":
                 raise ValidationError(
-                    f"Merchant cannot cancel an order in '{order_status}' status. Cancellation is only allowed before preparation."
+                    f"Merchant cannot cancel an order in '{order_status}' status. Cancellation is only allowed before completion."
                 )
             if order_status == "REJECTED":
                 return []
-            if order_status != "ACCEPTED":
+            if order_status not in ("ACCEPTED", "PREPARING", "READY"):
                 raise ValidationError(
-                    f"Cannot restore stock for order in status '{order_status}'. Order must be ACCEPTED."
+                    f"Cannot restore stock for order in status '{order_status}'. Order must be in ACCEPTED, PREPARING, or READY."
                 )
 
         order_items = list(order.items.all())
@@ -937,11 +937,11 @@ def synchronize_order_transition_stock(
     current_status = getattr(order, "status", None)
     if current_status == "PENDING":
         return release_pending_order_stock(shop, order, actor=actor, reason=reason)
-    elif current_status == "ACCEPTED":
+    elif current_status in ("ACCEPTED", "PREPARING", "READY"):
         return restore_accepted_order_stock(shop, order, actor=actor, reason=reason)
-    elif current_status in ("PREPARING", "READY", "COMPLETED"):
+    elif current_status == "COMPLETED":
         raise ValidationError(
-            f"Cannot cancel or reject an order in '{current_status}' status. Cancellation is only allowed before preparation."
+            f"Cannot cancel or reject an order in '{current_status}' status. Cancellation is only allowed before completion."
         )
     elif current_status == "REJECTED":
         # Exactly-once guarantee: already terminal REJECTED

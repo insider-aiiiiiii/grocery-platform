@@ -332,12 +332,6 @@ class CartCustomerAssociateSerializer(serializers.Serializer):
             normalized = normalize_whatsapp_number(value)
         except Exception as e:
             raise serializers.ValidationError(str(e))
-
-        from users.models import User
-        if User.objects.filter(mobile_number=normalized).exists():
-            raise serializers.ValidationError(
-                "This WhatsApp number is already registered as an authenticated user identity."
-            )
         return normalized
 
     def validate(self, attrs):
@@ -345,9 +339,21 @@ class CartCustomerAssociateSerializer(serializers.Serializer):
         if not cart:
             raise serializers.ValidationError({"cart": "Cart context is required."})
 
+        normalized = attrs.get("whatsapp_number")
+        if normalized and cart.shop_id:
+            shop = cart.shop
+            merchant_user = getattr(getattr(shop, "merchant", None), "user", None)
+            merchant_phone = getattr(merchant_user, "mobile_number", None)
+            contact_number = getattr(shop, "contact_number", None)
+            from customers.models import normalize_whatsapp_number
+            own_numbers = {normalize_whatsapp_number(n) for n in (merchant_phone, contact_number) if n}
+            if normalized in own_numbers:
+                raise serializers.ValidationError(
+                    {"whatsapp_number": "Merchants cannot place customer orders in their own shop."}
+                )
+
         # Check reassignment guard
         if cart.customer_id is not None:
-            normalized = attrs.get("whatsapp_number")
             if normalized and cart.customer.whatsapp_number != normalized:
                 raise serializers.ValidationError(
                     {"cart": "Cart is already associated with another customer."}

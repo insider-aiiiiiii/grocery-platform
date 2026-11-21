@@ -41,11 +41,14 @@ def create_or_recognize_customer(
 
     normalized = normalize_whatsapp_number(whatsapp_number)
 
-    # Check approved global identity/claim boundary against authenticated Users
-    from users.models import User
-    if User.objects.filter(mobile_number=normalized).exists():
+    # Check that customer is not the merchant or contact number of THIS shop
+    merchant_user = getattr(getattr(shop, "merchant", None), "user", None)
+    merchant_phone = getattr(merchant_user, "mobile_number", None)
+    contact_number = getattr(shop, "contact_number", None)
+    own_numbers = {normalize_whatsapp_number(n) for n in (merchant_phone, contact_number) if n}
+    if normalized in own_numbers:
         raise ValidationError(
-            {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
+            {"whatsapp_number": "Merchants cannot place customer orders in their own shop."}
         )
 
     # Recognize within the specified Shop

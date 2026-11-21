@@ -234,6 +234,7 @@ def get_merchant_order_action_links(
         "customer_name": customer_name,
     }
 
+    include_store_link = event_key in ("ORDER_COMPLETED", "BILL")
     if language:
         lang_key = language.lower().strip()
         if lang_key not in SUPPORTED_LANGUAGES:
@@ -241,7 +242,7 @@ def get_merchant_order_action_links(
                 f"Unsupported language '{language}'. Supported languages: {SUPPORTED_LANGUAGES}"
             )
         message_text = get_template_text(event_key, lang_key, context)
-        if shop_order_url and "{shop_order_url}" not in message_text:
+        if include_store_link and shop_order_url and shop_order_url not in message_text:
             message_text = f"{message_text}\nShop link: {shop_order_url}"
         return build_whatsapp_link(customer_phone, message_text, default_country_code=default_country_code)
 
@@ -249,7 +250,7 @@ def get_merchant_order_action_links(
     result: Dict[str, str] = {}
     for lang in SUPPORTED_LANGUAGES:
         message_text = get_template_text(event_key, lang, context)
-        if shop_order_url and "{shop_order_url}" not in message_text:
+        if include_store_link and shop_order_url and shop_order_url not in message_text:
             message_text = f"{message_text}\nShop link: {shop_order_url}"
         result[lang] = build_whatsapp_link(customer_phone, message_text, default_country_code=default_country_code)
 

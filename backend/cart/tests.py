@@ -1795,13 +1795,19 @@ class CartCustomerAssociationAPITests(TestCase):
         self.assertEqual(self.cart.customer_id, cust_a.id)
 
     def test_associate_rejects_whatsapp_claimed_by_authenticated_user(self):
-        """Rejects WhatsApp numbers that are already registered to authenticated Users."""
+        """Rejects WhatsApp numbers of the shop's own merchant, but allows other merchants."""
         url = f"/api/v1/cart/{self.cart.id}/customer/"
+        # Own merchant number -> rejected
         payload = {"whatsapp_number": self.merchant_user.mobile_number}
         response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already registered as an authenticated user", str(response.json()))
+        self.assertIn("cannot place customer orders in their own shop", str(response.json()))
+
+        # Other merchant number -> allowed!
+        payload_other = {"whatsapp_number": self.merchant_other_user.mobile_number}
+        response_other = self.client.post(url, payload_other, format="json")
+        self.assertIn(response_other.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
 
     def test_associate_rejects_invalid_whatsapp_number(self):
         """Rejects non-Indian or improperly formatted mobile numbers."""
@@ -2537,13 +2543,19 @@ class CartDomainVerificationTests(TestCase):
         self.assertEqual(self.cart_s1.customer_id, self.cust_s1.id)
 
     def test_authenticated_user_identity_collision_rejected(self):
-        """WhatsApp numbers claimed by authenticated Users (Merchants/SuperAdmins) are rejected."""
+        """Own merchant's WhatsApp number is rejected on their own shop cart, other merchants allowed."""
         url = f"/api/v1/cart/{self.cart_s1.id}/customer/"
+        # self.user1 owns shop1 -> rejected
         payload = {"whatsapp_number": self.user1.mobile_number}
         response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("already registered as an authenticated user", str(response.json()))
+        self.assertIn("cannot place customer orders in their own shop", str(response.json()))
+
+        # self.user2 owns shop2 -> allowed to shop at shop1
+        payload2 = {"whatsapp_number": self.user2.mobile_number}
+        response2 = self.client.post(url, payload2, format="json")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
     def test_customer_deletion_sets_null_on_cart(self):
         """Deleting a Customer sets cart.customer to None without deleting the cart."""
