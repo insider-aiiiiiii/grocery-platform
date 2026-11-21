@@ -120,12 +120,21 @@ class Customer(models.Model):
             if orig and orig["shop_id"] != self.shop_id:
                 raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
 
-        # Global identity boundary: number cannot be claimed by authenticated User (Merchant/Super Admin)
-        from users.models import User
-        if User.objects.filter(mobile_number=self.whatsapp_number).exists():
-            raise ValidationError(
-                {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
-            )
+        # Own shop boundary: A merchant cannot register as a customer in their own shop
+        if self.shop_id:
+            shop = getattr(self, "shop", None)
+            if not shop:
+                from shops.models import Shop
+                shop = Shop.objects.filter(pk=self.shop_id).select_related("merchant__user").first()
+            if shop:
+                merchant_user = getattr(getattr(shop, "merchant", None), "user", None)
+                merchant_phone = getattr(merchant_user, "mobile_number", None)
+                contact_number = getattr(shop, "contact_number", None)
+                own_numbers = {normalize_whatsapp_number(n) for n in (merchant_phone, contact_number) if n}
+                if self.whatsapp_number in own_numbers:
+                    raise ValidationError(
+                        {"whatsapp_number": "Merchants cannot place customer orders in their own shop."}
+                    )
 
         if self.shop_id:
             qs = Customer.objects.filter(shop_id=self.shop_id, whatsapp_number=self.whatsapp_number)
@@ -145,12 +154,21 @@ class Customer(models.Model):
             if orig and orig["shop_id"] != self.shop_id:
                 raise ValidationError({"shop": "Cannot reassign a Customer profile to a different Shop."})
 
-        # Global identity boundary check
-        from users.models import User
-        if User.objects.filter(mobile_number=self.whatsapp_number).exists():
-            raise ValidationError(
-                {"whatsapp_number": "This WhatsApp number is already registered as an authenticated user identity."}
-            )
+        # Own shop boundary check
+        if self.shop_id:
+            shop = getattr(self, "shop", None)
+            if not shop:
+                from shops.models import Shop
+                shop = Shop.objects.filter(pk=self.shop_id).select_related("merchant__user").first()
+            if shop:
+                merchant_user = getattr(getattr(shop, "merchant", None), "user", None)
+                merchant_phone = getattr(merchant_user, "mobile_number", None)
+                contact_number = getattr(shop, "contact_number", None)
+                own_numbers = {normalize_whatsapp_number(n) for n in (merchant_phone, contact_number) if n}
+                if self.whatsapp_number in own_numbers:
+                    raise ValidationError(
+                        {"whatsapp_number": "Merchants cannot place customer orders in their own shop."}
+                    )
 
         super().save(*args, **kwargs)
 

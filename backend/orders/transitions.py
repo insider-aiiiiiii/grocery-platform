@@ -110,13 +110,18 @@ def _transition(shop_id, order_id, action, *, payload=None, actor=None):
                 and order.rejection_reason_code == "MERCHANT_CANCELLED"
             ):
                 return order, False
-            if order.status != Order.Status.ACCEPTED:
-                raise OrderTransitionConflict("Only ACCEPTED Orders may be cancelled by a Merchant.")
-            _restore_accepted_stock(order, actor=actor, reason="MERCHANT_CANCELLED")
+            if order.status == Order.Status.COMPLETED:
+                raise OrderTransitionConflict("A COMPLETED Order cannot be cancelled.")
+            if order.status == Order.Status.PENDING:
+                _release_pending_stock(order, actor=actor, reason="MERCHANT_CANCELLED")
+            elif order.status in {Order.Status.ACCEPTED, Order.Status.PREPARING, Order.Status.READY}:
+                _restore_accepted_stock(order, actor=actor, reason="MERCHANT_CANCELLED")
+            else:
+                raise OrderTransitionConflict("This Order cannot be cancelled.")
             order.status = Order.Status.REJECTED
             order.rejection_actor = Order.RejectionActor.MERCHANT
             order.rejection_reason_code = "MERCHANT_CANCELLED"
-            order.rejection_note = payload.get("rejection_note", "")
+            order.rejection_note = payload.get("rejection_note", "") or ""
             order.rejected_at = now
             order.save(update_fields=[
                 "status", "rejection_actor", "rejection_reason_code", "rejection_note", "rejected_at", "updated_at",
@@ -125,27 +130,37 @@ def _transition(shop_id, order_id, action, *, payload=None, actor=None):
         elif action == "prepare":
             if order.status == Order.Status.PREPARING:
                 return order, False
-            if order.status != Order.Status.ACCEPTED:
-                raise OrderTransitionConflict("Only ACCEPTED Orders can enter PREPARING.")
+            if order.status == Order.Status.PENDING:
+                _accept_order(order, payload.get("items", []), now, actor)
+                order.refresh_from_db()
+            elif order.status != Order.Status.ACCEPTED:
+                raise OrderTransitionConflict("Only ACCEPTED or PENDING Orders can enter PREPARING.")
             order.status = Order.Status.PREPARING
             order.save(update_fields=["status", "updated_at"])
+            request_order_notification(order, "ORDER_PREPARING")
         elif action == "ready":
             if order.status == Order.Status.READY:
                 return order, False
-            if order.status != Order.Status.PREPARING:
-                raise OrderTransitionConflict("Only PREPARING Orders can be marked READY.")
+            if order.status == Order.Status.PENDING:
+                _accept_order(order, payload.get("items", []), now, actor)
+                order.refresh_from_db()
+            elif order.status not in {Order.Status.ACCEPTED, Order.Status.PREPARING}:
+                raise OrderTransitionConflict("Only ACCEPTED or PREPARING Orders can be marked READY.")
             order.status = Order.Status.READY
             order.save(update_fields=["status", "updated_at"])
+            request_order_notification(order, "ORDER_READY")
         elif action == "complete":
             if order.status == Order.Status.COMPLETED:
                 return order, False
-            if order.status != Order.Status.READY:
-                raise OrderTransitionConflict("Only READY Orders can be completed.")
-            if order.payment_status != Order.PaymentStatus.PAID:
-                raise OrderTransitionConflict("An Order cannot be completed while UNPAID.")
+            if order.status == Order.Status.REJECTED:
+                raise OrderTransitionConflict("A cancelled or rejected Order cannot be completed.")
+            if order.status == Order.Status.PENDING:
+                _accept_order(order, payload.get("items", []), now, actor)
+                order.refresh_from_db()
             order.status = Order.Status.COMPLETED
             order.completed_at = now
             order.save(update_fields=["status", "completed_at", "updated_at"])
+            request_order_notification(order, "ORDER_COMPLETED")
 
         return order, False
 

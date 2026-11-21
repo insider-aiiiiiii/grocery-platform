@@ -157,10 +157,6 @@ class Order(models.Model):
                 name="orders_order_valid_fulfillment",
             ),
             models.CheckConstraint(
-                check=~Q(status="COMPLETED", payment_status="UNPAID"),
-                name="orders_order_completed_requires_paid",
-            ),
-            models.CheckConstraint(
                 check=Q(items_subtotal__gte=0),
                 name="orders_order_items_subtotal_non_negative",
             ),
@@ -214,10 +210,6 @@ class Order(models.Model):
         if self.customer_id and self.shop_id:
             if self.customer.shop_id != self.shop_id:
                 raise ValidationError({"customer": "Customer profile does not belong to the order's Shop."})
-
-        # Payment invariant check: COMPLETED orders MUST be PAID
-        if self.status == self.Status.COMPLETED and self.payment_status != self.PaymentStatus.PAID:
-            raise ValidationError({"payment_status": "An order cannot be completed while UNPAID."})
 
         # Ensure amounts are quantized to 2 decimal places
         if self.items_subtotal is not None:

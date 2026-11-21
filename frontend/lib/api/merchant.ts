@@ -175,7 +175,8 @@ export const merchantApi = {
     }
     return (await merchantClient.patch<Shop>("/shops/me/", payload)).data;
   },
-  orders: async () => (await merchantClient.get<MerchantOrder[]>("/orders/")).data,
+  orders: async (params?: { view?: string }) =>
+    (await merchantClient.get<MerchantOrder[]>("/orders/", { params })).data,
   order: async (id: number) => (await merchantClient.get<MerchantOrder>(`/orders/${id}/`)).data,
   orderAction: async (id: number, action: string, payload: Record<string, unknown> = {}) =>
     (await merchantClient.post(`/orders/${id}/${action}/`, payload)).data,

@@ -491,8 +491,8 @@ class CustomerModelTests(TestCase):
         self.assertEqual(recognize_customer(self.shop2, "9876543210").pk, c_shop2.pk)
 
     def test_global_identity_boundary_rejects_authenticated_user_number(self):
-        """Customer profile creation rejects WhatsApp numbers claimed by authenticated Users."""
-        # self.user1 is a Merchant with mobile_number="+919876543211"
+        """Customer profile creation rejects WhatsApp numbers of the shop's own merchant, but allows other merchants."""
+        # self.user1 is a Merchant with mobile_number="+919876543211" for self.shop1
         with self.assertRaises(ValidationError) as ctx:
             create_or_recognize_customer(
                 shop=self.shop1,
@@ -500,9 +500,17 @@ class CustomerModelTests(TestCase):
                 name="Imposter",
             )
         self.assertIn("whatsapp_number", ctx.exception.message_dict)
-        self.assertTrue(any("already registered as an authenticated user" in msg for msg in ctx.exception.message_dict["whatsapp_number"]))
+        self.assertTrue(any("cannot place customer orders in their own shop" in msg for msg in ctx.exception.message_dict["whatsapp_number"]))
 
-        # Also rejected on direct Customer.save() and clean()
+        # self.user2 (merchant for shop2) CAN shop at shop1
+        other_cust, created = create_or_recognize_customer(
+            shop=self.shop1,
+            whatsapp_number=self.user2.mobile_number,
+            name="Other Merchant Shopper",
+        )
+        self.assertEqual(other_cust.whatsapp_number, self.user2.mobile_number)
+
+        # Also rejected on direct Customer.save() and clean() for own shop
         direct_cust = Customer(
             shop=self.shop1,
             whatsapp_number=self.user1.mobile_number,
@@ -1479,22 +1487,26 @@ class CustomerDomainVerificationTests(TestCase):
 
     def test_user_identity_boundary_enforced_against_authenticated_users(self):
         """
-        A WhatsApp number claimed by an authenticated User (Merchant or Super Admin)
-        cannot be registered as a Customer profile.
+        A merchant's WhatsApp number cannot be registered as a Customer profile in their own shop,
+        but can be used to shop at other shops on the platform.
         """
-        # Merchant 1's number
+        # Merchant 1's number at Shop 1 -> rejected
         with self.assertRaises(ValidationError):
             create_or_recognize_customer(shop=self.shop1, whatsapp_number=self.user1.mobile_number)
 
-        # Super Admin's number
-        with self.assertRaises(ValidationError):
-            create_or_recognize_customer(shop=self.shop1, whatsapp_number=self.admin_user.mobile_number)
+        # Merchant 2's number at Shop 1 -> allowed!
+        c, _ = create_or_recognize_customer(shop=self.shop1, whatsapp_number=self.user2.mobile_number)
+        self.assertEqual(c.shop, self.shop1)
 
-        # Public API rejection
+        # Public API rejection on own shop
         api_url = f"/api/v1/shops/public/{self.shop1.public_slug}/customer/"
         res = self.client.post(api_url, {"whatsapp_number": self.user1.mobile_number}, format="json")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(res.data["code"], "INVALID_CUSTOMER_DATA")
+
+        # Public API allowed for other merchant
+        res2 = self.client.post(api_url, {"whatsapp_number": self.user2.mobile_number}, format="json")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
 
     def test_normalization_rules_reject_international_and_invalid_formats(self):
         """
